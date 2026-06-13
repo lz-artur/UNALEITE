@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Lock, Milk, UserRound } from 'lucide-react';
+import { Lock, Milk, UserRound, History, ShieldCheck, TrendingUp } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function AuthScreen() {
@@ -32,41 +32,61 @@ export default function AuthScreen() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(37,99,235,0.18),_transparent_30%),linear-gradient(135deg,#f6f8fc_0%,#eef5f1_42%,#fffaf1_100%)] flex items-center justify-center p-6">
-      <div className="w-full max-w-5xl grid lg:grid-cols-[1.1fr_0.9fr] bg-white/85 backdrop-blur rounded-[28px] shadow-[0_24px_90px_rgba(15,23,42,0.12)] overflow-hidden border border-white/70">
-        <section className="p-10 lg:p-14 bg-[linear-gradient(160deg,rgba(30,64,175,0.96)_0%,rgba(29,78,216,0.92)_38%,rgba(8,145,178,0.9)_100%)] text-white relative">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(37,99,235,0.18),_transparent_30%),linear-gradient(135deg,#f6f8fc_0%,#eef5f1_42%,#fffaf1_100%)] flex items-center justify-center">
+      <div className="w-full min-h-screen grid lg:grid-cols-[1.1fr_0.9fr] bg-white/85 backdrop-blur">
+        <section className="p-10 lg:p-20 bg-[linear-gradient(160deg,rgba(30,64,175,0.96)_0%,rgba(29,78,216,0.92)_38%,rgba(8,145,178,0.9)_100%)] text-white relative flex flex-col justify-center">
           <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_20%_20%,white_0,transparent_18%),radial-gradient(circle_at_80%_0%,white_0,transparent_22%),radial-gradient(circle_at_70%_70%,white_0,transparent_25%)]" />
-          <div className="relative space-y-8">
+          <div className="relative space-y-10">
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center">
                 <Milk className="w-8 h-8" />
               </div>
               <div>
                 <p className="text-sm uppercase tracking-[0.28em] text-blue-100/90">UNA Laticínios</p>
-                <h1 className="text-3xl lg:text-4xl font-black leading-tight">Sistema industrial conectado ao Supabase</h1>
+                <h1 className="text-3xl lg:text-4xl font-black leading-tight">Gestão Industrial Inteligente para Laticínios</h1>
               </div>
             </div>
 
             <p className="text-blue-50/95 text-lg leading-8 max-w-xl">
-              Faça login para liberar cadastros, recepção, análise laboratorial, produção, estoque e financeiro com dados reais.
+              Uma solução completa e integrada para gerenciar a captação, processos produtivos, análises de laboratório, estoque e controle financeiro de ponta a ponta.
             </p>
 
             <div className="grid sm:grid-cols-3 gap-4">
               {[
-                ['Rastreabilidade', 'Lotes, análises e consumo de produção no mesmo fluxo.'],
-                ['Qualidade', 'Bloqueio automático e memória de cálculo por lote.'],
-                ['Operação', 'Dashboard, estoque e financeiro preparados para uso real.'],
-              ].map(([title, description]) => (
-                <div key={title} className="rounded-2xl bg-white/10 border border-white/15 p-4">
-                  <p className="font-semibold text-white">{title}</p>
-                  <p className="text-sm text-blue-100/90 mt-2 leading-6">{description}</p>
+                {
+                  title: 'Rastreabilidade',
+                  description: 'Acompanhe lotes, consumo de insumos e análises no mesmo fluxo operacional.',
+                  icon: History,
+                },
+                {
+                  title: 'Qualidade',
+                  description: 'Bloqueio automático de não conformidades e histórico detalhado por lote.',
+                  icon: ShieldCheck,
+                },
+                {
+                  title: 'Operação',
+                  description: 'Dashboards, estoque e financeiro unificados para tomadas de decisão ágeis.',
+                  icon: TrendingUp,
+                },
+              ].map(({ title, description, icon: Icon }) => (
+                <div
+                  key={title}
+                  className="group relative rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 p-5 transition-all duration-300 hover:-translate-y-1.5 hover:bg-white/15 hover:border-white/35 hover:shadow-[0_12px_30px_rgba(30,64,175,0.2)]"
+                >
+                  <div className="flex flex-col items-start gap-3 mb-4">
+                    <div className="p-2 rounded-xl bg-white/10 group-hover:bg-white/20 transition-colors">
+                      <Icon className="w-5 h-5 text-white shrink-0" />
+                    </div>
+                    <p className="font-bold text-white tracking-wide text-base break-words w-full">{title}</p>
+                  </div>
+                  <p className="text-sm text-blue-100/90 leading-relaxed font-light">{description}</p>
                 </div>
               ))}
             </div>
           </div>
         </section>
 
-        <section className="p-8 lg:p-12 flex items-center">
+        <section className="p-8 lg:p-20 flex items-center">
           <div className="w-full max-w-md mx-auto">
             <div className="space-y-2 mb-8">
               <p className="text-sm font-semibold uppercase tracking-[0.22em] text-blue-700">
@@ -77,8 +97,8 @@ export default function AuthScreen() {
               </h2>
               <p className="text-slate-500 leading-7">
                 {mode === 'signin'
-                  ? 'Use seu e-mail e senha do Supabase Auth.'
-                  : 'Se ainda não houver usuário, crie um acesso com e-mail e senha.'}
+                  ? 'Digite seu e-mail e senha para acessar a plataforma.'
+                  : 'Preencha os campos abaixo para registrar sua nova conta de acesso.'}
               </p>
             </div>
 
@@ -135,7 +155,7 @@ export default function AuthScreen() {
 
             <div className="mt-6 pt-6 border-t border-slate-200 flex items-center justify-between gap-4 text-sm">
               <span className="text-slate-500">
-                {mode === 'signin' ? 'Ainda não existe usuário?' : 'Já tem acesso?'}
+                {mode === 'signin' ? 'Ainda não tem uma conta?' : 'Já possui cadastro?'}
               </span>
               <button
                 type="button"
@@ -146,7 +166,7 @@ export default function AuthScreen() {
                 }}
                 className="font-semibold text-blue-700 hover:text-blue-800"
               >
-                {mode === 'signin' ? 'Criar agora' : 'Voltar para login'}
+                {mode === 'signin' ? 'Cadastre-se' : 'Entrar'}
               </button>
             </div>
           </div>
