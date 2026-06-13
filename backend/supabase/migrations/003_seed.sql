@@ -1,0 +1,176 @@
+insert into units (id, name, symbol, unit_type, decimals) values
+  ('00000000-0000-0000-0000-000000000101', 'Litro', 'L', 'Volume', 2),
+  ('00000000-0000-0000-0000-000000000102', 'Mililitro', 'mL', 'Volume', 0),
+  ('00000000-0000-0000-0000-000000000103', 'Quilograma', 'kg', 'Peso', 3),
+  ('00000000-0000-0000-0000-000000000104', 'Grama', 'g', 'Peso', 0),
+  ('00000000-0000-0000-0000-000000000105', 'Unidade', 'un', 'Unidade', 0)
+on conflict do nothing;
+
+insert into stock_locations (id, name, stock_type, capacity, capacity_unit_id, ideal_temperature) values
+  ('00000000-0000-0000-0000-000000000201', 'Tanque 01', 'Leite Cru', 5000, '00000000-0000-0000-0000-000000000101', 4),
+  ('00000000-0000-0000-0000-000000000202', 'Almoxarifado Seco', 'Insumos', 2000, '00000000-0000-0000-0000-000000000103', null),
+  ('00000000-0000-0000-0000-000000000203', 'Camara Fria', 'Produto Acabado', 1000, '00000000-0000-0000-0000-000000000103', 4)
+on conflict do nothing;
+
+insert into transporters (id, name, document, driver_name, vehicle_plate, vehicle_type, capacity, phone) values
+  ('00000000-0000-0000-0000-000000000301', 'Transportadora Rapida Ltda', '12.345.678/0001-90', 'Carlos Motorista', 'ABC1D23', 'Caminhao tanque', 12000, '(34) 3333-1111'),
+  ('00000000-0000-0000-0000-000000000302', 'Logistica do Campo', '23.456.789/0001-01', 'Paulo Vieira', 'DEF4G56', 'Bau refrigerado', 8500, '(34) 3333-2222')
+on conflict do nothing;
+
+insert into routes (id, code, name, region, default_driver, default_transporter_id) values
+  ('00000000-0000-0000-0000-000000000401', 'R001', 'Rota 1 - Centro', 'Unai Centro', 'Carlos Motorista', '00000000-0000-0000-0000-000000000301'),
+  ('00000000-0000-0000-0000-000000000402', 'R002', 'Rota 2 - Rural Norte', 'Rural Norte', 'Jose Motorista', '00000000-0000-0000-0000-000000000301'),
+  ('00000000-0000-0000-0000-000000000403', 'R003', 'Rota 3 - Rural Sul', 'Rural Sul', 'Paulo Vieira', '00000000-0000-0000-0000-000000000302')
+on conflict do nothing;
+
+insert into producers (id, code, name, document, farm_name, route_id, phone, email, address, banking_data, notes) values
+  ('00000000-0000-0000-0000-000000000501', 'P001', 'Joao da Silva', '123.456.789-00', 'Fazenda Boa Esperanca', '00000000-0000-0000-0000-000000000401', '(34) 99999-0001', 'joao@email.com', 'Zona Rural - Unai/MG', 'Banco Cooperativo / PIX CPF', 'Produtor com historico estavel de qualidade.'),
+  ('00000000-0000-0000-0000-000000000502', 'P002', 'Maria Santos', '234.567.890-11', 'Sitio Santa Luzia', '00000000-0000-0000-0000-000000000401', '(34) 99999-0002', 'maria@email.com', 'Zona Rural - Unai/MG', 'Banco do Brasil / PIX celular', 'Maior volume medio por coleta.'),
+  ('00000000-0000-0000-0000-000000000503', 'P003', 'Pedro Oliveira', '345.678.901-22', 'Fazenda Serra Azul', '00000000-0000-0000-0000-000000000402', '(34) 99999-0003', 'pedro@email.com', 'Paracatu/MG', 'Sicoob / PIX CNPJ', 'Acompanhamento recorrente de qualidade.'),
+  ('00000000-0000-0000-0000-000000000504', 'P004', 'Ana Costa', '456.789.012-33', 'Fazenda Horizonte', '00000000-0000-0000-0000-000000000402', '(34) 99999-0004', 'ana@email.com', 'Unai/MG', 'Caixa / PIX email', 'Produtora com alta gordura e proteina.')
+on conflict do nothing;
+
+insert into milk_types (id, name, unit_id, max_usage_hours, ideal_reception_temperature, max_reception_temperature) values
+  ('00000000-0000-0000-0000-000000000601', 'Leite Cru Refrigerado', '00000000-0000-0000-0000-000000000101', 48, 4, 7)
+on conflict do nothing;
+
+insert into quality_parameters (id, name, data_type, unit_label, min_value, max_value, required, auto_block) values
+  ('00000000-0000-0000-0000-000000000701', 'Gordura %', 'Numero', '%', 3, 4.5, true, false),
+  ('00000000-0000-0000-0000-000000000702', 'Proteina %', 'Numero', '%', 2.9, 3.8, true, false),
+  ('00000000-0000-0000-0000-000000000703', 'Acidez', 'Numero', 'D', 14, 18, true, true),
+  ('00000000-0000-0000-0000-000000000704', 'CBT', 'Numero', 'UFC/mL', null, 100000, true, true),
+  ('00000000-0000-0000-0000-000000000705', 'CCS', 'Numero', 'cel/mL', null, 500000, true, false),
+  ('00000000-0000-0000-0000-000000000706', 'Crioscopia', 'Numero', 'H', -0.545, -0.520, true, true),
+  ('00000000-0000-0000-0000-000000000707', 'Densidade', 'Numero', 'g/mL', 1.028, 1.034, true, false),
+  ('00000000-0000-0000-0000-000000000708', 'Alizarol', 'Aprovado/Reprovado', null, null, null, true, true),
+  ('00000000-0000-0000-0000-000000000709', 'Antibiotico', 'Aprovado/Reprovado', null, null, null, true, true),
+  ('00000000-0000-0000-0000-000000000710', 'Temperatura', 'Numero', 'C', null, 7, true, false)
+on conflict do nothing;
+
+insert into milk_price_rules (id, name, start_date, end_date, base_price, fat_bonus, protein_bonus, acidity_penalty, cbt_penalty, ccs_penalty, temperature_penalty) values
+  ('00000000-0000-0000-0000-000000000801', 'Tabela Maio/2026', '2026-05-01', '2026-12-31', 2.30, 0.05, 0.03, -0.04, -0.05, -0.05, -0.03)
+on conflict do nothing;
+
+insert into suppliers (id, name, document, supplier_type, phone, email, address) values
+  ('00000000-0000-0000-0000-000000000901', 'Quimica Lactea Brasil', '55.111.222/0001-10', 'Insumos', '(31) 3333-1000', 'vendas@quimicalactea.com.br', 'Belo Horizonte/MG'),
+  ('00000000-0000-0000-0000-000000000902', 'Pack Minas Embalagens', '66.222.333/0001-20', 'Embalagens', '(34) 3222-8899', 'contato@packminas.com.br', 'Uberlandia/MG')
+on conflict do nothing;
+
+insert into supply_items (id, code, name, category, unit_id, minimum_stock, default_supplier_id, tracks_expiration, tracks_lot, default_cost, current_stock) values
+  ('00000000-0000-0000-0000-000000001001', 'I001', 'Coalho Liquido', 'Ingrediente', '00000000-0000-0000-0000-000000000101', 5, '00000000-0000-0000-0000-000000000901', true, true, 45, 15),
+  ('00000000-0000-0000-0000-000000001002', 'I002', 'Fermento Lactico', 'Ingrediente', '00000000-0000-0000-0000-000000000103', 3, '00000000-0000-0000-0000-000000000901', true, true, 65, 8),
+  ('00000000-0000-0000-0000-000000001003', 'I003', 'Sal Refinado', 'Ingrediente', '00000000-0000-0000-0000-000000000103', 50, '00000000-0000-0000-0000-000000000901', false, true, 2.5, 150),
+  ('00000000-0000-0000-0000-000000001004', 'I004', 'Embalagem 500g', 'Embalagem', '00000000-0000-0000-0000-000000000105', 200, '00000000-0000-0000-0000-000000000902', false, false, 0.8, 500),
+  ('00000000-0000-0000-0000-000000001005', 'I005', 'Fermento Iogurte', 'Ingrediente', '00000000-0000-0000-0000-000000000103', 5, '00000000-0000-0000-0000-000000000901', true, true, 120, 2)
+on conflict do nothing;
+
+insert into finished_products (id, code, name, category, unit_id, standard_weight, shelf_life_days, storage_temperature, theoretical_yield, production_line, sale_price) values
+  ('00000000-0000-0000-0000-000000001101', 'PA001', 'Queijo Minas Frescal', 'Queijo', '00000000-0000-0000-0000-000000000103', 1, 10, 4, 10, 'Queijos Frescos', 28.50),
+  ('00000000-0000-0000-0000-000000001102', 'PA002', 'Queijo Mussarela', 'Queijo', '00000000-0000-0000-0000-000000000103', 1, 30, 4, 10, 'Queijos', 32.00),
+  ('00000000-0000-0000-0000-000000001103', 'PA003', 'Iogurte Natural', 'Iogurte', '00000000-0000-0000-0000-000000000101', 1, 20, 4, 1.1, 'Fermentados', 8.50)
+on conflict do nothing;
+
+insert into product_specs (id, product_id, standard_milk_amount, ideal_fat, ideal_protein, theoretical_yield, expected_loss, production_notes) values
+  ('00000000-0000-0000-0000-000000001201', '00000000-0000-0000-0000-000000001101', 10, 3.2, 3.0, 10, 2, 'Cortar a massa apos coagulo firme e manter resfriamento rapido.'),
+  ('00000000-0000-0000-0000-000000001202', '00000000-0000-0000-0000-000000001103', 1.1, 3.0, 2.9, 1.1, 1, 'Adicionar fermento com leite estabilizado e respeitar curva de fermentacao.')
+on conflict do nothing;
+
+insert into product_spec_items (id, product_spec_id, supply_item_id, quantity, unit_id) values
+  ('00000000-0000-0000-0000-000000001301', '00000000-0000-0000-0000-000000001201', '00000000-0000-0000-0000-000000001001', 0.05, '00000000-0000-0000-0000-000000000101'),
+  ('00000000-0000-0000-0000-000000001302', '00000000-0000-0000-0000-000000001201', '00000000-0000-0000-0000-000000001002', 0.03, '00000000-0000-0000-0000-000000000103'),
+  ('00000000-0000-0000-0000-000000001303', '00000000-0000-0000-0000-000000001201', '00000000-0000-0000-0000-000000001003', 2, '00000000-0000-0000-0000-000000000103'),
+  ('00000000-0000-0000-0000-000000001304', '00000000-0000-0000-0000-000000001201', '00000000-0000-0000-0000-000000001004', 2, '00000000-0000-0000-0000-000000000105'),
+  ('00000000-0000-0000-0000-000000001305', '00000000-0000-0000-0000-000000001202', '00000000-0000-0000-0000-000000001005', 0.02, '00000000-0000-0000-0000-000000000103')
+on conflict do nothing;
+
+insert into block_reasons (id, name, target_type, auto_block) values
+  ('00000000-0000-0000-0000-000000001401', 'Alizarol reprovado', 'Leite', true),
+  ('00000000-0000-0000-0000-000000001402', 'Antibiotico detectado', 'Leite', true),
+  ('00000000-0000-0000-0000-000000001403', 'Acidez fora do padrão', 'Leite', true),
+  ('00000000-0000-0000-0000-000000001404', 'Lote vencido', 'Insumo', true),
+  ('00000000-0000-0000-0000-000000001405', 'Bloqueio manual pela qualidade', 'Geral', false)
+on conflict do nothing;
+
+insert into supply_lots (id, supply_item_id, supplier_id, supplier_lot_number, internal_lot_code, entry_date, manufacture_date, expiration_date, received_quantity, available_quantity, unit_cost, total_value, location_id, status) values
+  ('00000000-0000-0000-0000-000000001501', '00000000-0000-0000-0000-000000001001', '00000000-0000-0000-0000-000000000901', 'COAL-2026-01', 'LINS-001', '2026-05-02T08:00:00Z', '2026-04-20', '2026-12-31', 20, 15, 45, 900, '00000000-0000-0000-0000-000000000202', 'Parcialmente Utilizado'),
+  ('00000000-0000-0000-0000-000000001502', '00000000-0000-0000-0000-000000001002', '00000000-0000-0000-0000-000000000901', 'FERM-2026-02', 'LINS-002', '2026-05-04T08:00:00Z', '2026-04-30', '2026-08-15', 10, 8, 65, 650, '00000000-0000-0000-0000-000000000202', 'Disponivel'),
+  ('00000000-0000-0000-0000-000000001503', '00000000-0000-0000-0000-000000001005', '00000000-0000-0000-0000-000000000901', 'FERM-IOG-01', 'LINS-003', '2026-05-10T08:00:00Z', '2026-05-01', '2026-06-30', 5, 2, 120, 600, '00000000-0000-0000-0000-000000000202', 'Disponivel')
+on conflict do nothing;
+
+insert into milk_receptions (id, producer_id, route_id, transporter_id, milk_type_id, volume_liters, temperature, received_at) values
+  ('00000000-0000-0000-0000-000000001601', '00000000-0000-0000-0000-000000000501', '00000000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000601', 1500, 4.2, '2026-05-01T06:30:00Z'),
+  ('00000000-0000-0000-0000-000000001602', '00000000-0000-0000-0000-000000000502', '00000000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000601', 2000, 3.8, '2026-05-02T06:45:00Z'),
+  ('00000000-0000-0000-0000-000000001603', '00000000-0000-0000-0000-000000000503', '00000000-0000-0000-0000-000000000402', '00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000601', 1800, 4.5, '2026-05-05T07:00:00Z'),
+  ('00000000-0000-0000-0000-000000001604', '00000000-0000-0000-0000-000000000504', '00000000-0000-0000-0000-000000000402', '00000000-0000-0000-0000-000000000302', '00000000-0000-0000-0000-000000000601', 2200, 4.0, '2026-05-10T06:20:00Z'),
+  ('00000000-0000-0000-0000-000000001605', '00000000-0000-0000-0000-000000000501', '00000000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000601', 1600, 4.1, '2026-05-15T06:35:00Z')
+on conflict do nothing;
+
+insert into milk_lots (id, code, milk_reception_id, producer_id, route_id, transporter_id, milk_type_id, volume_liters, available_volume_liters, temperature, received_at, status, cost_per_liter, total_value) values
+  ('00000000-0000-0000-0000-000000001701', 'LT-2026-001', '00000000-0000-0000-0000-000000001601', '00000000-0000-0000-0000-000000000501', '00000000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000601', 1500, 500, 4.2, '2026-05-01T06:30:00Z', 'Parcialmente Utilizado', 2.35, 3525),
+  ('00000000-0000-0000-0000-000000001702', 'LT-2026-002', '00000000-0000-0000-0000-000000001602', '00000000-0000-0000-0000-000000000502', '00000000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000601', 2000, 500, 3.8, '2026-05-02T06:45:00Z', 'Parcialmente Utilizado', 2.40, 4800),
+  ('00000000-0000-0000-0000-000000001703', 'LT-2026-003', '00000000-0000-0000-0000-000000001603', '00000000-0000-0000-0000-000000000503', '00000000-0000-0000-0000-000000000402', '00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000601', 1800, 1800, 4.5, '2026-05-05T07:00:00Z', 'Bloqueado', 2.10, 3780),
+  ('00000000-0000-0000-0000-000000001704', 'LT-2026-004', '00000000-0000-0000-0000-000000001604', '00000000-0000-0000-0000-000000000504', '00000000-0000-0000-0000-000000000402', '00000000-0000-0000-0000-000000000302', '00000000-0000-0000-0000-000000000601', 2200, 1700, 4.0, '2026-05-10T06:20:00Z', 'Parcialmente Utilizado', 2.45, 5390),
+  ('00000000-0000-0000-0000-000000001705', 'LT-2026-005', '00000000-0000-0000-0000-000000001605', '00000000-0000-0000-0000-000000000501', '00000000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000601', 1600, 1600, 4.1, '2026-05-15T06:35:00Z', 'Aguardando Análise', null, null)
+on conflict do nothing;
+
+insert into milk_lot_analyses (id, milk_lot_id, analyzed_at, alizarol, acidez, crioscopia, densidade, antibioticos, gordura, proteina, cbt, ccs, temperatura, approved, observacoes) values
+  ('00000000-0000-0000-0000-000000001801', '00000000-0000-0000-0000-000000001701', '2026-05-01T08:00:00Z', 'Aprovado', 16, -0.530, 1.028, 'Não Detectado', 3.5, 3.2, 50000, 280000, 4.2, true, null),
+  ('00000000-0000-0000-0000-000000001802', '00000000-0000-0000-0000-000000001702', '2026-05-02T08:15:00Z', 'Aprovado', 15, -0.535, 1.029, 'Não Detectado', 3.7, 3.3, 45000, 320000, 3.8, true, null),
+  ('00000000-0000-0000-0000-000000001803', '00000000-0000-0000-0000-000000001703', '2026-05-05T08:30:00Z', 'Reprovado', 22, -0.520, 1.027, 'Detectado', 3.2, 3.0, 150000, 650000, 4.5, false, 'Alizarol reprovado e antibiotico detectado - lote bloqueado'),
+  ('00000000-0000-0000-0000-000000001804', '00000000-0000-0000-0000-000000001704', '2026-05-10T08:00:00Z', 'Aprovado', 17, -0.532, 1.030, 'Não Detectado', 3.6, 3.4, 40000, 250000, 4.0, true, null)
+on conflict do nothing;
+
+update milk_lots set latest_analysis_id = '00000000-0000-0000-0000-000000001801' where id = '00000000-0000-0000-0000-000000001701';
+update milk_lots set latest_analysis_id = '00000000-0000-0000-0000-000000001802' where id = '00000000-0000-0000-0000-000000001702';
+update milk_lots set latest_analysis_id = '00000000-0000-0000-0000-000000001803' where id = '00000000-0000-0000-0000-000000001703';
+update milk_lots set latest_analysis_id = '00000000-0000-0000-0000-000000001804' where id = '00000000-0000-0000-0000-000000001704';
+
+insert into milk_lot_pricing (id, milk_lot_id, producer_id, milk_price_rule_id, base_price, fat_bonus, protein_bonus, acidity_penalty, cbt_penalty, ccs_penalty, temperature_penalty, final_price, total_value) values
+  ('00000000-0000-0000-0000-000000001901', '00000000-0000-0000-0000-000000001701', '00000000-0000-0000-0000-000000000501', '00000000-0000-0000-0000-000000000801', 2.30, 0.05, 0.00, 0.00, 0.00, 0.00, 0.00, 2.35, 3525),
+  ('00000000-0000-0000-0000-000000001902', '00000000-0000-0000-0000-000000001702', '00000000-0000-0000-0000-000000000502', '00000000-0000-0000-0000-000000000801', 2.30, 0.05, 0.03, 0.00, 0.00, 0.00, 0.00, 2.38, 4760),
+  ('00000000-0000-0000-0000-000000001903', '00000000-0000-0000-0000-000000001703', '00000000-0000-0000-0000-000000000503', '00000000-0000-0000-0000-000000000801', 2.30, 0.00, 0.00, -0.04, -0.05, -0.05, 0.00, 2.16, 3888),
+  ('00000000-0000-0000-0000-000000001904', '00000000-0000-0000-0000-000000001704', '00000000-0000-0000-0000-000000000504', '00000000-0000-0000-0000-000000000801', 2.30, 0.05, 0.03, 0.00, 0.00, 0.00, 0.00, 2.38, 5236)
+on conflict do nothing;
+
+insert into production_orders (id, order_number, milk_lot_id, product_id, liters_planned, expected_yield, fat_adjustment_kg, actual_quantity_produced, actual_yield, status, started_at, finished_at) values
+  ('00000000-0000-0000-0000-000000002001', 'OP-2026-001', '00000000-0000-0000-0000-000000001701', '00000000-0000-0000-0000-000000001101', 1000, 100, 3.0, 98, 10.204, 'Finalizada', '2026-05-01T09:00:00Z', '2026-05-01T16:00:00Z'),
+  ('00000000-0000-0000-0000-000000002002', 'OP-2026-002', '00000000-0000-0000-0000-000000001702', '00000000-0000-0000-0000-000000001102', 1500, 150, 13.5, 145, 10.345, 'Finalizada', '2026-05-03T08:00:00Z', '2026-05-03T17:00:00Z'),
+  ('00000000-0000-0000-0000-000000002003', 'OP-2026-003', '00000000-0000-0000-0000-000000001704', '00000000-0000-0000-0000-000000001103', 500, 454.545, 3.0, null, null, 'Em Andamento', '2026-05-12T08:00:00Z', null)
+on conflict do nothing;
+
+insert into production_order_milk_consumptions (id, production_order_id, milk_lot_id, liters_consumed) values
+  ('00000000-0000-0000-0000-000000002101', '00000000-0000-0000-0000-000000002001', '00000000-0000-0000-0000-000000001701', 1000),
+  ('00000000-0000-0000-0000-000000002102', '00000000-0000-0000-0000-000000002002', '00000000-0000-0000-0000-000000001702', 1500),
+  ('00000000-0000-0000-0000-000000002103', '00000000-0000-0000-0000-000000002003', '00000000-0000-0000-0000-000000001704', 500)
+on conflict do nothing;
+
+insert into production_order_supply_consumptions (id, production_order_id, supply_lot_id, quantity_consumed) values
+  ('00000000-0000-0000-0000-000000002201', '00000000-0000-0000-0000-000000002001', '00000000-0000-0000-0000-000000001501', 0.5),
+  ('00000000-0000-0000-0000-000000002202', '00000000-0000-0000-0000-000000002001', '00000000-0000-0000-0000-000000001502', 0.3),
+  ('00000000-0000-0000-0000-000000002203', '00000000-0000-0000-0000-000000002002', '00000000-0000-0000-0000-000000001501', 0.75),
+  ('00000000-0000-0000-0000-000000002204', '00000000-0000-0000-0000-000000002002', '00000000-0000-0000-0000-000000001502', 0.5)
+on conflict do nothing;
+
+insert into finished_product_lots (id, product_id, production_order_id, lot_code, quantity_produced, available_quantity, produced_at, expiration_date, storage_location_id) values
+  ('00000000-0000-0000-0000-000000002301', '00000000-0000-0000-0000-000000001101', '00000000-0000-0000-0000-000000002001', 'PA-2026-001', 98, 78, '2026-05-01T16:00:00Z', '2026-05-11T16:00:00Z', '00000000-0000-0000-0000-000000000203'),
+  ('00000000-0000-0000-0000-000000002302', '00000000-0000-0000-0000-000000001102', '00000000-0000-0000-0000-000000002002', 'PA-2026-002', 145, 120, '2026-05-03T17:00:00Z', '2026-06-02T17:00:00Z', '00000000-0000-0000-0000-000000000203')
+on conflict do nothing;
+
+insert into financial_entries (id, entry_type, description, amount, due_date, payment_date, status, category, producer_id) values
+  ('00000000-0000-0000-0000-000000002401', 'Pagar', 'Fornecedor de Insumos - Coalho', 2250, '2026-05-20T00:00:00Z', null, 'Aberto', 'Insumos', null),
+  ('00000000-0000-0000-0000-000000002402', 'Pagar', 'Energia Elétrica - Abril/2026', 1850, '2026-05-10T00:00:00Z', '2026-05-08T00:00:00Z', 'Pago', 'Utilidades', null),
+  ('00000000-0000-0000-0000-000000002403', 'Pagar', 'Folha do leite - LT-2026-001', 3525, '2026-05-15T00:00:00Z', null, 'Aberto', 'Matéria Prima', '00000000-0000-0000-0000-000000000501'),
+  ('00000000-0000-0000-0000-000000002404', 'Receber', 'Venda - Supermercado Bom Preço', 570, '2026-05-15T00:00:00Z', '2026-05-12T00:00:00Z', 'Pago', 'Vendas', null),
+  ('00000000-0000-0000-0000-000000002405', 'Receber', 'Venda - Mercado da Vila', 800, '2026-05-25T00:00:00Z', null, 'Aberto', 'Vendas', null)
+on conflict do nothing;
+
+insert into lot_block_events (id, lot_type, lot_id, block_reason_id, reason_snapshot, automatic) values
+  ('00000000-0000-0000-0000-000000002501', 'Leite', '00000000-0000-0000-0000-000000001703', '00000000-0000-0000-0000-000000001402', 'Antibiotico detectado', true)
+on conflict do nothing;
+
+insert into stock_movements (id, movement_type, lot_type, lot_id, quantity, reference_table, reference_id) values
+  ('00000000-0000-0000-0000-000000002601', 'saida', 'Leite', '00000000-0000-0000-0000-000000001701', 1000, 'production_orders', '00000000-0000-0000-0000-000000002001'),
+  ('00000000-0000-0000-0000-000000002602', 'saida', 'Leite', '00000000-0000-0000-0000-000000001702', 1500, 'production_orders', '00000000-0000-0000-0000-000000002002'),
+  ('00000000-0000-0000-0000-000000002603', 'entrada', 'Produto Acabado', '00000000-0000-0000-0000-000000002301', 98, 'production_orders', '00000000-0000-0000-0000-000000002001'),
+  ('00000000-0000-0000-0000-000000002604', 'entrada', 'Produto Acabado', '00000000-0000-0000-0000-000000002302', 145, 'production_orders', '00000000-0000-0000-0000-000000002002')
+on conflict do nothing;
