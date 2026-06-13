@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Toaster } from 'sonner';
 import AuthScreen from './components/AuthScreen';
 import CadastrosBase from './components/CadastrosBase';
 import Comercial from './components/Comercial';
@@ -70,6 +71,7 @@ function AppContent() {
 
   return (
     <CadastrosProvider>
+      <Toaster richColors position="top-right" />
       <Layout currentPage={currentPage} onNavigate={setCurrentPage}>
         {renderPage()}
       </Layout>

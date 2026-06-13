@@ -32,7 +32,7 @@ export class SalesService {
     const order = payload.salesOrders.find((entry) => String(entry.id) === id);
 
     if (!order) {
-      throw new NotFoundException('Sales order not found');
+      throw new NotFoundException('Pedido de venda não encontrado');
     }
 
     return this.hydrateSalesOrder(order, payload);
@@ -71,7 +71,7 @@ export class SalesService {
     const itemsToInsert = payload.items.map((item) => {
       const product = products.find((entry) => String(entry.id) === item.productId);
       if (!product) {
-        throw new BadRequestException(`Finished product ${item.productId} not found`);
+        throw new BadRequestException(`Produto final ${item.productId} não encontrado`);
       }
 
       return {
@@ -109,14 +109,14 @@ export class SalesService {
     const salesOrder = bundle.salesOrders.find((entry) => String(entry.id) === salesOrderId);
 
     if (!salesOrder) {
-      throw new NotFoundException('Sales order not found');
+      throw new NotFoundException('Pedido de venda não encontrado');
     }
 
     if (
       String(salesOrder.status) === SALES_ORDER_STATUS.FULFILLED ||
       String(salesOrder.status) === SALES_ORDER_STATUS.CANCELED
     ) {
-      throw new BadRequestException('Sales order cannot be fulfilled');
+      throw new BadRequestException('O pedido de venda não pode ser atendido');
     }
 
     const salesOrderItems = bundle.salesOrderItems.filter(
@@ -134,25 +134,29 @@ export class SalesService {
       );
 
       if (!salesOrderItem) {
-        throw new BadRequestException(`Sales order item ${itemPayload.salesOrderItemId} not found`);
+        throw new BadRequestException(`Item do pedido de venda ${itemPayload.salesOrderItemId} não encontrado`);
       }
 
       const lot = lots.find((entry) => String(entry.id) === itemPayload.finishedProductLotId);
 
       if (!lot) {
-        throw new BadRequestException(`Finished product lot ${itemPayload.finishedProductLotId} not found`);
+        throw new BadRequestException(`Lote de produto acabado ${itemPayload.finishedProductLotId} não encontrado`);
       }
 
       if (String(lot.product_id) !== String(salesOrderItem.product_id)) {
-        throw new BadRequestException('Finished product lot does not match the sales order item');
+        throw new BadRequestException('O lote do produto acabado não corresponde ao item do pedido');
       }
 
-      if (new Date(String(lot.expiration_date)) < new Date()) {
-        throw new BadRequestException(`Lot ${String(lot.lot_code)} is expired`);
+      if (lot.expiration_date) {
+        const expDateStr = String(lot.expiration_date).split('T')[0];
+        const todayStr = new Date().toISOString().split('T')[0];
+        if (expDateStr < todayStr) {
+          throw new BadRequestException(`O lote ${String(lot.lot_code)} está vencido`);
+        }
       }
 
       if (itemPayload.quantity > Number(lot.available_quantity)) {
-        throw new BadRequestException(`Lot ${String(lot.lot_code)} does not have enough quantity available`);
+        throw new BadRequestException(`O lote ${String(lot.lot_code)} não tem quantidade disponível suficiente`);
       }
 
       const alreadyPlanned = itemProgress.get(itemPayload.salesOrderItemId) ?? 0;
@@ -161,7 +165,7 @@ export class SalesService {
 
       if (itemPayload.quantity > pendingQuantity) {
         throw new BadRequestException(
-          `Fulfilled quantity for item ${itemPayload.salesOrderItemId} exceeds pending quantity`,
+          `A quantidade atendida do item ${itemPayload.salesOrderItemId} excede a quantidade pendente`,
         );
       }
 
@@ -374,11 +378,11 @@ export class SalesService {
 
     const inactive = (data ?? []).find((entry) => !entry.active);
     if (inactive) {
-      throw new BadRequestException(`Finished product ${String(inactive.name)} is inactive`);
+      throw new BadRequestException(`O produto final ${String(inactive.name)} está inativo`);
     }
 
     if ((data ?? []).length !== uniqueIds.length) {
-      throw new BadRequestException('One or more finished products were not found');
+      throw new BadRequestException('Um ou mais produtos finais não foram encontrados');
     }
 
     return data ?? [];
@@ -396,7 +400,7 @@ export class SalesService {
     }
 
     if ((data ?? []).length !== uniqueIds.length) {
-      throw new BadRequestException('One or more finished product lots were not found');
+      throw new BadRequestException('Um ou mais lotes de produto acabado não foram encontrados');
     }
 
     return data ?? [];

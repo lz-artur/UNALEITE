@@ -128,7 +128,7 @@ export class ProductionService {
       const availableQuantity = Number(supplyLot.available_quantity);
       const isExpired =
         supplyLot.expiration_date != null &&
-        new Date(String(supplyLot.expiration_date)) < new Date();
+        (supplyLot.expiration_date && String(supplyLot.expiration_date).split('T')[0] < new Date().toISOString().split('T')[0]);
 
       if (
         ([SUPPLY_LOT_STATUS.BLOCKED, SUPPLY_LOT_STATUS.EXPIRED, SUPPLY_LOT_STATUS.USED] as string[]).includes(String(supplyLot.status)) ||
@@ -356,8 +356,12 @@ export class ProductionService {
           break;
         }
 
-        if (lot.expiration_date && new Date(String(lot.expiration_date)) < new Date()) {
-          continue;
+        if (lot.expiration_date) {
+          const expDateStr = String(lot.expiration_date).split('T')[0];
+          const todayStr = new Date().toISOString().split('T')[0];
+          if (expDateStr < todayStr) {
+            continue;
+          }
         }
 
         const available = Number(lot.available_quantity);

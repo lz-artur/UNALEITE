@@ -1,3 +1,6 @@
+import { supabase } from '../lib/supabase';
+import { toast } from 'sonner';
+
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || 'http://localhost:3001/api';
 const API_TOKEN_STORAGE_KEYS = ['una.api.token', 'supabase.auth.token', 'supabase.access_token'];
 
@@ -16,7 +19,28 @@ function getStoredToken() {
   for (const key of API_TOKEN_STORAGE_KEYS) {
     const value = window.localStorage.getItem(key);
     if (value) {
-      return value;
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed?.access_token) return parsed.access_token;
+      } catch {
+        return value;
+      }
+    }
+  }
+
+  // Also check dynamic supabase keys
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const key = window.localStorage.key(i);
+    if (key?.startsWith('sb-') && key?.endsWith('-auth-token')) {
+      const value = window.localStorage.getItem(key);
+      if (value) {
+        try {
+          const parsed = JSON.parse(value);
+          if (parsed?.access_token) return parsed.access_token;
+        } catch {
+          // ignore
+        }
+      }
     }
   }
 
@@ -24,7 +48,12 @@ function getStoredToken() {
 }
 
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = getStoredToken();
+  let token = getStoredToken();
+  if (!token) {
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token;
+  }
+  
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
 
@@ -50,7 +79,23 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `API request failed with ${response.status}`);
+    let errorMessage = `API request failed with ${response.status}`;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.message) {
+         errorMessage = Array.isArray(parsed.message) ? parsed.message.join(', ') : parsed.message;
+      } else if (parsed.error && typeof parsed.error === 'object' && parsed.error.message) {
+         errorMessage = parsed.error.message;
+      } else if (parsed.error) {
+         errorMessage = parsed.error;
+      } else {
+         errorMessage = text;
+      }
+    } catch {
+      errorMessage = text || errorMessage;
+    }
+    toast.error(errorMessage);
+    throw new Error(errorMessage);
   }
 
   return response.json() as Promise<T>;

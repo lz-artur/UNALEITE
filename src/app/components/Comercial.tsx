@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { format } from 'date-fns';
 import { Loader2, Plus, ShoppingBag, Users } from 'lucide-react';
+import { toast } from 'sonner';
 import { useCadastros } from '../context/CadastrosContext';
 import {
   createClient,
@@ -115,6 +116,14 @@ export default function Comercial() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    if (errorMessage) {
+      toast.error(errorMessage);
+      const timer = setTimeout(() => setErrorMessage(null), 100);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMessage]);
 
   const activeClients = useMemo(
     () => clients.filter((client) => client.active),
@@ -397,12 +406,6 @@ export default function Comercial() {
           </button>
         </div>
       </div>
-
-      {errorMessage ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-          {errorMessage}
-        </div>
-      ) : null}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <SummaryCard title="Clientes ativos" value={clients.filter((client) => client.active).length} icon={Users} />

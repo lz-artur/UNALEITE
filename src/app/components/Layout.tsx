@@ -103,7 +103,7 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
         </nav>
       </aside>
 
-      <main className={`pt-16 transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
+      <main className={`pt-16 transition-all duration-300 overflow-x-hidden ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
         <div className="p-6">{children}</div>
       </main>
     </div>
