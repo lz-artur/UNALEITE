@@ -10,6 +10,7 @@ import FolhaLeite from './components/FolhaLeite';
 import AnaliseLaboral from './components/AnaliseLaboral';
 import Layout from './components/Layout';
 import LotesEstoqueDetalhado from './components/LotesEstoqueDetalhado';
+import DreGerencial from './components/DreGerencial';
 import Placeholder from './components/Placeholder';
 import Producao from './components/Producao';
 import RelatoriosOperacionais from './components/RelatoriosOperacionais';
@@ -56,12 +57,7 @@ function AppContent() {
       case 'folha-leite':
         return <FolhaLeite />;
       case 'dre':
-        return (
-          <Placeholder
-            title="DRE Gerencial"
-            description="Demonstrativo de resultado do exercicio"
-          />
-        );
+        return <DreGerencial />;
       case 'cadastros':
         return <CadastrosBase />;
       default:

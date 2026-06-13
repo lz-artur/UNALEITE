@@ -324,6 +324,27 @@ export interface PricingReportResponse {
   }>;
 }
 
+export interface DreReportResponse {
+  period: {
+    startDate: string | null;
+    endDate: string | null;
+  };
+  basis: 'cash' | 'accrual';
+  totals: {
+    totalRevenue: number;
+    totalExpense: number;
+    netIncome: number;
+  };
+  revenues: Array<{
+    category: string;
+    amount: number;
+  }>;
+  expenses: Array<{
+    category: string;
+    amount: number;
+  }>;
+}
+
 function mapMilkLot(row: any): LoteLeite {
   return {
     id: row.id,
@@ -766,6 +787,19 @@ export async function loadPricingReport(filters?: {
   if (filters?.status) params.set('status', filters.status);
   const query = params.toString();
   return apiRequest<PricingReportResponse>(`/reports/pricing${query ? `?${query}` : ''}`);
+}
+
+export async function loadDreReport(filters?: {
+  startDate?: string;
+  endDate?: string;
+  basis?: 'cash' | 'accrual';
+}) {
+  const params = new URLSearchParams();
+  if (filters?.startDate) params.set('startDate', filters.startDate);
+  if (filters?.endDate) params.set('endDate', filters.endDate);
+  if (filters?.basis) params.set('basis', filters.basis);
+  const query = params.toString();
+  return apiRequest<DreReportResponse>(`/reports/dre${query ? `?${query}` : ''}`);
 }
 
 export async function loadPurchases(filters?: PurchaseFilters) {

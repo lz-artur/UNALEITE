@@ -20,4 +20,8 @@ export class ListReportsDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsString()
+  basis?: 'cash' | 'accrual';
 }

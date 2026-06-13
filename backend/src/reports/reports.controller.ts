@@ -25,4 +25,9 @@ export class ReportsController {
   getPricingReport(@Query() query: ListReportsDto) {
     return this.reportsService.getPricingReport(query);
   }
+
+  @Get('dre')
+  getDreReport(@Query() query: ListReportsDto) {
+    return this.reportsService.getDreReport(query);
+  }
 }

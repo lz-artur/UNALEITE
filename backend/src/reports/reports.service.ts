@@ -166,6 +166,53 @@ export class ReportsService {
     };
   }
 
+  async getDreReport(filters: ListReportsDto = {}) {
+    const basis = filters.basis || 'accrual';
+    const entries = await this.selectMany('financial_entries');
+
+    const rows = entries.filter((entry) => {
+      const dateField = basis === 'cash' ? String(entry.payment_date || entry.due_date) : String(entry.due_date);
+      if (!this.matchesPeriod(dateField, filters)) {
+        return false;
+      }
+      if (basis === 'cash' && String(entry.status) !== 'Pago') {
+        return false;
+      }
+      return true;
+    });
+
+    const revenueCategories = new Map<string, number>();
+    const expenseCategories = new Map<string, number>();
+
+    let totalRevenue = 0;
+    let totalExpense = 0;
+
+    for (const row of rows) {
+      const category = String(row.category || 'Sem Categoria');
+      const amount = Number(row.amount || 0);
+
+      if (row.entry_type === 'Receber') {
+        totalRevenue += amount;
+        revenueCategories.set(category, (revenueCategories.get(category) || 0) + amount);
+      } else if (row.entry_type === 'Pagar') {
+        totalExpense += amount;
+        expenseCategories.set(category, (expenseCategories.get(category) || 0) + amount);
+      }
+    }
+
+    return {
+      period: this.period(filters),
+      basis,
+      totals: {
+        totalRevenue,
+        totalExpense,
+        netIncome: totalRevenue - totalExpense,
+      },
+      revenues: Array.from(revenueCategories.entries()).map(([category, amount]) => ({ category, amount })),
+      expenses: Array.from(expenseCategories.entries()).map(([category, amount]) => ({ category, amount })),
+    };
+  }
+
   private async selectMany(table: string) {
     const { data, error } = await this.supabaseService.admin.from(table).select('*');
 
