@@ -3,7 +3,7 @@ import { Loader2, Plus, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import type { LoteLeite } from '../data/mockData';
 import { useCadastros } from '../context/CadastrosContext';
-import { createMilkReception, loadMilkLots } from '../services/operationsApi';
+import { createMilkReception, loadMilkLots, loadMilkLotDetail, updateMilkReception } from '../services/operationsApi';
 
 function getErrorMessage(error: unknown) {
  if (error instanceof Error) {
@@ -20,11 +20,16 @@ const emptyFormState = {
  volumeLiters: '',
  temperatura: '',
  receivedAt: '',
+ carPlate: '',
+ driverName: '',
+ analystName: '',
+ observations: '',
 };
 
 export default function RecepcaoLeite() {
  const [searchTerm, setSearchTerm] = useState('');
  const [showModal, setShowModal] = useState(false);
+ const [editingLoteId, setEditingLoteId] = useState<string | null>(null);
  const [lotes, setLotes] = useState<LoteLeite[]>([]);
  const [loading, setLoading] = useState(true);
  const [saving, setSaving] = useState(false);
@@ -73,6 +78,7 @@ export default function RecepcaoLeite() {
  const resetForm = () => {
  setFormState(emptyFormState);
  setFormError(null);
+ setEditingLoteId(null);
  };
 
  const closeModal = () => {
@@ -82,6 +88,32 @@ export default function RecepcaoLeite() {
 
  resetForm();
  setShowModal(false);
+ };
+
+ const handleRowClick = async (lote: LoteLeite) => {
+ setLoading(true);
+ setErrorMessage(null);
+ try {
+ const detail = await loadMilkLotDetail(lote.id);
+ setFormState({
+ producerId: lote.produtorId,
+ routeId: lote.rotaId,
+ transporterId: lote.transportadorId,
+ volumeLiters: lote.volumeLitros.toString(),
+ temperatura: lote.temperatura.toString(),
+ receivedAt: format(lote.dataHoraRecebimento, "yyyy-MM-dd'T'HH:mm"),
+ carPlate: detail.reception?.carPlate || '',
+ driverName: detail.reception?.driverName || '',
+ analystName: detail.reception?.analystName || '',
+ observations: detail.reception?.observations || '',
+ });
+ setEditingLoteId(lote.id);
+ setShowModal(true);
+ } catch (error) {
+ setErrorMessage(getErrorMessage(error));
+ } finally {
+ setLoading(false);
+ }
  };
 
  const handleSubmit = async () => {
@@ -104,6 +136,23 @@ export default function RecepcaoLeite() {
  setFormError(null);
 
  try {
+ if (editingLoteId) {
+ const updated = await updateMilkReception(editingLoteId, {
+ producerId: formState.producerId,
+ routeId: formState.routeId,
+ transporterId: formState.transporterId,
+ volumeLiters,
+ temperatura,
+ receivedAt: new Date(nextReceivedAt).toISOString(),
+ carPlate: formState.carPlate || undefined,
+ driverName: formState.driverName || undefined,
+ analystName: formState.analystName || undefined,
+ observations: formState.observations || undefined,
+ });
+ setLotes((current) =>
+ current.map((lote) => (lote.id === editingLoteId ? updated : lote))
+ );
+ } else {
  const created = await createMilkReception({
  producerId: formState.producerId,
  routeId: formState.routeId,
@@ -111,8 +160,13 @@ export default function RecepcaoLeite() {
  volumeLiters,
  temperatura,
  receivedAt: new Date(nextReceivedAt).toISOString(),
+ carPlate: formState.carPlate || undefined,
+ driverName: formState.driverName || undefined,
+ analystName: formState.analystName || undefined,
+ observations: formState.observations || undefined,
  });
  setLotes((current) => [created, ...current]);
+ }
  resetForm();
  setShowModal(false);
  } catch (error) {
@@ -200,7 +254,11 @@ export default function RecepcaoLeite() {
  const rota = getRouteById(lote.rotaId);
 
  return (
- <tr key={lote.id} className="hover:bg-gray-50">
+ <tr 
+ key={lote.id} 
+ className="hover:bg-gray-50 cursor-pointer"
+ onClick={() => void handleRowClick(lote)}
+ >
  <td className="px-6 py-4">
  <div className="font-medium text-gray-900">{lote.codigo}</div>
  </td>
@@ -233,7 +291,9 @@ export default function RecepcaoLeite() {
  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
  <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white">
  <div className="border-b border-gray-200 p-6">
- <h3 className="text-xl font-bold text-gray-900">Nova recepcao de leite</h3>
+ <h3 className="text-xl font-bold text-gray-900">
+ {editingLoteId ? 'Detalhes da recepcao de leite' : 'Nova recepcao de leite'}
+ </h3>
  </div>
  <div className="space-y-4 p-6">
  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -334,6 +394,60 @@ export default function RecepcaoLeite() {
  </div>
  </div>
 
+ <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+ <div>
+ <label className="mb-1 block text-sm font-medium text-gray-700">Placa do Carro</label>
+ <input
+ type="text"
+ value={formState.carPlate}
+ onChange={(event) =>
+ setFormState((current) => ({ ...current, carPlate: event.target.value }))
+ }
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+ placeholder="Ex: ABC-1234"
+ />
+ </div>
+ <div>
+ <label className="mb-1 block text-sm font-medium text-gray-700">Motorista</label>
+ <input
+ type="text"
+ value={formState.driverName}
+ onChange={(event) =>
+ setFormState((current) => ({ ...current, driverName: event.target.value }))
+ }
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+ placeholder="Nome do motorista"
+ />
+ </div>
+ </div>
+
+ <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+ <div>
+ <label className="mb-1 block text-sm font-medium text-gray-700">Analista</label>
+ <input
+ type="text"
+ value={formState.analystName}
+ onChange={(event) =>
+ setFormState((current) => ({ ...current, analystName: event.target.value }))
+ }
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+ placeholder="Nome do analista responsável"
+ />
+ </div>
+ <div>
+ <label className="mb-1 block text-sm font-medium text-gray-700">Observações</label>
+ <input
+ type="text"
+ value={formState.observations}
+ onChange={(event) =>
+ setFormState((current) => ({ ...current, observations: event.target.value }))
+ }
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+ placeholder="Anotações adicionais"
+ />
+ </div>
+ </div>
+
  <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
  <p className="text-sm text-blue-800">
  <strong>Importante:</strong> a recepcao cria um lote real com status "Aguardando Analise".
@@ -359,13 +473,13 @@ export default function RecepcaoLeite() {
  disabled={saving}
  className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
  >
- {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
- Registrar recepcao
- </button>
- </div>
- </div>
- </div>
- ) : null}
- </div>
- );
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {editingLoteId ? 'Salvar alteracoes' : 'Registrar recepcao'}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null}
+  </div>
+  );
 }

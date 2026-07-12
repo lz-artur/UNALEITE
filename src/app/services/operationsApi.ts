@@ -215,6 +215,12 @@ export interface MilkPayrollProducerDetail {
 
 export interface MilkLotDetail {
   lot: LoteLeite;
+  reception?: {
+    carPlate?: string;
+    driverName?: string;
+    analystName?: string;
+    observations?: string;
+  };
   analysis?: AnaliseLaboral;
   pricing?: PrecificacaoLeite;
   blockEvents: Array<{
@@ -607,8 +613,30 @@ export async function createMilkReception(payload: {
   volumeLiters: number;
   temperatura: number;
   receivedAt: string;
+  carPlate?: string;
+  driverName?: string;
+  analystName?: string;
+  observations?: string;
 }) {
   return apiRequest<{ lot: any }>('/milk-receptions', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }).then((result) => mapMilkLot(result.lot));
+}
+
+export async function updateMilkReception(milkLotId: string, payload: Partial<{
+  producerId: string;
+  routeId: string;
+  transporterId: string;
+  volumeLiters: number;
+  temperatura: number;
+  receivedAt: string;
+  carPlate: string;
+  driverName: string;
+  analystName: string;
+  observations: string;
+}>) {
+  return apiRequest<{ lot: any }>(`/milk-lots/${milkLotId}/reception`, {
     method: 'POST',
     body: JSON.stringify(payload),
   }).then((result) => mapMilkLot(result.lot));
@@ -630,6 +658,12 @@ export async function loadMilkLotDetail(milkLotId: string): Promise<MilkLotDetai
 
   return {
     lot: mapMilkLot(result.lot),
+    reception: result.reception ? {
+      carPlate: result.reception.car_plate ?? undefined,
+      driverName: result.reception.driver_name ?? undefined,
+      analystName: result.reception.analyst_name ?? undefined,
+      observations: result.reception.observations ?? undefined,
+    } : undefined,
     analysis: result.analysis ? mapAnalysis(result.analysis) : undefined,
     pricing: result.pricing ? mapPricing(result.pricing) : undefined,
     blockEvents: (result.blockEvents ?? []).map((event: any) => ({

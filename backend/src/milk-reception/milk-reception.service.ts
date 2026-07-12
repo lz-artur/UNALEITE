@@ -7,6 +7,7 @@ import { MILK_LOT_STATUS } from '../common/constants/domain';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { SupabaseService } from '../supabase/supabase.service';
 import { CreateMilkReceptionDto } from './dto/create-milk-reception.dto';
+import { UpdateMilkReceptionDto } from './dto/update-milk-reception.dto';
 
 @Injectable()
 export class MilkReceptionService {
@@ -41,6 +42,10 @@ export class MilkReceptionService {
       volume_liters: payload.volumeLiters,
       temperature: payload.temperatura,
       received_at: payload.receivedAt,
+      car_plate: payload.carPlate,
+      driver_name: payload.driverName,
+      analyst_name: payload.analystName,
+      observations: payload.observations,
       created_by: user?.id ?? null,
       updated_by: user?.id ?? null,
     };
@@ -85,6 +90,83 @@ export class MilkReceptionService {
     };
   }
 
+  async updateReception(milkLotId: string, payload: UpdateMilkReceptionDto, user?: AuthenticatedUser) {
+    const { data: lotData, error: lotFindError } = await this.supabaseService.admin
+      .from('milk_lots')
+      .select('id, milk_reception_id')
+      .eq('id', milkLotId)
+      .maybeSingle();
+
+    if (lotFindError) {
+      throw new BadRequestException(lotFindError.message);
+    }
+
+    if (!lotData) {
+      throw new NotFoundException('Milk lot not found');
+    }
+
+    if (payload.producerId) await this.ensureActive('producers', payload.producerId);
+    if (payload.routeId) await this.ensureActive('routes', payload.routeId);
+    if (payload.transporterId) await this.ensureActive('transporters', payload.transporterId);
+
+    const updateReceptionPayload: any = {
+      updated_by: user?.id ?? null,
+      updated_at: new Date().toISOString(),
+    };
+    
+    if (payload.producerId) updateReceptionPayload.producer_id = payload.producerId;
+    if (payload.routeId) updateReceptionPayload.route_id = payload.routeId;
+    if (payload.transporterId) updateReceptionPayload.transporter_id = payload.transporterId;
+    if (payload.volumeLiters !== undefined) updateReceptionPayload.volume_liters = payload.volumeLiters;
+    if (payload.temperatura !== undefined) updateReceptionPayload.temperature = payload.temperatura;
+    if (payload.receivedAt) updateReceptionPayload.received_at = payload.receivedAt;
+    if (payload.carPlate !== undefined) updateReceptionPayload.car_plate = payload.carPlate;
+    if (payload.driverName !== undefined) updateReceptionPayload.driver_name = payload.driverName;
+    if (payload.analystName !== undefined) updateReceptionPayload.analyst_name = payload.analystName;
+    if (payload.observations !== undefined) updateReceptionPayload.observations = payload.observations;
+
+    const { data: reception, error: receptionError } = await this.supabaseService.admin
+      .from('milk_receptions')
+      .update(updateReceptionPayload)
+      .eq('id', lotData.milk_reception_id)
+      .select('*')
+      .single();
+
+    if (receptionError) {
+      throw new BadRequestException(receptionError.message);
+    }
+
+    const updateLotPayload: any = {
+      updated_by: user?.id ?? null,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (payload.producerId) updateLotPayload.producer_id = payload.producerId;
+    if (payload.routeId) updateLotPayload.route_id = payload.routeId;
+    if (payload.transporterId) updateLotPayload.transporter_id = payload.transporterId;
+    if (payload.volumeLiters !== undefined) updateLotPayload.volume_liters = payload.volumeLiters;
+    // Note: updating available_volume_liters correctly based on the diff could be complex, 
+    // assuming here it's edited only initially before partial usages, or we don't update available_volume_liters implicitly unless logic requires it.
+    if (payload.temperatura !== undefined) updateLotPayload.temperature = payload.temperatura;
+    if (payload.receivedAt) updateLotPayload.received_at = payload.receivedAt;
+
+    const { data: lot, error: lotError } = await this.supabaseService.admin
+      .from('milk_lots')
+      .update(updateLotPayload)
+      .eq('id', milkLotId)
+      .select('*')
+      .single();
+
+    if (lotError) {
+      throw new BadRequestException(lotError.message);
+    }
+
+    return {
+      reception,
+      lot,
+    };
+  }
+
   async listMilkLots() {
     const { data, error } = await this.supabaseService.admin
       .from('milk_lots')
@@ -113,7 +195,7 @@ export class MilkReceptionService {
       throw new NotFoundException('Milk lot not found');
     }
 
-    const [analysis, pricing, blockEvents, milkConsumptions] = await Promise.all([
+    const [analysis, pricing, blockEvents, milkConsumptions, receptionData] = await Promise.all([
       this.supabaseService.admin
         .from('milk_lot_analyses')
         .select('*')
@@ -138,6 +220,11 @@ export class MilkReceptionService {
         .select('*')
         .eq('milk_lot_id', id)
         .order('created_at', { ascending: false }),
+      this.supabaseService.admin
+        .from('milk_receptions')
+        .select('*')
+        .eq('id', lot.milk_reception_id)
+        .maybeSingle(),
     ]);
 
     const productionOrderIds =
@@ -171,6 +258,7 @@ export class MilkReceptionService {
 
     return {
       lot,
+      reception: receptionData.data,
       analysis: analysis.data,
       pricing: pricing.data,
       blockEvents: blockEvents.data ?? [],

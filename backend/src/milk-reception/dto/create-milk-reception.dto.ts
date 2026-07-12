@@ -23,4 +23,20 @@ export class CreateMilkReceptionDto {
 
   @IsDateString()
   receivedAt!: string;
+
+  @IsOptional()
+  @IsString()
+  carPlate?: string;
+
+  @IsOptional()
+  @IsString()
+  driverName?: string;
+
+  @IsOptional()
+  @IsString()
+  analystName?: string;
+
+  @IsOptional()
+  @IsString()
+  observations?: string;
 }
