@@ -504,18 +504,29 @@ export async function loadCadastrosState() {
   }, () => initialCadastrosState);
 }
 
+const isFakeId = (id: string) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
 export async function saveCadastroRecord<TEntity extends CadastroEntity>(
   entity: TEntity,
   record: CadastrosState[TEntity][number],
 ) {
   const endpoint = entityEndpointMap[entity];
   const payload = entitySerializers[entity](record);
-  const method = payload.id ? 'PATCH' : 'POST';
-  const path = payload.id ? `/cadastros/${endpoint}/${String(payload.id)}` : `/cadastros/${endpoint}`;
-  return apiRequest(path, {
+  const isNew = !payload.id || isFakeId(String(payload.id));
+  
+  if (isNew) {
+    delete payload.id;
+  }
+  
+  const method = isNew ? 'POST' : 'PATCH';
+  const path = isNew ? `/cadastros/${endpoint}` : `/cadastros/${endpoint}/${String(payload.id)}`;
+  
+  const response = await apiRequest<any>(path, {
     method,
     body: JSON.stringify(payload),
   });
+  
+  return entityMappers[entity]([response])[0] as CadastrosState[TEntity][number];
 }
 
 export async function toggleCadastroRecord(entity: CadastroEntity, id: string) {
@@ -526,28 +537,55 @@ export async function toggleCadastroRecord(entity: CadastroEntity, id: string) {
 }
 
 export async function saveRouteRecord(record: RouteRecord, producerIds: string[]) {
-  return apiRequest(`/cadastros/${entityEndpointMap.routes}${record.id ? `/${record.id}` : ''}`, {
-    method: record.id ? 'PATCH' : 'POST',
+  const isNew = !record.id || isFakeId(String(record.id));
+  const payload = serializeRoute(record);
+  
+  if (isNew) {
+    delete payload.id;
+  }
+  
+  const response = await apiRequest<any>(`/cadastros/${entityEndpointMap.routes}${isNew ? '' : `/${record.id}`}`, {
+    method: isNew ? 'POST' : 'PATCH',
     body: JSON.stringify({
-      ...serializeRoute(record),
+      ...payload,
       producer_ids: producerIds,
     }),
   });
+  
+  return entityMappers.routes([response])[0];
 }
 
 export async function saveSupplierRecord(record: SupplierRecord, suppliedItemIds: string[]) {
-  return apiRequest(`/cadastros/${entityEndpointMap.suppliers}${record.id ? `/${record.id}` : ''}`, {
-    method: record.id ? 'PATCH' : 'POST',
+  const isNew = !record.id || isFakeId(String(record.id));
+  const payload = serializeSupplier(record);
+  
+  if (isNew) {
+    delete payload.id;
+  }
+  
+  const response = await apiRequest<any>(`/cadastros/${entityEndpointMap.suppliers}${isNew ? '' : `/${record.id}`}`, {
+    method: isNew ? 'POST' : 'PATCH',
     body: JSON.stringify({
-      ...serializeSupplier(record),
+      ...payload,
       supplied_item_ids: suppliedItemIds,
     }),
   });
+  
+  return entityMappers.suppliers([response])[0];
 }
 
 export async function saveProductSpecRecord(record: ProductSpecRecord) {
-  return apiRequest(`/cadastros/${entityEndpointMap.productSpecs}${record.id ? `/${record.id}` : ''}`, {
-    method: record.id ? 'PATCH' : 'POST',
-    body: JSON.stringify(serializeProductSpec(record)),
+  const isNew = !record.id || isFakeId(String(record.id));
+  const payload = serializeProductSpec(record);
+  
+  if (isNew) {
+    delete payload.id;
+  }
+  
+  const response = await apiRequest<any>(`/cadastros/${entityEndpointMap.productSpecs}${isNew ? '' : `/${record.id}`}`, {
+    method: isNew ? 'POST' : 'PATCH',
+    body: JSON.stringify(payload),
   });
+  
+  return entityMappers.productSpecs([response])[0];
 }

@@ -126,15 +126,32 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const handleSaveResult = <K extends keyof CadastrosState, T extends { id: string }>(
+    entityKey: K,
+    tempId: string,
+    promise: Promise<T>,
+  ) => {
+    promise
+      .then((savedRecord) => {
+        setState((current) => ({
+          ...current,
+          [entityKey]: (current[entityKey] as T[]).map((item) =>
+            item.id === tempId ? savedRecord : item,
+          ),
+        }));
+      })
+      .catch((error) => {
+        console.error(`Failed to persist ${entityKey}`, error);
+      });
+  };
+
   const saveProducer = (record: ProducerRecord) => {
     setState((current) => ({
       ...current,
       producers: upsertRecord(current.producers, record),
     }));
 
-    void saveCadastroRecord('producers', record).catch((error) => {
-      console.error('Failed to persist producer', error);
-    });
+    handleSaveResult('producers', record.id, saveCadastroRecord('producers', record) as Promise<ProducerRecord>);
   };
 
   const saveRoute = ({ route, producerIds }: SaveRoutePayload) => {
@@ -165,9 +182,19 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       };
     });
 
-    void saveRouteRecord(route, producerIds).catch((error) => {
-      console.error('Failed to persist route', error);
-    });
+    saveRouteRecord(route, producerIds)
+      .then((savedRoute) => {
+        setState((current) => ({
+          ...current,
+          routes: current.routes.map((r) => (r.id === route.id ? savedRoute : r)),
+          producers: current.producers.map((producer) =>
+            producer.routeId === route.id ? { ...producer, routeId: savedRoute.id } : producer,
+          ),
+        }));
+      })
+      .catch((error) => {
+        console.error('Failed to persist route', error);
+      });
   };
 
   const saveTransporter = (record: TransporterRecord) => {
@@ -176,9 +203,7 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       transporters: upsertRecord(current.transporters, record),
     }));
 
-    void saveCadastroRecord('transporters', record).catch((error) => {
-      console.error('Failed to persist transporter', error);
-    });
+    handleSaveResult('transporters', record.id, saveCadastroRecord('transporters', record) as Promise<TransporterRecord>);
   };
 
   const saveMilkType = (record: MilkTypeRecord) => {
@@ -187,9 +212,7 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       milkTypes: upsertRecord(current.milkTypes, record),
     }));
 
-    void saveCadastroRecord('milkTypes', record).catch((error) => {
-      console.error('Failed to persist milk type', error);
-    });
+    handleSaveResult('milkTypes', record.id, saveCadastroRecord('milkTypes', record) as Promise<MilkTypeRecord>);
   };
 
   const saveQualityParameter = (record: QualityParameterRecord) => {
@@ -198,9 +221,7 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       qualityParameters: upsertRecord(current.qualityParameters, record),
     }));
 
-    void saveCadastroRecord('qualityParameters', record).catch((error) => {
-      console.error('Failed to persist quality parameter', error);
-    });
+    handleSaveResult('qualityParameters', record.id, saveCadastroRecord('qualityParameters', record) as Promise<QualityParameterRecord>);
   };
 
   const saveMilkPriceRule = (record: MilkPriceRuleRecord) => {
@@ -209,9 +230,7 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       milkPriceRules: upsertRecord(current.milkPriceRules, record),
     }));
 
-    void saveCadastroRecord('milkPriceRules', record).catch((error) => {
-      console.error('Failed to persist milk price rule', error);
-    });
+    handleSaveResult('milkPriceRules', record.id, saveCadastroRecord('milkPriceRules', record) as Promise<MilkPriceRuleRecord>);
   };
 
   const saveSupplier = ({ supplier, suppliedItemIds }: SaveSupplierPayload) => {
@@ -242,9 +261,19 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       };
     });
 
-    void saveSupplierRecord(supplier, suppliedItemIds).catch((error) => {
-      console.error('Failed to persist supplier', error);
-    });
+    saveSupplierRecord(supplier, suppliedItemIds)
+      .then((savedSupplier) => {
+        setState((current) => ({
+          ...current,
+          suppliers: current.suppliers.map((s) => (s.id === supplier.id ? savedSupplier : s)),
+          supplyItems: current.supplyItems.map((item) =>
+            item.defaultSupplierId === supplier.id ? { ...item, defaultSupplierId: savedSupplier.id } : item,
+          ),
+        }));
+      })
+      .catch((error) => {
+        console.error('Failed to persist supplier', error);
+      });
   };
 
   const saveSupplyItem = (record: SupplyItemRecord) => {
@@ -253,9 +282,7 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       supplyItems: upsertRecord(current.supplyItems, record),
     }));
 
-    void saveCadastroRecord('supplyItems', record).catch((error) => {
-      console.error('Failed to persist supply item', error);
-    });
+    handleSaveResult('supplyItems', record.id, saveCadastroRecord('supplyItems', record) as Promise<SupplyItemRecord>);
   };
 
   const saveFinishedProduct = (record: FinishedProductRecord) => {
@@ -264,9 +291,7 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       finishedProducts: upsertRecord(current.finishedProducts, record),
     }));
 
-    void saveCadastroRecord('finishedProducts', record).catch((error) => {
-      console.error('Failed to persist finished product', error);
-    });
+    handleSaveResult('finishedProducts', record.id, saveCadastroRecord('finishedProducts', record) as Promise<FinishedProductRecord>);
   };
 
   const saveProductSpec = (record: ProductSpecRecord) => {
@@ -275,9 +300,7 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       productSpecs: upsertRecord(current.productSpecs, record),
     }));
 
-    void saveProductSpecRecord(record).catch((error) => {
-      console.error('Failed to persist product spec', error);
-    });
+    handleSaveResult('productSpecs', record.id, saveProductSpecRecord(record));
   };
 
   const saveBlockReason = (record: BlockReasonRecord) => {
@@ -286,9 +309,7 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       blockReasons: upsertRecord(current.blockReasons, record),
     }));
 
-    void saveCadastroRecord('blockReasons', record).catch((error) => {
-      console.error('Failed to persist block reason', error);
-    });
+    handleSaveResult('blockReasons', record.id, saveCadastroRecord('blockReasons', record) as Promise<BlockReasonRecord>);
   };
 
   const saveUnit = (record: UnitRecord) => {
@@ -297,9 +318,7 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       units: upsertRecord(current.units, record),
     }));
 
-    void saveCadastroRecord('units', record).catch((error) => {
-      console.error('Failed to persist unit', error);
-    });
+    handleSaveResult('units', record.id, saveCadastroRecord('units', record) as Promise<UnitRecord>);
   };
 
   const saveStockLocation = (record: StockLocationRecord) => {
@@ -308,9 +327,7 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       stockLocations: upsertRecord(current.stockLocations, record),
     }));
 
-    void saveCadastroRecord('stockLocations', record).catch((error) => {
-      console.error('Failed to persist stock location', error);
-    });
+    handleSaveResult('stockLocations', record.id, saveCadastroRecord('stockLocations', record) as Promise<StockLocationRecord>);
   };
 
   const saveSupplyLot = (record: SupplyLotRecord) => {
@@ -319,9 +336,7 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       supplyLots: upsertRecord(current.supplyLots, record),
     }));
 
-    void saveCadastroRecord('supplyLots', record).catch((error) => {
-      console.error('Failed to persist supply lot', error);
-    });
+    handleSaveResult('supplyLots', record.id, saveCadastroRecord('supplyLots', record) as Promise<SupplyLotRecord>);
   };
 
   const toggleActive = (entity: EntityName, id: string) => {
