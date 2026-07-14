@@ -19,6 +19,14 @@ export class FinanceController {
     return this.financeService.listEntries(query);
   }
 
+  @Post()
+  createEntry(
+    @Body() payload: any,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.financeService.createEntry(payload, user);
+  }
+
   @Post(':id/settle')
   settleEntry(
     @Param('id') id: string,
@@ -26,5 +34,19 @@ export class FinanceController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     return this.financeService.settleEntry(id, payload, user);
+  }
+
+  @Put(':id')
+  updateEntry(
+    @Param('id') id: string,
+    @Body() payload: any,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.financeService.updateEntry(id, payload, user);
+  }
+
+  @Delete(':id')
+  deleteEntry(@Param('id') id: string) {
+    return this.financeService.deleteEntry(id);
   }
 }

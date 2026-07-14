@@ -15,6 +15,8 @@ import Placeholder from './components/Placeholder';
 import Producao from './components/Producao';
 import RelatoriosOperacionais from './components/RelatoriosOperacionais';
 import RecepcaoLeite from './components/RecepcaoLeite';
+import ContasReceber from './components/financeiro/ContasReceber';
+import ContasPagar from './components/financeiro/ContasPagar';
 import { useAuth } from './context/AuthContext';
 import { CadastrosProvider } from './context/CadastrosContext';
 
@@ -53,7 +55,11 @@ function AppContent() {
       case 'compras':
         return <Compras />;
       case 'financeiro':
-        return <Financeiro />;
+        return <Financeiro />; // Maybe redirect to contas-receber or show dashboard
+      case 'contas-receber':
+        return <ContasReceber />;
+      case 'contas-pagar':
+        return <ContasPagar />;
       case 'folha-leite':
         return <FolhaLeite />;
       case 'dre':

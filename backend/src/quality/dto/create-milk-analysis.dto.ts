@@ -29,17 +29,33 @@ export class CreateMilkAnalysisDto {
 
   @IsNumber()
   @IsOptional()
-  cbt?: number;
-
-  @IsNumber()
-  @IsOptional()
-  ccs?: number;
-
-  @IsNumber()
-  @IsOptional()
   temperatura?: number;
 
   @IsString()
   @IsOptional()
   observacoes?: string;
+
+  @IsString()
+  @IsOptional()
+  alcool?: string;
+
+  @IsNumber()
+  @IsOptional()
+  ph?: number;
+
+  @IsNumber()
+  @IsOptional()
+  porcentagem_agua?: number;
+
+  @IsNumber()
+  @IsOptional()
+  est?: number;
+
+  @IsNumber()
+  @IsOptional()
+  esd?: number;
+
+  @IsString()
+  @IsOptional()
+  redutase?: string;
 }

@@ -63,17 +63,25 @@ export default function RecepcaoLeite() {
  [transporters],
  );
 
- const filteredLotes = useMemo(
- () =>
- lotes.filter((lote) => {
- const produtor = getProducerById(lote.produtorId);
- return (
- lote.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
- produtor?.name.toLowerCase().includes(searchTerm.toLowerCase())
- );
- }),
- [getProducerById, lotes, searchTerm],
- );
+  const filteredLotes = useMemo(
+    () =>
+      lotes
+        .filter((lote) => {
+          const produtor = getProducerById(lote.produtorId);
+          return (
+            lote.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            produtor?.name.toLowerCase().includes(searchTerm.toLowerCase())
+          );
+        })
+        .sort((a, b) => {
+          const getTimestamp = (codigo: string) => {
+            const parts = codigo.split('-');
+            return parts.length >= 3 ? parseInt(parts[2], 10) : 0;
+          };
+          return getTimestamp(b.codigo) - getTimestamp(a.codigo);
+        }),
+    [getProducerById, lotes, searchTerm],
+  );
 
  const resetForm = () => {
  setFormState(emptyFormState);

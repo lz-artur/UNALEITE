@@ -378,8 +378,6 @@ export const initialCadastrosState: CadastrosState = {
     { id: 'qp-001', name: 'Gordura %', dataType: 'Numero', unitLabel: '%', minValue: 3, maxValue: 4.5, required: true, autoBlock: false, active: true },
     { id: 'qp-002', name: 'Proteina %', dataType: 'Numero', unitLabel: '%', minValue: 2.9, maxValue: 3.8, required: true, autoBlock: false, active: true },
     { id: 'qp-003', name: 'Acidez', dataType: 'Numero', unitLabel: 'D', minValue: 14, maxValue: 18, required: true, autoBlock: true, active: true },
-    { id: 'qp-004', name: 'CBT', dataType: 'Numero', unitLabel: 'UFC/mL', maxValue: 100000, required: true, autoBlock: true, active: true },
-    { id: 'qp-005', name: 'CCS', dataType: 'Numero', unitLabel: 'cel/mL', maxValue: 500000, required: true, autoBlock: false, active: true },
     { id: 'qp-006', name: 'Crioscopia', dataType: 'Numero', unitLabel: 'H', minValue: -0.545, maxValue: -0.520, required: true, autoBlock: true, active: true },
     { id: 'qp-007', name: 'Densidade', dataType: 'Numero', unitLabel: 'g/mL', minValue: 1.028, maxValue: 1.034, required: true, autoBlock: false, active: true },
     { id: 'qp-008', name: 'Alizarol', dataType: 'Aprovado/Reprovado', required: true, autoBlock: true, active: true },

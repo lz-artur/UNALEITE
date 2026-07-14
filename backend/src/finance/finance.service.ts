@@ -96,6 +96,54 @@ export class FinanceService {
     return this.normalizeEntry(data);
   }
 
+  async createEntry(payload: Record<string, any>, user?: AuthenticatedUser) {
+    const { data, error } = await this.supabaseService.admin
+      .from('financial_entries')
+      .insert({
+        ...payload,
+        created_by: user?.id ?? null,
+      })
+      .select('*')
+      .single();
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return this.normalizeEntry(data);
+  }
+
+  async updateEntry(id: string, payload: Record<string, any>, user?: AuthenticatedUser) {
+    const { data, error } = await this.supabaseService.admin
+      .from('financial_entries')
+      .update({
+        ...payload,
+        updated_by: user?.id ?? null,
+      })
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return this.normalizeEntry(data);
+  }
+
+  async deleteEntry(id: string) {
+    const { error } = await this.supabaseService.admin
+      .from('financial_entries')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return { success: true };
+  }
+
   private normalizeEntry(entry: Record<string, unknown>) {
     const dueDate = String(entry.due_date);
     const originalStatus = String(entry.status);

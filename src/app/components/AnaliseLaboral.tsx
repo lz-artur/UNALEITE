@@ -12,9 +12,13 @@ const emptyFormState = {
  densidade: '',
  gordura: '',
  proteina: '',
- cbt: '',
- ccs: '',
  temperatura: '',
+ alcool: '',
+ ph: '',
+ porcentagem_agua: '',
+ est: '',
+ esd: '',
+ redutase: '',
  observacoes: '',
 };
 
@@ -96,7 +100,6 @@ export default function AnaliseLaboral() {
  !formState.acidez ||
  !formState.crioscopia ||
  !formState.densidade ||
- !formState.ccs ||
  !formState.temperatura
  ) {
  setFormError('Preencha os campos obrigatorios da analise.');
@@ -115,9 +118,13 @@ export default function AnaliseLaboral() {
  densidade: Number(formState.densidade),
  gordura: formState.gordura ? Number(formState.gordura) : undefined,
  proteina: formState.proteina ? Number(formState.proteina) : undefined,
- cbt: formState.cbt ? Number(formState.cbt) : undefined,
- ccs: formState.ccs ? Number(formState.ccs) : undefined,
  temperatura: formState.temperatura ? Number(formState.temperatura) : undefined,
+ alcool: formState.alcool || undefined,
+ ph: formState.ph ? Number(formState.ph) : undefined,
+ porcentagem_agua: formState.porcentagem_agua ? Number(formState.porcentagem_agua) : undefined,
+ est: formState.est ? Number(formState.est) : undefined,
+ esd: formState.esd ? Number(formState.esd) : undefined,
+ redutase: formState.redutase || undefined,
  observacoes: formState.observacoes,
  });
 
@@ -284,7 +291,7 @@ export default function AnaliseLaboral() {
  <div className="space-y-6 p-6">
  <div>
  <h4 className="mb-3 font-bold text-gray-900">Testes de qualidade</h4>
- <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+ <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
  <div>
  <label className="mb-1 block text-sm font-medium text-gray-700">Alizarol *</label>
  <select
@@ -315,6 +322,21 @@ export default function AnaliseLaboral() {
  </select>
  <p className="mt-1 text-xs text-red-600">Detectado bloqueia o lote automaticamente</p>
  </div>
+ <div>
+ <label className="mb-1 block text-sm font-medium text-gray-700">Álcool</label>
+ <select
+ value={formState.alcool}
+ onChange={(event) =>
+ setFormState((current) => ({ ...current, alcool: event.target.value }))
+ }
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+ >
+ <option value="">Selecione...</option>
+ <option value="N/R">N/R</option>
+ <option value="Aprovado">Aprovado</option>
+ <option value="Reprovado">Reprovado</option>
+ </select>
+ </div>
  </div>
  </div>
 
@@ -327,9 +349,11 @@ export default function AnaliseLaboral() {
  ['densidade', 'Densidade (g/mL)', '0.001', 'Ex: 1.028'],
  ['gordura', 'Gordura (%)', '0.1', 'Ex: 3.5'],
  ['proteina', 'Proteina (%)', '0.1', 'Ex: 3.2'],
- ['cbt', 'CBT (UFC/mL)', '1', 'Ex: 50000'],
- ['ccs', 'CCS (CS/mL)', '1', 'Ex: 250000'],
  ['temperatura', 'Temperatura (°C)', '0.1', 'Ex: 4.5'],
+ ['ph', 'pH', '0.01', 'Ex: 6.77'],
+ ['porcentagem_agua', 'Porcentagem de Água (%)', '0.01', 'Ex: 0.00'],
+ ['est', 'E.S.T. (%)', '0.01', 'Ex: 11.65'],
+ ['esd', 'E.S.D. (%)', '0.01', 'Ex: 8.45'],
  ].map(([key, label, step, placeholder]) => (
  <div key={key}>
  <label className="mb-1 block text-sm font-medium text-gray-700">{label}</label>
@@ -345,6 +369,18 @@ export default function AnaliseLaboral() {
  />
  </div>
  ))}
+ <div>
+ <label className="mb-1 block text-sm font-medium text-gray-700">Redutase (h:mm)</label>
+ <input
+ type="text"
+ value={formState.redutase}
+ onChange={(event) =>
+ setFormState((current) => ({ ...current, redutase: event.target.value }))
+ }
+ placeholder="Ex: -"
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+ />
+ </div>
  </div>
  </div>
 

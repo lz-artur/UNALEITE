@@ -61,8 +61,6 @@ export class DomainRulesService {
       'Gordura %': payload.gordura,
       'Proteina %': payload.proteina,
       Acidez: payload.acidez,
-      CBT: payload.cbt,
-      CCS: payload.ccs,
       Crioscopia: payload.crioscopia,
       Densidade: payload.densidade,
       Alizarol: payload.alizarol,

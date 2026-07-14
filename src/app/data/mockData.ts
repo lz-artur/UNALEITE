@@ -56,8 +56,12 @@ export interface AnaliseLaboral {
   antibioticos: 'Não Detectado' | 'Detectado';
   gordura?: number; // %
   proteina?: number; // %
-  cbt?: number; // UFC/mL
-  ccs?: number; // células/mL
+  alcool?: string;
+  ph?: number;
+  porcentagem_agua?: number;
+  est?: number;
+  esd?: number;
+  redutase?: string;
   aprovado: boolean;
   observacoes?: string;
 }
@@ -346,8 +350,6 @@ export const analises: AnaliseLaboral[] = [
     antibioticos: 'Não Detectado',
     gordura: 3.5,
     proteina: 3.2,
-    cbt: 50000,
-    ccs: 280000,
     aprovado: true
   },
   {
@@ -361,8 +363,6 @@ export const analises: AnaliseLaboral[] = [
     antibioticos: 'Não Detectado',
     gordura: 3.7,
     proteina: 3.3,
-    cbt: 45000,
-    ccs: 320000,
     aprovado: true
   },
   {
@@ -376,8 +376,6 @@ export const analises: AnaliseLaboral[] = [
     antibioticos: 'Detectado',
     gordura: 3.2,
     proteina: 3.0,
-    cbt: 150000,
-    ccs: 650000,
     aprovado: false,
     observacoes: 'Alizarol reprovado e antibiótico detectado - Lote bloqueado'
   },
@@ -392,8 +390,6 @@ export const analises: AnaliseLaboral[] = [
     antibioticos: 'Não Detectado',
     gordura: 3.6,
     proteina: 3.4,
-    cbt: 40000,
-    ccs: 250000,
     aprovado: true
   }
 ];

@@ -191,6 +191,16 @@ export default function LotesEstoqueDetalhado() {
  .filter((item) => item.totalVolume > 0)
  .sort((a, b) => b.score - a.score);
 
+  const sortedLotes = useMemo(() => {
+    return [...lotes].sort((a, b) => {
+      const getTimestamp = (codigo: string) => {
+        const parts = codigo.split('-');
+        return parts.length >= 3 ? parseInt(parts[2], 10) : 0;
+      };
+      return getTimestamp(b.codigo) - getTimestamp(a.codigo);
+    });
+  }, [lotes]);
+
  return (
  <div className="space-y-6">
  <div className="flex items-start justify-between gap-4">
@@ -277,7 +287,7 @@ export default function LotesEstoqueDetalhado() {
  <div className="border-b border-gray-200 p-4">
  <h3 className="font-bold text-gray-900">Lotes de leite com qualidade e precificacao</h3>
  </div>
- {lotes.length === 0 ? (
+ {sortedLotes.length === 0 ? (
  <div className="p-8 text-center text-sm text-gray-600">Nenhum lote de leite encontrado.</div>
  ) : (
  <div className="overflow-x-auto">
@@ -295,7 +305,7 @@ export default function LotesEstoqueDetalhado() {
  </tr>
  </thead>
  <tbody className="divide-y divide-gray-200">
- {lotes.map((lote) => {
+ {sortedLotes.map((lote) => {
  const producer = getProducerById(lote.produtorId);
  const analysis = getAnaliseByLoteId(lote.id);
 

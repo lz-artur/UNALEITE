@@ -13,6 +13,8 @@ import {
   Users,
   Wallet,
   X,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -31,7 +33,15 @@ const menuItems = [
   { id: 'custos', label: 'Relatorios', icon: DollarSign },
   { id: 'comercial', label: 'Comercial', icon: TruckIcon },
   { id: 'compras', label: 'Compras', icon: Package },
-  { id: 'financeiro', label: 'Financeiro', icon: Wallet },
+  {
+    id: 'financeiro',
+    label: 'Financeiro',
+    icon: Wallet,
+    subItems: [
+      { id: 'contas-receber', label: 'Contas a receber' },
+      { id: 'contas-pagar', label: 'Contas a pagar' },
+    ],
+  },
   { id: 'folha-leite', label: 'Folha do Leite', icon: FileText },
   { id: 'dre', label: 'DRE Gerencial', icon: BarChart3 },
   { id: 'cadastros', label: 'Cadastros', icon: Users },
@@ -39,6 +49,9 @@ const menuItems = [
 
 export default function Layout({ children, currentPage, onNavigate }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
+    financeiro: currentPage === 'contas-receber' || currentPage === 'contas-pagar' || currentPage === 'financeiro',
+  });
   const { user, signOut } = useAuth();
 
   return (
@@ -86,18 +99,53 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
         <nav className="h-full space-y-1 overflow-y-auto p-4">
           {menuItems.map((item) => {
             const Icon = item.icon;
-            const isActive = currentPage === item.id;
+            const hasSubItems = item.subItems && item.subItems.length > 0;
+            const isActiveParent = currentPage === item.id || (hasSubItems && item.subItems!.some(sub => sub.id === currentPage));
+            const isExpanded = expandedMenus[item.id] || false;
+
             return (
-              <button
-                key={item.id}
-                onClick={() => onNavigate(item.id)}
-                className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 transition-colors ${
-                  isActive ? 'bg-blue-50 font-medium text-blue-700' : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <Icon className="h-5 w-5 flex-shrink-0" />
-                <span className="text-sm">{item.label}</span>
-              </button>
+              <div key={item.id} className="w-full">
+                <button
+                  onClick={() => {
+                    if (hasSubItems) {
+                      setExpandedMenus((prev) => ({ ...prev, [item.id]: !prev[item.id] }));
+                    } else {
+                      onNavigate(item.id);
+                    }
+                  }}
+                  className={`flex w-full items-center justify-between rounded-lg px-4 py-3 transition-colors ${
+                    isActiveParent && !hasSubItems ? 'bg-blue-50 font-medium text-blue-700' : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Icon className={`h-5 w-5 flex-shrink-0 ${isActiveParent && !hasSubItems ? 'text-blue-700' : ''}`} />
+                    <span className={`text-sm ${isActiveParent && hasSubItems ? 'font-medium' : ''}`}>{item.label}</span>
+                  </div>
+                  {hasSubItems && (
+                    isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />
+                  )}
+                </button>
+                
+                {hasSubItems && isExpanded && (
+                  <div className="mt-1 space-y-1 pl-4">
+                    {item.subItems!.map((sub) => {
+                      const isSubActive = currentPage === sub.id;
+                      return (
+                        <button
+                          key={sub.id}
+                          onClick={() => onNavigate(sub.id)}
+                          className={`flex w-full items-center gap-3 rounded-lg py-2 pl-8 pr-4 transition-colors relative ${
+                            isSubActive ? 'bg-blue-50/50 font-medium text-blue-700' : 'text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className={`absolute left-4 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full ${isSubActive ? 'bg-blue-600' : 'bg-gray-300'}`} />
+                          <span className="text-sm">{sub.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
         </nav>
