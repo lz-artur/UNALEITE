@@ -30,4 +30,9 @@ export class ReportsController {
   getDreReport(@Query() query: ListReportsDto) {
     return this.reportsService.getDreReport(query);
   }
+
+  @Get('dre-matrix')
+  getDreMatrixReport(@Query() query: ListReportsDto) {
+    return this.reportsService.getDreMatrixReport(query);
+  }
 }

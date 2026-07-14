@@ -213,6 +213,125 @@ export class ReportsService {
     };
   }
 
+  
+  async getDreMatrixReport(filters: ListReportsDto = {}) {
+    let { startDate, endDate } = filters;
+    
+    // Default to last 3 months if not provided
+    if (!startDate || !endDate) {
+      const now = new Date();
+      endDate = now.toISOString().slice(0, 10);
+      const start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      startDate = start.toISOString().slice(0, 10);
+    }
+
+    const startObj = new Date(startDate);
+    const endObj = new Date(endDate);
+    
+    // Generate months array ['YYYY-MM', ...]
+    const months: string[] = [];
+    const curr = new Date(startObj.getFullYear(), startObj.getMonth(), 1);
+    while (curr <= endObj) {
+      const yyyy = curr.getFullYear();
+      const mm = String(curr.getMonth() + 1).padStart(2, '0');
+      months.push(`${yyyy}-${mm}`);
+      curr.setMonth(curr.getMonth() + 1);
+    }
+
+    const entries = await this.selectMany('financial_entries');
+
+    let initialBalance = 0;
+    
+    const revenueCategories = new Map<string, Record<string, { previsto: number; realizado: number }>>();
+    const expenseCategories = new Map<string, Record<string, { previsto: number; realizado: number }>>();
+
+    // Initialize maps
+    const initMonthMap = () => {
+      const map: Record<string, { previsto: number; realizado: number }> = {};
+      for (const m of months) {
+        map[m] = { previsto: 0, realizado: 0 };
+      }
+      return map;
+    };
+
+    const totals = {
+      revenues: initMonthMap(),
+      expenses: initMonthMap(),
+      netIncome: initMonthMap(),
+      accumulatedBalance: initMonthMap(),
+    };
+
+    for (const row of entries) {
+      if (!row.due_date) continue;
+      
+      const dueD = new Date(String(row.due_date));
+      const isPaid = String(row.status) === 'Pago';
+      const amount = Number(row.amount || 0);
+      const category = String(row.category || 'Sem Categoria');
+      const isReceita = row.entry_type === 'Receber';
+      const isDespesa = row.entry_type === 'Pagar';
+
+      // Check if it's before our start date (for initial balance)
+      if (dueD < new Date(startObj.getFullYear(), startObj.getMonth(), 1)) {
+        if (isPaid) {
+          if (isReceita) initialBalance += amount;
+          if (isDespesa) initialBalance -= amount;
+        }
+        continue;
+      }
+
+      // Check if it belongs to our period
+      const yyyy = dueD.getFullYear();
+      const mm = String(dueD.getMonth() + 1).padStart(2, '0');
+      const monthKey = `${yyyy}-${mm}`;
+
+      if (months.includes(monthKey)) {
+        if (isReceita) {
+          if (!revenueCategories.has(category)) revenueCategories.set(category, initMonthMap());
+          revenueCategories.get(category)![monthKey].previsto += amount;
+          totals.revenues[monthKey].previsto += amount;
+          if (isPaid) {
+            revenueCategories.get(category)![monthKey].realizado += amount;
+            totals.revenues[monthKey].realizado += amount;
+          }
+        } else if (isDespesa) {
+          if (!expenseCategories.has(category)) expenseCategories.set(category, initMonthMap());
+          expenseCategories.get(category)![monthKey].previsto += amount;
+          totals.expenses[monthKey].previsto += amount;
+          if (isPaid) {
+            expenseCategories.get(category)![monthKey].realizado += amount;
+            totals.expenses[monthKey].realizado += amount;
+          }
+        }
+      }
+    }
+
+    // Calculate Net Income and Accumulated Balance
+    let currentAccumulatedPrevisto = initialBalance;
+    let currentAccumulatedRealizado = initialBalance;
+    
+    for (const m of months) {
+      totals.netIncome[m].previsto = totals.revenues[m].previsto - totals.expenses[m].previsto;
+      totals.netIncome[m].realizado = totals.revenues[m].realizado - totals.expenses[m].realizado;
+      
+      currentAccumulatedPrevisto += totals.netIncome[m].previsto;
+      currentAccumulatedRealizado += totals.netIncome[m].realizado;
+      
+      totals.accumulatedBalance[m].previsto = currentAccumulatedPrevisto;
+      totals.accumulatedBalance[m].realizado = currentAccumulatedRealizado;
+    }
+
+    return {
+      period: { startDate, endDate },
+      months,
+      initialBalance,
+      totals,
+      revenues: Array.from(revenueCategories.entries()).map(([category, data]) => ({ category, data })),
+      expenses: Array.from(expenseCategories.entries()).map(([category, data]) => ({ category, data })),
+    };
+  }
+
+
   private async selectMany(table: string) {
     const { data, error } = await this.supabaseService.admin.from(table).select('*');
 

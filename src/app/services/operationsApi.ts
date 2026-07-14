@@ -781,7 +781,6 @@ export async function createFinancialEntry(payload: Omit<ContaFinanceira, 'id' |
       category: payload.categoria,
       client_id: payload.clienteId,
       status: payload.status,
-      status: payload.status,
       computed_status: payload.status
     });
   });
@@ -886,6 +885,29 @@ export async function loadDreReport(filters?: {
   if (filters?.basis) params.set('basis', filters.basis);
   const query = params.toString();
   return apiRequest<DreReportResponse>(`/reports/dre${query ? `?${query}` : ''}`);
+}
+
+
+export interface DreMatrixReportResponse {
+  period: { startDate: string | null; endDate: string | null };
+  months: string[];
+  initialBalance: number;
+  totals: {
+    revenues: Record<string, { previsto: number; realizado: number }>;
+    expenses: Record<string, { previsto: number; realizado: number }>;
+    netIncome: Record<string, { previsto: number; realizado: number }>;
+    accumulatedBalance: Record<string, { previsto: number; realizado: number }>;
+  };
+  revenues: Array<{ category: string; data: Record<string, { previsto: number; realizado: number }> }>;
+  expenses: Array<{ category: string; data: Record<string, { previsto: number; realizado: number }> }>;
+}
+
+export async function loadDreMatrixReport(filters?: { startDate?: string; endDate?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.startDate) params.set('startDate', filters.startDate);
+  if (filters?.endDate) params.set('endDate', filters.endDate);
+  const query = params.toString();
+  return apiRequest<DreMatrixReportResponse>(`/reports/dre-matrix${query ? `?${query}` : ''}`);
 }
 
 export async function loadPurchases(filters?: PurchaseFilters) {
