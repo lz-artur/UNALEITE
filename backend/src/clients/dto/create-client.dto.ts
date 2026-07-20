@@ -33,6 +33,10 @@ export class CreateClientDto {
 
   @IsOptional()
   @IsString()
+  addressNumber?: string;
+
+  @IsOptional()
+  @IsString()
   city?: string;
 
   @IsOptional()

@@ -27,6 +27,18 @@ export class FulfillSalesOrderDto {
   @IsDateString()
   fulfilledAt?: string;
 
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string;
+
+  @IsOptional()
+  @IsNumber()
+  installments?: number;
+
+  @IsOptional()
+  @IsString()
+  bankAccountId?: string;
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })

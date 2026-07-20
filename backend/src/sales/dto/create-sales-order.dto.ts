@@ -35,6 +35,10 @@ export class CreateSalesOrderDto {
   dueDate?: string;
 
   @IsOptional()
+  @IsDateString()
+  deliveryDate?: string;
+
+  @IsOptional()
   @IsString()
   notes?: string;
 

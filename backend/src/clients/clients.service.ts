@@ -135,6 +135,7 @@ export class ClientsService {
       ...(payload.phone !== undefined ? { phone: payload.phone || null } : {}),
       ...(payload.email !== undefined ? { email: payload.email || null } : {}),
       ...(payload.address !== undefined ? { address: payload.address || null } : {}),
+      ...(payload.addressNumber !== undefined ? { address_number: payload.addressNumber || null } : {}),
       ...(payload.city !== undefined ? { city: payload.city || null } : {}),
       ...(payload.state !== undefined ? { state: payload.state || null } : {}),
       ...(payload.notes !== undefined ? { notes: payload.notes || null } : {}),

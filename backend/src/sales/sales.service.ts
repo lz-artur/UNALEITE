@@ -55,6 +55,7 @@ export class SalesService {
         client_id: payload.clientId,
         order_date: payload.orderDate,
         due_date: dueDate,
+        delivery_date: payload.deliveryDate ?? null,
         status: SALES_ORDER_STATUS.OPEN,
         total_amount: totalAmount,
         notes: payload.notes ?? null,
@@ -246,6 +247,19 @@ export class SalesService {
     }
 
     await this.refreshSalesOrderStatus(salesOrderId, user);
+
+    if (payload.paymentMethod || payload.installments || payload.bankAccountId) {
+      await this.supabaseService.admin
+        .from('financial_entries')
+        .update({
+          ...(payload.paymentMethod ? { payment_method: payload.paymentMethod } : {}),
+          ...(payload.installments ? { installments: payload.installments } : {}),
+          ...(payload.bankAccountId ? { bank_account_id: payload.bankAccountId } : {}),
+          updated_by: user?.id ?? null,
+        })
+        .eq('reference_table', 'sales_orders')
+        .eq('reference_id', salesOrderId);
+    }
 
     return this.getSalesOrder(salesOrderId);
   }

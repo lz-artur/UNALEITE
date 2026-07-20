@@ -60,6 +60,7 @@ export default function Comercial() {
   const [showClientModal, setShowClientModal] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showFulfillModal, setShowFulfillModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingClient, setEditingClient] = useState<ClientRecord | null>(null);
   const [orderFilters, setOrderFilters] = useState<SalesOrderFilters>({});
   const [clientSearch, setClientSearch] = useState('');
@@ -72,6 +73,7 @@ export default function Comercial() {
     phone: '',
     email: '',
     address: '',
+    addressNumber: '',
     city: '',
     state: '',
     notes: '',
@@ -81,20 +83,27 @@ export default function Comercial() {
     clientId: '',
     orderDate: getToday(),
     dueDate: getToday(),
+    deliveryDate: getToday(),
     notes: '',
     items: [{ localId: 'order-item-1', productId: '', quantity: '', unitPrice: '' }],
   });
   const [fulfillForm, setFulfillForm] = useState<{
     fulfilledAt: string;
-    items: Record<string, { finishedProductLotId: string; quantity: string }>;
+    paymentMethod: string;
+    installments: string;
+    bankAccountId: string;
+    items: Record<string, Array<{ localId: string; finishedProductLotId: string; quantity: string }>>;
   }>({
     fulfilledAt: getToday(),
+    paymentMethod: '',
+    installments: '',
+    bankAccountId: '',
     items: {},
   });
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const { finishedProducts, getUnitSymbol } = useCadastros();
+  const { finishedProducts, bankAccounts, getUnitSymbol } = useCadastros();
 
   const loadData = async (filters: SalesOrderFilters = orderFilters) => {
     setLoading(true);
@@ -175,6 +184,7 @@ export default function Comercial() {
       phone: '',
       email: '',
       address: '',
+      addressNumber: '',
       city: '',
       state: '',
       notes: '',
@@ -195,6 +205,7 @@ export default function Comercial() {
       phone: client.phone ?? '',
       email: client.email ?? '',
       address: client.address ?? '',
+      addressNumber: client.addressNumber ?? '',
       city: client.city ?? '',
       state: client.state ?? '',
       notes: client.notes ?? '',
@@ -223,6 +234,7 @@ export default function Comercial() {
         phone: clientForm.phone || undefined,
         email: clientForm.email || undefined,
         address: clientForm.address || undefined,
+        addressNumber: clientForm.addressNumber || undefined,
         city: clientForm.city || undefined,
         state: clientForm.state || undefined,
         notes: clientForm.notes || undefined,
@@ -256,6 +268,7 @@ export default function Comercial() {
       clientId: activeClients[0]?.id ?? '',
       orderDate: getToday(),
       dueDate: getToday(),
+      deliveryDate: getToday(),
       notes: '',
       items: [{ localId: `order-item-${Date.now()}`, productId: '', quantity: '', unitPrice: '' }],
     });
@@ -290,6 +303,7 @@ export default function Comercial() {
         clientId: orderForm.clientId,
         orderDate: new Date(orderForm.orderDate).toISOString(),
         dueDate: orderForm.dueDate ? new Date(orderForm.dueDate).toISOString() : undefined,
+        deliveryDate: (orderForm as any).deliveryDate ? new Date((orderForm as any).deliveryDate).toISOString() : undefined,
         notes: orderForm.notes || undefined,
         items,
       });
@@ -310,21 +324,27 @@ export default function Comercial() {
     try {
       const detail = await loadSalesOrderDetail(salesOrderId);
       setSelectedOrder(detail);
-      const nextItems = detail.items.reduce<Record<string, { finishedProductLotId: string; quantity: string }>>(
+      const nextItems = detail.items.reduce<Record<string, Array<{ localId: string; finishedProductLotId: string; quantity: string }>>>(
         (accumulator, item) => {
           const candidateLot = finishedLots.find(
             (lot) => lot.productId === item.productId && lot.disponivel > 0,
           );
-          accumulator[item.id] = {
-            finishedProductLotId: candidateLot?.id ?? '',
-            quantity: '',
-          };
+          accumulator[item.id] = [
+            {
+              localId: `lot-${Date.now()}`,
+              finishedProductLotId: candidateLot?.id ?? '',
+              quantity: '',
+            },
+          ];
           return accumulator;
         },
         {},
       );
       setFulfillForm({
         fulfilledAt: getToday(),
+        paymentMethod: '',
+        installments: '',
+        bankAccountId: '',
         items: nextItems,
       });
       setShowFulfillModal(true);
@@ -341,10 +361,13 @@ export default function Comercial() {
     }
 
     const items = selectedOrder.items
-      .map((item) => ({
-        item,
-        values: fulfillForm.items[item.id],
-      }))
+      .flatMap((item) => {
+        const itemLots = fulfillForm.items[item.id] || [];
+        return itemLots.map((lot) => ({
+          item,
+          values: lot,
+        }));
+      })
       .filter((entry) => Number(entry.values?.quantity) > 0);
 
     if (items.length === 0) {
@@ -364,6 +387,9 @@ export default function Comercial() {
       const updatedOrder = await fulfillSalesOrder({
         salesOrderId: selectedOrder.id,
         fulfilledAt: new Date(fulfillForm.fulfilledAt).toISOString(),
+        paymentMethod: fulfillForm.paymentMethod || undefined,
+        installments: fulfillForm.installments ? Number(fulfillForm.installments) : undefined,
+        bankAccountId: fulfillForm.bankAccountId || undefined,
         items: items.map(({ item, values }) => ({
           salesOrderItemId: item.id,
           finishedProductLotId: values.finishedProductLotId,
@@ -566,7 +592,10 @@ export default function Comercial() {
                         <TableCell>
                           <div className="flex flex-wrap gap-2">
                             <button
-                              onClick={() => setSelectedOrder(order)}
+                              onClick={() => {
+                                setSelectedOrder(order);
+                                setShowDetailModal(true);
+                              }}
                               className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                             >
                               Detalhes
@@ -605,60 +634,7 @@ export default function Comercial() {
             )}
           </div>
 
-          {selectedOrder ? (
-            <div className="rounded-xl border border-gray-200 bg-white p-6">
-              <div className="mb-4 flex items-start justify-between">
-                <div>
-                  <h3 className="font-bold text-gray-900">{selectedOrder.number}</h3>
-                  <p className="text-sm text-gray-600">
-                    {selectedOrder.clientName} - {selectedOrder.clientDocument || 'Sem documento'}
-                  </p>
-                </div>
-                <StatusBadge status={selectedOrder.status} />
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <TableHead>Produto</TableHead>
-                      <TableHead>Pedido</TableHead>
-                      <TableHead>Atendido</TableHead>
-                      <TableHead>Pendente</TableHead>
-                      <TableHead>Preco</TableHead>
-                      <TableHead>Lotes expedidos</TableHead>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {selectedOrder.items.map((item) => (
-                      <tr key={item.id}>
-                        <TableCell highlight>{item.productName}</TableCell>
-                        <TableCell>
-                          {item.orderedQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
-                        </TableCell>
-                        <TableCell>
-                          {item.fulfilledQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
-                        </TableCell>
-                        <TableCell>
-                          {item.pendingQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
-                        </TableCell>
-                        <TableCell>R$ {item.unitPrice.toFixed(2)}</TableCell>
-                        <TableCell className="text-sm text-gray-600">
-                          {item.fulfillments.length > 0
-                            ? item.fulfillments
-                                .map(
-                                  (fulfillment) =>
-                                    `${fulfillment.lotCode} (${fulfillment.quantity.toLocaleString('pt-BR')})`,
-                                )
-                                .join(', ')
-                            : 'Nenhum atendimento ainda'}
-                        </TableCell>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : null}
+
         </>
       ) : (
         <>
@@ -738,13 +714,14 @@ export default function Comercial() {
         >
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <InputField label="Codigo" type="text" value={clientForm.code} onChange={(value) => setClientForm((current) => ({ ...current, code: value }))} />
-            <InputField label="Documento" type="text" value={clientForm.document} onChange={(value) => setClientForm((current) => ({ ...current, document: value }))} />
+            <InputField label="CNPJ/CPF" type="text" value={clientForm.document} onChange={(value) => setClientForm((current) => ({ ...current, document: value }))} />
             <InputField label="Razao social / nome" type="text" value={clientForm.name} onChange={(value) => setClientForm((current) => ({ ...current, name: value }))} />
             <InputField label="Nome fantasia" type="text" value={clientForm.tradeName} onChange={(value) => setClientForm((current) => ({ ...current, tradeName: value }))} />
             <InputField label="Inscricao estadual" type="text" value={clientForm.stateRegistration} onChange={(value) => setClientForm((current) => ({ ...current, stateRegistration: value }))} />
             <InputField label="Telefone" type="text" value={clientForm.phone} onChange={(value) => setClientForm((current) => ({ ...current, phone: value }))} />
             <InputField label="E-mail" type="text" value={clientForm.email} onChange={(value) => setClientForm((current) => ({ ...current, email: value }))} />
             <InputField label="Endereco" type="text" value={clientForm.address} onChange={(value) => setClientForm((current) => ({ ...current, address: value }))} />
+            <InputField label="Numero (Residencia/Empresa)" type="text" value={clientForm.addressNumber} onChange={(value) => setClientForm((current) => ({ ...current, addressNumber: value }))} />
             <InputField label="Cidade" type="text" value={clientForm.city} onChange={(value) => setClientForm((current) => ({ ...current, city: value }))} />
             <InputField label="UF" type="text" value={clientForm.state} onChange={(value) => setClientForm((current) => ({ ...current, state: value }))} />
           </div>
@@ -791,6 +768,7 @@ export default function Comercial() {
               ]}
             />
             <InputField label="Data do pedido" type="date" value={orderForm.orderDate} onChange={(value) => setOrderForm((current) => ({ ...current, orderDate: value }))} />
+            <InputField label="Data prev. de entrega" type="date" value={(orderForm as any).deliveryDate} onChange={(value) => setOrderForm((current) => ({ ...current, deliveryDate: value }))} />
             <InputField label="Vencimento" type="date" value={orderForm.dueDate} onChange={(value) => setOrderForm((current) => ({ ...current, dueDate: value }))} />
           </div>
 
@@ -910,18 +888,48 @@ export default function Comercial() {
           saving={saving}
           maxWidth="max-w-5xl"
         >
-          <InputField
-            label="Data do atendimento"
-            type="date"
-            value={fulfillForm.fulfilledAt}
-            onChange={(value) => setFulfillForm((current) => ({ ...current, fulfilledAt: value }))}
-          />
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <InputField
+              label="Data do atendimento"
+              type="date"
+              value={fulfillForm.fulfilledAt}
+              onChange={(value) => setFulfillForm((current) => ({ ...current, fulfilledAt: value }))}
+            />
+            <SelectField
+              label="Forma de pagamento"
+              value={fulfillForm.paymentMethod}
+              onChange={(value) => setFulfillForm((current) => ({ ...current, paymentMethod: value }))}
+              options={[
+                { label: 'Selecione...', value: '' },
+                { label: 'À vista', value: 'À vista' },
+                { label: 'Pix', value: 'Pix' },
+                { label: 'Dinheiro', value: 'Dinheiro' },
+                { label: 'Boleto', value: 'Boleto' },
+                { label: 'Cartão', value: 'Cartão' },
+              ]}
+            />
+            <InputField
+              label="Parcelas"
+              type="number"
+              value={fulfillForm.installments}
+              onChange={(value) => setFulfillForm((current) => ({ ...current, installments: value }))}
+            />
+            <SelectField
+              label="Conta de recebimento"
+              value={fulfillForm.bankAccountId}
+              onChange={(value) => setFulfillForm((current) => ({ ...current, bankAccountId: value }))}
+              options={[
+                { label: 'Selecione...', value: '' },
+                ...bankAccounts.filter(b => b.active).map(b => ({ label: b.name, value: b.id })),
+              ]}
+            />
+          </div>
           <div className="mt-4 space-y-4">
             {selectedOrder.items
               .filter((item) => item.pendingQuantity > 0)
               .map((item) => {
                 const lotOptions = availableLotsByProduct(item.productId);
-                const values = fulfillForm.items[item.id];
+                const itemLots = fulfillForm.items[item.id] || [];
                 return (
                   <div key={item.id} className="rounded-lg border border-gray-200 p-4">
                     <div className="mb-3 flex items-start justify-between">
@@ -931,54 +939,142 @@ export default function Comercial() {
                           Pendente: {item.pendingQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
                         </p>
                       </div>
-                      <StatusBadge status={item.status} />
-                    </div>
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <SelectField
-                        label="Lote acabado"
-                        value={values?.finishedProductLotId || ''}
-                        onChange={(value) =>
-                          setFulfillForm((current) => ({
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={item.status} />
+                        <button
+                          onClick={() => setFulfillForm((current) => ({
                             ...current,
                             items: {
                               ...current.items,
-                              [item.id]: {
-                                ...current.items[item.id],
-                                finishedProductLotId: value,
-                              },
+                              [item.id]: [
+                                ...(current.items[item.id] || []),
+                                { localId: `lot-${Date.now()}`, finishedProductLotId: '', quantity: '' }
+                              ],
                             },
-                          }))
-                        }
-                        options={[
-                          { label: lotOptions.length ? 'Selecione...' : 'Sem lotes disponiveis', value: '' },
-                          ...lotOptions.map((lot) => ({
-                            label: `${lot.lote} - saldo ${lot.disponivel.toLocaleString('pt-BR')}`,
-                            value: lot.id,
-                          })),
-                        ]}
-                      />
-                      <InputField
-                        label="Quantidade atendida"
-                        type="number"
-                        value={values?.quantity || ''}
-                        onChange={(value) =>
-                          setFulfillForm((current) => ({
-                            ...current,
-                            items: {
-                              ...current.items,
-                              [item.id]: {
-                                ...current.items[item.id],
-                                quantity: value,
-                              },
-                            },
-                          }))
-                        }
-                      />
+                          }))}
+                          className="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                        >
+                          + Adicionar Lote
+                        </button>
+                      </div>
                     </div>
+                    {itemLots.map((lotValue, index) => (
+                      <div key={lotValue.localId} className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto]">
+                        <SelectField
+                          label="Lote acabado"
+                          value={lotValue.finishedProductLotId}
+                          onChange={(value) =>
+                            setFulfillForm((current) => ({
+                              ...current,
+                              items: {
+                                ...current.items,
+                                [item.id]: current.items[item.id].map((l, i) => i === index ? { ...l, finishedProductLotId: value } : l),
+                              },
+                            }))
+                          }
+                          options={[
+                            { label: lotOptions.length ? 'Selecione...' : 'Sem lotes disponiveis', value: '' },
+                            ...lotOptions.map((lot) => ({
+                              label: `${lot.lote} - saldo ${lot.disponivel.toLocaleString('pt-BR')}`,
+                              value: lot.id,
+                            })),
+                          ]}
+                        />
+                        <InputField
+                          label="Quantidade atendida"
+                          type="number"
+                          value={lotValue.quantity}
+                          onChange={(value) =>
+                            setFulfillForm((current) => ({
+                              ...current,
+                              items: {
+                                ...current.items,
+                                [item.id]: current.items[item.id].map((l, i) => i === index ? { ...l, quantity: value } : l),
+                              },
+                            }))
+                          }
+                        />
+                        <div className="flex items-end">
+                          <button
+                            onClick={() => setFulfillForm((current) => ({
+                              ...current,
+                              items: {
+                                ...current.items,
+                                [item.id]: current.items[item.id].filter((_, i) => i !== index),
+                              },
+                            }))}
+                            className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 );
               })}
           </div>
+        </ModalShell>
+      ) : null}
+
+      {showDetailModal && selectedOrder ? (
+        <ModalShell
+          title={`Detalhes do pedido ${selectedOrder.number}`}
+          onClose={() => setShowDetailModal(false)}
+          maxWidth="max-w-4xl"
+        >
+            <div className="rounded-xl border border-gray-200 bg-white p-6">
+              <div className="mb-4 flex items-start justify-between">
+                <div>
+                  <h3 className="font-bold text-gray-900">{selectedOrder.number}</h3>
+                  <p className="text-sm text-gray-600">
+                    {selectedOrder.clientName} - {selectedOrder.clientDocument || 'Sem documento'}
+                  </p>
+                </div>
+                <StatusBadge status={selectedOrder.status} />
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <TableHead>Produto</TableHead>
+                      <TableHead>Pedido</TableHead>
+                      <TableHead>Atendido</TableHead>
+                      <TableHead>Pendente</TableHead>
+                      <TableHead>Preco</TableHead>
+                      <TableHead>Lotes expedidos</TableHead>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {selectedOrder.items.map((item) => (
+                      <tr key={item.id}>
+                        <TableCell highlight>{item.productName}</TableCell>
+                        <TableCell>
+                          {item.orderedQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
+                        </TableCell>
+                        <TableCell>
+                          {item.fulfilledQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
+                        </TableCell>
+                        <TableCell>
+                          {item.pendingQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
+                        </TableCell>
+                        <TableCell>R$ {item.unitPrice.toFixed(2)}</TableCell>
+                        <TableCell className="text-sm text-gray-600">
+                          {item.fulfillments.length > 0
+                            ? item.fulfillments
+                                .map(
+                                  (fulfillment) =>
+                                    `${fulfillment.lotCode} (${fulfillment.quantity.toLocaleString('pt-BR')})`,
+                                )
+                                .join(', ')
+                            : 'Nenhum atendimento ainda'}
+                        </TableCell>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
         </ModalShell>
       ) : null}
 

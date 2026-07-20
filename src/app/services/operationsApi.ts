@@ -100,6 +100,7 @@ export interface ClientRecord {
   phone?: string;
   email?: string;
   address?: string;
+  addressNumber?: string;
   city?: string;
   state?: string;
   notes?: string;
@@ -136,6 +137,7 @@ export interface SalesOrderRecord {
   clientDocument?: string;
   orderDate: Date;
   dueDate: Date;
+  deliveryDate?: Date;
   status: string;
   totalAmount: number;
   notes?: string;
@@ -498,6 +500,7 @@ function mapClient(row: any): ClientRecord {
     phone: row.phone ?? undefined,
     email: row.email ?? undefined,
     address: row.address ?? undefined,
+    addressNumber: row.address_number ?? undefined,
     city: row.city ?? undefined,
     state: row.state ?? undefined,
     notes: row.notes ?? undefined,
@@ -514,6 +517,7 @@ function mapSalesOrder(row: any): SalesOrderRecord {
     clientDocument: row.clientDocument ?? undefined,
     orderDate: new Date(row.orderDate),
     dueDate: new Date(row.dueDate),
+    deliveryDate: row.deliveryDate ? new Date(row.deliveryDate) : undefined,
     status: row.status,
     totalAmount: Number(row.totalAmount),
     notes: row.notes ?? undefined,
@@ -1072,6 +1076,7 @@ export async function createClient(payload: {
   phone?: string;
   email?: string;
   address?: string;
+  addressNumber?: string;
   city?: string;
   state?: string;
   notes?: string;
@@ -1095,6 +1100,7 @@ export async function updateClient(
     phone?: string;
     email?: string;
     address?: string;
+    addressNumber?: string;
     city?: string;
     state?: string;
     notes?: string;
@@ -1128,6 +1134,7 @@ export async function createSalesOrder(payload: {
   clientId: string;
   orderDate: string;
   dueDate?: string;
+  deliveryDate?: string;
   notes?: string;
   items: Array<{
     productId: string;
@@ -1145,6 +1152,9 @@ export async function createSalesOrder(payload: {
 export async function fulfillSalesOrder(payload: {
   salesOrderId: string;
   fulfilledAt?: string;
+  paymentMethod?: string;
+  installments?: number;
+  bankAccountId?: string;
   items: Array<{
     salesOrderItemId: string;
     finishedProductLotId: string;
