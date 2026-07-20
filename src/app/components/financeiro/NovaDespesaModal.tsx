@@ -3,6 +3,7 @@ import { X, Loader2, Plus, Trash2, Upload } from 'lucide-react';
 import type { ContaFinanceira } from '../../data/mockData';
 import { type FinancialEntryRecord, uploadFinancialAttachment } from '../../services/operationsApi';
 import { toast } from 'sonner';
+import { useCadastros } from '../../context/CadastrosContext';
 
 interface Parcela {
   id: string;
@@ -21,7 +22,7 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
   const [descricao, setDescricao] = useState('');
   const [valor, setValor] = useState('');
   const [dataVencimento, setDataVencimento] = useState('');
-  const [categoria, setCategoria] = useState('Fornecedores');
+  const [categoria, setCategoria] = useState('');
   const [status, setStatus] = useState<'Aberto' | 'Pago'>('Aberto');
   
   const [centroCusto, setCentroCusto] = useState('');
@@ -40,7 +41,7 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
     setDescricao('');
     setValor('');
     setDataVencimento('');
-    setCategoria('Fornecedores');
+    setCategoria('');
     setStatus('Aberto');
     setCentroCusto('');
     setSubcategoriaContabil('');
@@ -56,10 +57,10 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
       setDescricao(initialData.descricao);
       setValor(initialData.valor.toString());
       setDataVencimento(new Date(initialData.dataVencimento).toISOString().split('T')[0]);
-      setCategoria(initialData.categoria);
+      setCategoria(initialData.accountingCategoryId || initialData.categoria);
       setStatus((initialData.status === 'Pago' || initialData.statusCalculado === 'Pago') ? 'Pago' : 'Aberto');
-      setCentroCusto(initialData.centroCusto || '');
-      setSubcategoriaContabil(initialData.subcategoriaContabil || '');
+      setCentroCusto(initialData.costCenterId || initialData.centroCusto || '');
+      setSubcategoriaContabil(initialData.accountingSubcategoryId || initialData.subcategoriaContabil || '');
       setFormaPagamento(initialData.formaPagamento || '');
       setTipoPagamento(initialData.tipoPagamento || '');
       setIsParcelado(false);
@@ -113,10 +114,13 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
       const basePayload: Omit<ContaFinanceira, 'id' | 'statusCalculado' | 'valor' | 'dataVencimento'> = {
         tipo: 'Pagar',
         descricao,
-        categoria,
+        categoria: accountingCategories.find(c => c.id === categoria)?.name || categoria,
+        accountingCategoryId: categoria,
         status,
-        centroCusto,
-        subcategoriaContabil,
+        centroCusto: costCenters.find(c => c.id === centroCusto)?.name || centroCusto,
+        costCenterId: centroCusto,
+        subcategoriaContabil: accountingSubcategories.find(s => s.id === subcategoriaContabil)?.name || subcategoriaContabil,
+        accountingSubcategoryId: subcategoriaContabil,
         formaPagamento,
         tipoPagamento,
         anexoUrl,
@@ -152,6 +156,8 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
       setIsSubmitting(false);
     }
   };
+
+  const { costCenters, accountingCategories, accountingSubcategories } = useCadastros();
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
@@ -269,25 +275,65 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
           
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Centro de Custo</label>
-              <input
-                type="text"
-                value={centroCusto}
-                onChange={(e) => setCentroCusto(e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                placeholder="Ex: Produção"
-              />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Categoria Contábil</label>
+              <select
+                value={categoria}
+                required
+                onChange={(e) => {
+                  setCategoria(e.target.value);
+                  setSubcategoriaContabil('');
+                }}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+              >
+                <option value="">Selecione...</option>
+                {accountingCategories.filter(c => c.active && c.entryType === 'Pagar').map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
             </div>
             
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Subcategoria Contábil</label>
-              <input
-                type="text"
+              <select
                 value={subcategoriaContabil}
                 onChange={(e) => setSubcategoriaContabil(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                disabled={!categoria}
+                title={!categoria ? 'Selecione uma Categoria Contábil primeiro' : ''}
+              >
+                <option value="">{!categoria ? 'Selecione a categoria...' : 'Selecione...'}</option>
+                {accountingSubcategories.filter(s => s.active && s.categoryId === categoria).map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Centro de Custo</label>
+              <select
+                value={centroCusto}
+                onChange={(e) => setCentroCusto(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+              >
+                <option value="">Selecione...</option>
+                {costCenters.filter(c => c.active).map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Situação Inicial</label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as 'Aberto' | 'Pago')}
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                placeholder="Ex: Despesa Operacional"
-              />
+              >
+                <option value="Aberto">Em Aberto / Previsto</option>
+                <option value="Pago">Pago / Baixado</option>
+              </select>
             </div>
           </div>
 
@@ -320,38 +366,7 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
               </select>
             </div>
           </div>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
-              <select
-                value={categoria}
-                onChange={(e) => setCategoria(e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="Fornecedores">Fornecedores</option>
-                <option value="Insumos">Insumos</option>
-                <option value="Matéria Prima">Matéria Prima</option>
-                <option value="Folha">Folha de Pagamento</option>
-                <option value="Impostos">Impostos</option>
-                <option value="Utilidades">Utilidades</option>
-                <option value="Manutenção">Manutenção</option>
-                <option value="Outros">Outros</option>
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Situação Inicial</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as 'Aberto' | 'Pago')}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="Aberto">Em Aberto / Previsto</option>
-                <option value="Pago">Pago / Baixado</option>
-              </select>
-            </div>
-          </div>
+
 
           <div className="mt-2 border-t border-gray-100 pt-4">
             <label className="block text-sm font-medium text-gray-700 mb-2">Comprovante {status === 'Pago' ? <span className="text-red-500">* (Obrigatório para Baixa)</span> : ''}</label>

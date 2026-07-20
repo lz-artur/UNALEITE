@@ -12,7 +12,11 @@ export type CadastroEntity =
   | 'finishedProducts'
   | 'productSpecs'
   | 'blockReasons'
-  | 'supplyLots';
+  | 'supplyLots'
+  | 'costCenters'
+  | 'bankAccounts'
+  | 'accountingCategories'
+  | 'accountingSubcategories';
 
 interface CadastroEntityDefinition {
   table: string;
@@ -104,6 +108,30 @@ export const CADASTRO_ENTITY_DEFINITIONS: Record<CadastroEntity, CadastroEntityD
     table: 'supply_lots',
     searchableColumns: ['supplier_lot_number', 'internal_lot_code', 'status'],
     orderBy: 'entry_date',
+    activeColumn: 'active',
+  },
+  costCenters: {
+    table: 'cost_centers',
+    searchableColumns: ['name', 'code', 'description'],
+    orderBy: 'name',
+    activeColumn: 'active',
+  },
+  bankAccounts: {
+    table: 'bank_accounts',
+    searchableColumns: ['name', 'bank_name', 'account_number', 'document_number'],
+    orderBy: 'name',
+    activeColumn: 'active',
+  },
+  accountingCategories: {
+    table: 'accounting_categories',
+    searchableColumns: ['name', 'entry_type'],
+    orderBy: 'name',
+    activeColumn: 'active',
+  },
+  accountingSubcategories: {
+    table: 'accounting_subcategories',
+    searchableColumns: ['name'],
+    orderBy: 'name',
     activeColumn: 'active',
   },
 };

@@ -18,6 +18,10 @@ import {
  Building2,
  Pencil,
  Power,
+ Briefcase,
+ Landmark,
+ Tags,
+ Tag,
 } from 'lucide-react';
 import type {
  BlockReasonRecord,
@@ -36,6 +40,10 @@ import type {
  SupplyLotStatus,
  TransporterRecord,
  UnitRecord,
+ CostCenterRecord,
+ BankAccountRecord,
+ AccountingCategoryRecord,
+ AccountingSubcategoryRecord,
 } from '../data/cadastrosData';
 import { useCadastros } from '../context/CadastrosContext';
 
@@ -53,7 +61,11 @@ type SectionKey =
  | 'supplyLots'
  | 'blockReasons'
  | 'units'
- | 'stockLocations';
+ | 'stockLocations'
+ | 'costCenters'
+ | 'bankAccounts'
+ | 'accountingCategories'
+ | 'accountingSubcategories';
 
 type FormState = Record<string, unknown>;
 
@@ -79,6 +91,10 @@ const sections: SectionDefinition[] = [
  { key: 'blockReasons', label: 'Motivos de Bloqueio', description: 'Padronização dos bloqueios manuais e automáticos.', icon: ShieldAlert },
  { key: 'units', label: 'Unidades de Medida', description: 'Unidades usadas em estoque, qualidade e produção.', icon: Ruler },
  { key: 'stockLocations', label: 'Locais de Estoque', description: 'Tanques, câmaras e almoxarifados da planta.', icon: Factory },
+ { key: 'costCenters', label: 'Centros de Custo', description: 'Agrupamento financeiro para despesas e receitas.', icon: Briefcase },
+ { key: 'bankAccounts', label: 'Contas Bancárias', description: 'Contas usadas para pagamentos e boletos.', icon: Landmark },
+ { key: 'accountingCategories', label: 'Categorias Financeiras', description: 'Categorias de receitas e despesas.', icon: Tags },
+ { key: 'accountingSubcategories', label: 'Subcategorias', description: 'Detalhamento das categorias financeiras.', icon: Tag },
 ];
 
 function formatDate(value?: string) {
@@ -264,6 +280,10 @@ export default function CadastrosBase() {
  units,
  stockLocations,
  supplyLots,
+ costCenters,
+ bankAccounts,
+ accountingCategories,
+ accountingSubcategories,
  saveProducer,
  saveRoute,
  saveTransporter,
@@ -278,6 +298,10 @@ export default function CadastrosBase() {
  saveUnit,
  saveStockLocation,
  saveSupplyLot,
+ saveCostCenter,
+ saveBankAccount,
+ saveAccountingCategory,
+ saveAccountingSubcategory,
  toggleActive,
  getUnitSymbol,
  getTransporterById,
@@ -331,6 +355,14 @@ export default function CadastrosBase() {
  return units;
  case 'stockLocations':
  return stockLocations;
+ case 'costCenters':
+ return costCenters;
+ case 'bankAccounts':
+ return bankAccounts;
+ case 'accountingCategories':
+ return accountingCategories;
+ case 'accountingSubcategories':
+ return accountingSubcategories;
  default:
  return [];
  }
@@ -349,6 +381,10 @@ export default function CadastrosBase() {
  supplyLots,
  transporters,
  units,
+ costCenters,
+ bankAccounts,
+ accountingCategories,
+ accountingSubcategories,
  selectedSection,
  ]);
 
@@ -596,6 +632,26 @@ export default function CadastrosBase() {
  idealTemperature: 0,
  active: true,
  };
+ case 'costCenters':
+ return { id: '', name: '', code: '', description: '', active: true };
+ case 'bankAccounts':
+ return {
+ id: '',
+ name: '',
+ bankName: '',
+ agency: '',
+ agencyDigit: '',
+ accountNumber: '',
+ accountDigit: '',
+ documentType: 'CNPJ',
+ documentNumber: '',
+ pixKey: '',
+ active: true,
+ };
+ case 'accountingCategories':
+ return { id: '', name: '', entryType: 'Pagar', showInDre: false, active: true };
+ case 'accountingSubcategories':
+ return { id: '', categoryId: '', name: '', active: true };
  default:
  return {};
  }
@@ -729,6 +785,21 @@ export default function CadastrosBase() {
  if (!formState.name) errors.push('Informe o nome do local.');
  if (!formState.stockType) errors.push('Informe o tipo de estoque.');
  if (Number(formState.capacity) < 0) errors.push('Capacidade não pode ser negativa.');
+ break;
+ case 'costCenters':
+ if (!formState.name) errors.push('Informe o nome do centro de custo.');
+ if (hasDuplicate(costCenters, (item) => item.code === formState.code && Boolean(item.code))) errors.push('Já existe centro de custo com este código.');
+ break;
+ case 'bankAccounts':
+ if (!formState.name) errors.push('Informe o nome de identificação da conta.');
+ break;
+ case 'accountingCategories':
+ if (!formState.name) errors.push('Informe o nome da categoria.');
+ if (!formState.entryType) errors.push('Informe o tipo de lançamento.');
+ break;
+ case 'accountingSubcategories':
+ if (!formState.name) errors.push('Informe o nome da subcategoria.');
+ if (!formState.categoryId) errors.push('Selecione uma categoria vinculada.');
  break;
  default:
  break;
@@ -873,6 +944,30 @@ export default function CadastrosBase() {
  capacity: Number(formState.capacity) || undefined,
  idealTemperature: Number(formState.idealTemperature) || undefined,
  capacityUnitId: String(formState.capacityUnitId || '') || undefined,
+ });
+ break;
+ case 'costCenters':
+ saveCostCenter({
+ ...(formState as unknown as CostCenterRecord),
+ id: String(formState.id || generateId('cost')),
+ });
+ break;
+ case 'bankAccounts':
+ saveBankAccount({
+ ...(formState as unknown as BankAccountRecord),
+ id: String(formState.id || generateId('bank')),
+ });
+ break;
+ case 'accountingCategories':
+ saveAccountingCategory({
+ ...(formState as unknown as AccountingCategoryRecord),
+ id: String(formState.id || generateId('cat')),
+ });
+ break;
+ case 'accountingSubcategories':
+ saveAccountingSubcategory({
+ ...(formState as unknown as AccountingSubcategoryRecord),
+ id: String(formState.id || generateId('subcat')),
  });
  break;
  default:
@@ -1152,6 +1247,79 @@ export default function CadastrosBase() {
  <Td>{item.stockType}</Td>
  <Td>{item.capacity ? `${item.capacity} ${getUnitSymbol(item.capacityUnitId)}` : '-'}</Td>
  <Td>{item.idealTemperature ? `${item.idealTemperature}°C` : '-'}</Td>
+ <Td><ActiveBadge active={item.active} /></Td>
+ <Td>{renderActions(item)}</Td>
+ </tr>
+ );
+ })}
+ </TableShell>
+ );
+ case 'costCenters':
+ return (
+ <TableShell headers={['Código', 'Centro de Custo', 'Descrição', 'Status', 'Ações']}>
+ {filteredRecords.map((record) => {
+ const item = record as CostCenterRecord;
+ return (
+ <tr key={item.id} className="hover:bg-gray-50">
+ <Td strong>{item.code || '-'}</Td>
+ <Td>{item.name}</Td>
+ <Td>{item.description || '-'}</Td>
+ <Td><ActiveBadge active={item.active} /></Td>
+ <Td>{renderActions(item)}</Td>
+ </tr>
+ );
+ })}
+ </TableShell>
+ );
+ case 'bankAccounts':
+ return (
+ <TableShell headers={['Identificação', 'Banco', 'Agência', 'Conta', 'Status', 'Ações']}>
+ {filteredRecords.map((record) => {
+ const item = record as BankAccountRecord;
+ return (
+ <tr key={item.id} className="hover:bg-gray-50">
+ <Td strong>{item.name}</Td>
+ <Td>{item.bankName || '-'}</Td>
+ <Td>{item.agency ? `${item.agency}-${item.agencyDigit || ''}` : '-'}</Td>
+ <Td>{item.accountNumber ? `${item.accountNumber}-${item.accountDigit || ''}` : '-'}</Td>
+ <Td><ActiveBadge active={item.active} /></Td>
+ <Td>{renderActions(item)}</Td>
+ </tr>
+ );
+ })}
+ </TableShell>
+ );
+ case 'accountingCategories':
+ return (
+ <TableShell headers={['Categoria', 'Tipo', 'Exibir no DRE', 'Status', 'Ações']}>
+ {filteredRecords.map((record) => {
+ const item = record as AccountingCategoryRecord;
+ return (
+ <tr key={item.id} className="hover:bg-gray-50">
+ <Td strong>{item.name}</Td>
+ <Td>
+ <span className={`px-2 py-1 text-xs font-medium rounded-full ${item.entryType === 'Receber' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+ {item.entryType}
+ </span>
+ </Td>
+ <Td>{item.showInDre ? 'Sim' : 'Não'}</Td>
+ <Td><ActiveBadge active={item.active} /></Td>
+ <Td>{renderActions(item)}</Td>
+ </tr>
+ );
+ })}
+ </TableShell>
+ );
+ case 'accountingSubcategories':
+ return (
+ <TableShell headers={['Subcategoria', 'Categoria', 'Status', 'Ações']}>
+ {filteredRecords.map((record) => {
+ const item = record as AccountingSubcategoryRecord;
+ const cat = accountingCategories.find(c => c.id === item.categoryId);
+ return (
+ <tr key={item.id} className="hover:bg-gray-50">
+ <Td strong>{item.name}</Td>
+ <Td>{cat?.name || '-'}</Td>
  <Td><ActiveBadge active={item.active} /></Td>
  <Td>{renderActions(item)}</Td>
  </tr>
@@ -1644,6 +1812,64 @@ export default function CadastrosBase() {
  options={units.filter((item) => item.active).map((item) => ({ label: `${item.name} (${item.symbol})`, value: item.id }))}
  />
  <Field label="Temperatura ideal" type="number" step="0.1" value={String(formState.idealTemperature || 0)} onChange={(value) => updateField('idealTemperature', value)} />
+ <ToggleSelect label="Ativo" value={Boolean(formState.active)} onChange={(value) => updateField('active', value)} />
+ </div>
+ );
+ case 'costCenters':
+ return (
+ <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+ <Field label="Nome" required value={String(formState.name || '')} onChange={(value) => updateField('name', value)} />
+ <Field label="Código" value={String(formState.code || '')} onChange={(value) => updateField('code', value)} />
+ <div className="md:col-span-2">
+ <TextAreaField label="Descrição" value={String(formState.description || '')} onChange={(value) => updateField('description', value)} />
+ </div>
+ <ToggleSelect label="Ativo" value={Boolean(formState.active)} onChange={(value) => updateField('active', value)} />
+ </div>
+ );
+ case 'bankAccounts':
+ return (
+ <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+ <Field label="Nome da conta (Identificação)" required value={String(formState.name || '')} onChange={(value) => updateField('name', value)} />
+ <Field label="Banco" value={String(formState.bankName || '')} onChange={(value) => updateField('bankName', value)} />
+ <Field label="Agência" value={String(formState.agency || '')} onChange={(value) => updateField('agency', value)} />
+ <Field label="Dígito da Agência" value={String(formState.agencyDigit || '')} onChange={(value) => updateField('agencyDigit', value)} />
+ <Field label="Número da Conta" value={String(formState.accountNumber || '')} onChange={(value) => updateField('accountNumber', value)} />
+ <Field label="Dígito da Conta" value={String(formState.accountDigit || '')} onChange={(value) => updateField('accountDigit', value)} />
+ <SelectField label="Tipo do Documento" value={String(formState.documentType || 'CNPJ')} onChange={(value) => updateField('documentType', value)} options={[{ label: 'CNPJ', value: 'CNPJ' }, { label: 'CPF', value: 'CPF' }]} />
+ <Field label="Número do Documento (CPF/CNPJ)" value={String(formState.documentNumber || '')} onChange={(value) => updateField('documentNumber', value)} />
+ <Field label="Chave PIX" value={String(formState.pixKey || '')} onChange={(value) => updateField('pixKey', value)} />
+ <ToggleSelect label="Ativo" value={Boolean(formState.active)} onChange={(value) => updateField('active', value)} />
+ </div>
+ );
+ case 'accountingCategories':
+ return (
+ <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+ <Field label="Nome da Categoria" required value={String(formState.name || '')} onChange={(value) => updateField('name', value)} />
+ <SelectField
+ label="Tipo de Lançamento"
+ required
+ value={String(formState.entryType || 'Pagar')}
+ onChange={(value) => updateField('entryType', value)}
+ options={[
+ { label: 'Despesa (Pagar)', value: 'Pagar' },
+ { label: 'Receita (Receber)', value: 'Receber' },
+ ]}
+ />
+ <ToggleSelect label="Exibir no DRE?" value={Boolean(formState.showInDre)} onChange={(value) => updateField('showInDre', value)} />
+ <ToggleSelect label="Ativo" value={Boolean(formState.active)} onChange={(value) => updateField('active', value)} />
+ </div>
+ );
+ case 'accountingSubcategories':
+ return (
+ <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+ <SelectField
+ label="Categoria Vinculada"
+ required
+ value={String(formState.categoryId || '')}
+ onChange={(value) => updateField('categoryId', value)}
+ options={accountingCategories.filter(item => item.active).map(item => ({ label: `${item.name} (${item.entryType})`, value: item.id }))}
+ />
+ <Field label="Nome da Subcategoria" required value={String(formState.name || '')} onChange={(value) => updateField('name', value)} />
  <ToggleSelect label="Ativo" value={Boolean(formState.active)} onChange={(value) => updateField('active', value)} />
  </div>
  );

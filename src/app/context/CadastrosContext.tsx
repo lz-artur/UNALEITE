@@ -16,6 +16,10 @@ import {
   type SupplyLotRecord,
   type TransporterRecord,
   type UnitRecord,
+  type CostCenterRecord,
+  type BankAccountRecord,
+  type AccountingCategoryRecord,
+  type AccountingSubcategoryRecord,
 } from '../data/cadastrosData';
 import {
   loadCadastrosState,
@@ -53,6 +57,10 @@ interface CadastrosContextValue extends CadastrosState {
   saveUnit: (record: UnitRecord) => void;
   saveStockLocation: (record: StockLocationRecord) => void;
   saveSupplyLot: (record: SupplyLotRecord) => void;
+  saveCostCenter: (record: CostCenterRecord) => void;
+  saveBankAccount: (record: BankAccountRecord) => void;
+  saveAccountingCategory: (record: AccountingCategoryRecord) => void;
+  saveAccountingSubcategory: (record: AccountingSubcategoryRecord) => void;
   toggleActive: (entity: EntityName, id: string) => void;
   getUnitSymbol: (id?: string) => string;
   getProducerById: (id?: string) => ProducerRecord | undefined;
@@ -81,7 +89,11 @@ type EntityName =
   | 'blockReasons'
   | 'units'
   | 'stockLocations'
-  | 'supplyLots';
+  | 'supplyLots'
+  | 'costCenters'
+  | 'bankAccounts'
+  | 'accountingCategories'
+  | 'accountingSubcategories';
 
 const CadastrosContext = createContext<CadastrosContextValue | undefined>(undefined);
 
@@ -339,6 +351,42 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
     handleSaveResult('supplyLots', record.id, saveCadastroRecord('supplyLots', record) as Promise<SupplyLotRecord>);
   };
 
+  const saveCostCenter = (record: CostCenterRecord) => {
+    setState((current) => ({
+      ...current,
+      costCenters: upsertRecord(current.costCenters, record),
+    }));
+
+    handleSaveResult('costCenters', record.id, saveCadastroRecord('costCenters', record) as Promise<CostCenterRecord>);
+  };
+
+  const saveBankAccount = (record: BankAccountRecord) => {
+    setState((current) => ({
+      ...current,
+      bankAccounts: upsertRecord(current.bankAccounts, record),
+    }));
+
+    handleSaveResult('bankAccounts', record.id, saveCadastroRecord('bankAccounts', record) as Promise<BankAccountRecord>);
+  };
+
+  const saveAccountingCategory = (record: AccountingCategoryRecord) => {
+    setState((current) => ({
+      ...current,
+      accountingCategories: upsertRecord(current.accountingCategories, record),
+    }));
+
+    handleSaveResult('accountingCategories', record.id, saveCadastroRecord('accountingCategories', record) as Promise<AccountingCategoryRecord>);
+  };
+
+  const saveAccountingSubcategory = (record: AccountingSubcategoryRecord) => {
+    setState((current) => ({
+      ...current,
+      accountingSubcategories: upsertRecord(current.accountingSubcategories, record),
+    }));
+
+    handleSaveResult('accountingSubcategories', record.id, saveCadastroRecord('accountingSubcategories', record) as Promise<AccountingSubcategoryRecord>);
+  };
+
   const toggleActive = (entity: EntityName, id: string) => {
     setState((current) => {
       switch (entity) {
@@ -370,6 +418,14 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
           return { ...current, stockLocations: toggleItems(current.stockLocations, id) };
         case 'supplyLots':
           return { ...current, supplyLots: toggleItems(current.supplyLots, id) };
+        case 'costCenters':
+          return { ...current, costCenters: toggleItems(current.costCenters, id) };
+        case 'bankAccounts':
+          return { ...current, bankAccounts: toggleItems(current.bankAccounts, id) };
+        case 'accountingCategories':
+          return { ...current, accountingCategories: toggleItems(current.accountingCategories, id) };
+        case 'accountingSubcategories':
+          return { ...current, accountingSubcategories: toggleItems(current.accountingSubcategories, id) };
         default:
           return current;
       }
@@ -397,6 +453,10 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       saveUnit,
       saveStockLocation,
       saveSupplyLot,
+      saveCostCenter,
+      saveBankAccount,
+      saveAccountingCategory,
+      saveAccountingSubcategory,
       toggleActive,
       getUnitSymbol: (id) => state.units.find((item) => item.id === id)?.symbol || '-',
       getProducerById: (id) => state.producers.find((item) => item.id === id),

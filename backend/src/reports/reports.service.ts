@@ -168,7 +168,13 @@ export class ReportsService {
 
   async getDreReport(filters: ListReportsDto = {}) {
     const basis = filters.basis || 'accrual';
-    const entries = await this.selectMany('financial_entries');
+    const [entries, categories] = await Promise.all([
+      this.selectMany('financial_entries'),
+      this.selectMany('accounting_categories')
+    ]);
+
+    const dreCategoryMap = new Map(categories.filter((c: any) => c.show_in_dre).map((c: any) => [c.id, c.name]));
+    const dreCategoryNames = new Set(categories.filter((c: any) => c.show_in_dre).map((c: any) => c.name));
 
     const rows = entries.filter((entry) => {
       const dateField = basis === 'cash' ? String(entry.payment_date || entry.due_date) : String(entry.due_date);
@@ -188,7 +194,16 @@ export class ReportsService {
     let totalExpense = 0;
 
     for (const row of rows) {
-      const category = String(row.category || 'Sem Categoria');
+      let category = String(row.category || 'Sem Categoria');
+      
+      // Handle the case where we have the relational ID
+      if (row.accounting_category_id && dreCategoryMap.has(row.accounting_category_id)) {
+        category = dreCategoryMap.get(row.accounting_category_id)!;
+      } else if (!dreCategoryNames.has(category)) {
+        // Skip if not in DRE
+        continue;
+      }
+
       const amount = Number(row.amount || 0);
 
       if (row.entry_type === 'Receber') {
@@ -238,7 +253,13 @@ export class ReportsService {
       curr.setMonth(curr.getMonth() + 1);
     }
 
-    const entries = await this.selectMany('financial_entries');
+    const [entries, categories] = await Promise.all([
+      this.selectMany('financial_entries'),
+      this.selectMany('accounting_categories')
+    ]);
+
+    const dreCategoryMap = new Map(categories.filter((c: any) => c.show_in_dre).map((c: any) => [c.id, c.name]));
+    const dreCategoryNames = new Set(categories.filter((c: any) => c.show_in_dre).map((c: any) => c.name));
 
     let initialBalance = 0;
     
@@ -267,9 +288,15 @@ export class ReportsService {
       const dueD = new Date(String(row.due_date));
       const isPaid = String(row.status) === 'Pago';
       const amount = Number(row.amount || 0);
-      const category = String(row.category || 'Sem Categoria');
       const isReceita = row.entry_type === 'Receber';
       const isDespesa = row.entry_type === 'Pagar';
+
+      let category = String(row.category || 'Sem Categoria');
+      if (row.accounting_category_id && dreCategoryMap.has(row.accounting_category_id)) {
+        category = dreCategoryMap.get(row.accounting_category_id)!;
+      } else if (!dreCategoryNames.has(category)) {
+        continue;
+      }
 
       // Check if it's before our start date (for initial balance)
       if (dueD < new Date(startObj.getFullYear(), startObj.getMonth(), 1)) {

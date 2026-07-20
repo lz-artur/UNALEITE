@@ -15,6 +15,10 @@ import type {
   SupplyLotRecord,
   TransporterRecord,
   UnitRecord,
+  CostCenterRecord,
+  BankAccountRecord,
+  AccountingCategoryRecord,
+  AccountingSubcategoryRecord,
 } from '../data/cadastrosData';
 import { initialCadastrosState } from '../data/cadastrosData';
 import { apiRequest, withFallback } from './api';
@@ -36,6 +40,10 @@ const entityEndpointMap: Record<CadastroEntity, string> = {
   productSpecs: 'productSpecs',
   blockReasons: 'blockReasons',
   supplyLots: 'supplyLots',
+  costCenters: 'costCenters',
+  bankAccounts: 'bankAccounts',
+  accountingCategories: 'accountingCategories',
+  accountingSubcategories: 'accountingSubcategories',
 };
 
 function mapUnit(row: any): UnitRecord {
@@ -248,6 +256,51 @@ function mapSupplyLot(row: any): SupplyLotRecord {
   };
 }
 
+function mapCostCenter(row: any): CostCenterRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    code: row.code ?? undefined,
+    description: row.description ?? undefined,
+    active: row.active,
+  };
+}
+
+function mapBankAccount(row: any): BankAccountRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    bankName: row.bank_name ?? undefined,
+    agency: row.agency ?? undefined,
+    agencyDigit: row.agency_digit ?? undefined,
+    accountNumber: row.account_number ?? undefined,
+    accountDigit: row.account_digit ?? undefined,
+    documentType: row.document_type ?? undefined,
+    documentNumber: row.document_number ?? undefined,
+    pixKey: row.pix_key ?? undefined,
+    active: row.active,
+  };
+}
+
+function mapAccountingCategory(row: any): AccountingCategoryRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    entryType: row.entry_type,
+    showInDre: row.show_in_dre,
+    active: row.active,
+  };
+}
+
+function mapAccountingSubcategory(row: any): AccountingSubcategoryRecord {
+  return {
+    id: row.id,
+    categoryId: row.category_id,
+    name: row.name,
+    active: row.active,
+  };
+}
+
 const entityMappers: Record<CadastroEntity, (rows: any[]) => CadastrosState[CadastroEntity]> = {
   units: (rows) => rows.map(mapUnit),
   stockLocations: (rows) => rows.map(mapStockLocation),
@@ -263,6 +316,10 @@ const entityMappers: Record<CadastroEntity, (rows: any[]) => CadastrosState[Cada
   productSpecs: (rows) => rows.map(mapProductSpec),
   blockReasons: (rows) => rows.map(mapBlockReason),
   supplyLots: (rows) => rows.map(mapSupplyLot),
+  costCenters: (rows) => rows.map(mapCostCenter),
+  bankAccounts: (rows) => rows.map(mapBankAccount),
+  accountingCategories: (rows) => rows.map(mapAccountingCategory),
+  accountingSubcategories: (rows) => rows.map(mapAccountingSubcategory),
 };
 
 function serializeUnit(record: UnitRecord) {
@@ -471,6 +528,51 @@ function serializeSupplyLot(record: SupplyLotRecord) {
   };
 }
 
+function serializeCostCenter(record: CostCenterRecord) {
+  return {
+    id: record.id,
+    name: record.name,
+    code: record.code ?? null,
+    description: record.description ?? null,
+    active: record.active,
+  };
+}
+
+function serializeBankAccount(record: BankAccountRecord) {
+  return {
+    id: record.id,
+    name: record.name,
+    bank_name: record.bankName ?? null,
+    agency: record.agency ?? null,
+    agency_digit: record.agencyDigit ?? null,
+    account_number: record.accountNumber ?? null,
+    account_digit: record.accountDigit ?? null,
+    document_type: record.documentType ?? null,
+    document_number: record.documentNumber ?? null,
+    pix_key: record.pixKey ?? null,
+    active: record.active,
+  };
+}
+
+function serializeAccountingCategory(record: AccountingCategoryRecord) {
+  return {
+    id: record.id,
+    name: record.name,
+    entry_type: record.entryType,
+    show_in_dre: record.showInDre,
+    active: record.active,
+  };
+}
+
+function serializeAccountingSubcategory(record: AccountingSubcategoryRecord) {
+  return {
+    id: record.id,
+    category_id: record.categoryId,
+    name: record.name,
+    active: record.active,
+  };
+}
+
 const entitySerializers: Record<CadastroEntity, (record: any) => Record<string, unknown>> = {
   units: serializeUnit,
   stockLocations: serializeStockLocation,
@@ -486,6 +588,10 @@ const entitySerializers: Record<CadastroEntity, (record: any) => Record<string, 
   productSpecs: serializeProductSpec,
   blockReasons: serializeBlockReason,
   supplyLots: serializeSupplyLot,
+  costCenters: serializeCostCenter,
+  bankAccounts: serializeBankAccount,
+  accountingCategories: serializeAccountingCategory,
+  accountingSubcategories: serializeAccountingSubcategory,
 };
 
 export async function loadCadastrosState() {

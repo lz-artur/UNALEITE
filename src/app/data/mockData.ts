@@ -174,6 +174,9 @@ export interface ContaFinanceira {
   produtorId?: string;
   centroCusto?: string;
   subcategoriaContabil?: string;
+  accountingCategoryId?: string;
+  accountingSubcategoryId?: string;
+  costCenterId?: string;
   formaPagamento?: string;
   tipoPagamento?: string;
   anexoUrl?: string;

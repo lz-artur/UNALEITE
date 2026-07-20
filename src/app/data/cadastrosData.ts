@@ -189,6 +189,43 @@ export interface SupplyLotRecord {
   active: boolean;
 }
 
+export interface CostCenterRecord {
+  id: string;
+  name: string;
+  code?: string;
+  description?: string;
+  active: boolean;
+}
+
+export interface BankAccountRecord {
+  id: string;
+  name: string;
+  bankName?: string;
+  agency?: string;
+  agencyDigit?: string;
+  accountNumber?: string;
+  accountDigit?: string;
+  documentType?: string;
+  documentNumber?: string;
+  pixKey?: string;
+  active: boolean;
+}
+
+export interface AccountingCategoryRecord {
+  id: string;
+  name: string;
+  entryType: 'Receber' | 'Pagar';
+  showInDre: boolean;
+  active: boolean;
+}
+
+export interface AccountingSubcategoryRecord {
+  id: string;
+  categoryId: string;
+  name: string;
+  active: boolean;
+}
+
 export interface CadastrosState {
   units: UnitRecord[];
   stockLocations: StockLocationRecord[];
@@ -204,6 +241,10 @@ export interface CadastrosState {
   productSpecs: ProductSpecRecord[];
   blockReasons: BlockReasonRecord[];
   supplyLots: SupplyLotRecord[];
+  costCenters: CostCenterRecord[];
+  bankAccounts: BankAccountRecord[];
+  accountingCategories: AccountingCategoryRecord[];
+  accountingSubcategories: AccountingSubcategoryRecord[];
 }
 
 export const initialCadastrosState: CadastrosState = {
@@ -654,4 +695,8 @@ export const initialCadastrosState: CadastrosState = {
       active: true,
     },
   ],
+  costCenters: [],
+  bankAccounts: [],
+  accountingCategories: [],
+  accountingSubcategories: [],
 };
