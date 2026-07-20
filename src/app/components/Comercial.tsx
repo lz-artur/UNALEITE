@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { format } from 'date-fns';
-import { Loader2, Plus, ShoppingBag, Users } from 'lucide-react';
+import { Loader2, Plus, ShoppingBag, Users, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -12,10 +12,21 @@ import {
   loadSalesOrderDetail,
   loadSalesOrders,
   updateClient,
+  deleteSalesOrder,
   type ClientRecord,
   type SalesOrderFilters,
   type SalesOrderRecord,
 } from '../services/operationsApi';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 
 interface FinishedLotOption {
   id: string;
@@ -80,6 +91,9 @@ export default function Comercial() {
     fulfilledAt: getToday(),
     items: {},
   });
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const { finishedProducts, getUnitSymbol } = useCadastros();
 
   const loadData = async (filters: SalesOrderFilters = orderFilters) => {
@@ -378,6 +392,30 @@ export default function Comercial() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!itemToDelete) return;
+    setIsDeleting(true);
+    setErrorMessage(null);
+
+    try {
+      await deleteSalesOrder(itemToDelete);
+      setSalesOrders((current) => current.filter((order) => order.id !== itemToDelete));
+      
+      if (selectedOrder?.id === itemToDelete) {
+        setSelectedOrder(null);
+      }
+
+      setDeleteConfirmOpen(false);
+      setItemToDelete(null);
+      toast.success('Pedido de venda excluído com sucesso');
+    } catch (error) {
+      setDeleteConfirmOpen(false);
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const availableLotsByProduct = (productId: string) =>
     finishedLots.filter((lot) => lot.productId === productId && lot.disponivel > 0);
 
@@ -509,6 +547,7 @@ export default function Comercial() {
                       <TableHead>Status</TableHead>
                       <TableHead>Total</TableHead>
                       <TableHead>Acoes</TableHead>
+                      <TableHead></TableHead>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
@@ -545,6 +584,18 @@ export default function Comercial() {
                               </button>
                             ) : null}
                           </div>
+                        </TableCell>
+                        <TableCell className="w-12">
+                          <button
+                            onClick={() => {
+                              setItemToDelete(order.id);
+                              setDeleteConfirmOpen(true);
+                            }}
+                            className="text-red-600 hover:text-red-900"
+                            title="Excluir pedido"
+                          >
+                            <Trash2 className="h-5 w-5" />
+                          </button>
                         </TableCell>
                       </tr>
                     ))}
@@ -930,6 +981,33 @@ export default function Comercial() {
           </div>
         </ModalShell>
       ) : null}
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Pedido de Venda</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir este pedido de venda? Esta ação não pode ser desfeita.
+              Isso também excluirá todos os atendimentos e lançamentos financeiros associados, e restaurará 
+              os volumes dos lotes de produtos acabados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+              onClick={(e) => {
+                e.preventDefault();
+                void handleDelete();
+              }}
+            >
+              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

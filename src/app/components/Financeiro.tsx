@@ -1,13 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Calendar, Loader2, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { Calendar, Loader2, TrendingDown, TrendingUp, Wallet, Trash2 } from 'lucide-react';
 import { format, isPast } from 'date-fns';
 import {
   loadFinancialEntries,
   settleFinancialEntry,
+  deleteFinancialEntry,
   type FinancialEntryFilters,
   type FinancialEntryRecord,
 } from '../services/operationsApi';
 import { useCadastros } from '../context/CadastrosContext';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
@@ -32,6 +43,9 @@ export default function Financeiro() {
   const [loading, setLoading] = useState(true);
   const [settlingId, setSettlingId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const { producers, getProducerById } = useCadastros();
 
   const loadData = async (nextFilters: FinancialEntryFilters = filters) => {
@@ -99,6 +113,24 @@ export default function Financeiro() {
       setErrorMessage(getErrorMessage(error));
     } finally {
       setSettlingId(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!itemToDelete) return;
+    setIsDeleting(true);
+    setErrorMessage(null);
+
+    try {
+      await deleteFinancialEntry(itemToDelete);
+      setContasFinanceiras((current) => current.filter((entry) => entry.id !== itemToDelete));
+      setDeleteConfirmOpen(false);
+      setItemToDelete(null);
+    } catch (error) {
+      setDeleteConfirmOpen(false);
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -234,7 +266,7 @@ export default function Financeiro() {
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Vencimento</th>
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Origem</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Acoes</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium uppercase text-gray-500">Acoes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -284,18 +316,30 @@ export default function Financeiro() {
                         : '-'}
                     </td>
                     <td className="px-6 py-4">
-                      {conta.statusCalculado !== 'Pago' && conta.statusCalculado !== 'Cancelado' ? (
+                      <div className="flex items-center justify-end gap-2">
+                        {conta.statusCalculado !== 'Pago' && conta.statusCalculado !== 'Cancelado' ? (
+                          <button
+                            onClick={() => void handleSettle(conta)}
+                            disabled={settlingId === conta.id}
+                            className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {settlingId === conta.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                            Dar baixa
+                          </button>
+                        ) : (
+                          <span className="text-sm text-gray-400 mr-2">Sem acao</span>
+                        )}
                         <button
-                          onClick={() => void handleSettle(conta)}
-                          disabled={settlingId === conta.id}
-                          className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          onClick={() => {
+                            setItemToDelete(conta.id);
+                            setDeleteConfirmOpen(true);
+                          }}
+                          className="text-red-600 hover:text-red-900"
+                          title="Excluir lançamento"
                         >
-                          {settlingId === conta.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                          Dar baixa
+                          <Trash2 className="h-5 w-5" />
                         </button>
-                      ) : (
-                        <span className="text-sm text-gray-400">Sem acao</span>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -304,6 +348,32 @@ export default function Financeiro() {
           </div>
         )}
       </div>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Lançamento Financeiro</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir este lançamento financeiro? Esta ação não pode ser desfeita.
+              A exclusão não será permitida se o lançamento já estiver pago ou for originado por uma operação (compra/venda/recepção) - nesse caso, exclua a operação de origem.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+              onClick={(e) => {
+                e.preventDefault();
+                void handleDelete();
+              }}
+            >
+              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

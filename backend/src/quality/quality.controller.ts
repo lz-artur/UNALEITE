@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
@@ -30,5 +30,10 @@ export class QualityController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     return this.qualityService.createAnalysis(milkLotId, payload, user);
+  }
+
+  @Delete('milk-lot-analyses/:id')
+  deleteAnalysis(@Param('id') id: string) {
+    return this.qualityService.deleteAnalysis(id);
   }
 }

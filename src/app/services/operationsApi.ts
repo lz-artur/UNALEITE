@@ -1075,3 +1075,46 @@ export async function fulfillSalesOrder(payload: {
   });
   return mapSalesOrder(salesOrder);
 }
+
+export async function deleteMilkReception(id: string) {
+  return apiRequest<void>(`/milk-lots/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function deleteMilkAnalysis(id: string) {
+  return apiRequest<void>(`/milk-lot-analyses/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function deleteSupplyLot(id: string) {
+  return apiRequest<void>(`/inventory/supply-lots/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function deleteFinishedProductLot(id: string) {
+  return apiRequest<void>(`/inventory/finished-product-lots/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function deleteProductionOrder(id: string) {
+  return apiRequest<void>(`/production-orders/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function deleteSalesOrder(id: string) {
+  return apiRequest<void>(`/sales-orders/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function deletePurchase(id: string) {
+  return apiRequest<void>(`/purchases/${id}`, {
+    method: 'DELETE',
+  });
+}
+

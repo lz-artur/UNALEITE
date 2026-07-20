@@ -484,4 +484,75 @@ export class PurchasesService {
 
     return data ?? [];
   }
+
+  async deletePurchase(id: string) {
+    const purchase = await this.getPurchase(id);
+
+    const { data: supplyLots, error: supplyLotsError } = await this.supabaseService.admin
+      .from('supply_lots')
+      .select('id, received_quantity, available_quantity, supply_item_id')
+      .eq('purchase_id', id);
+
+    if (supplyLotsError) {
+      throw new BadRequestException(supplyLotsError.message);
+    }
+
+    if (supplyLots && supplyLots.length > 0) {
+      for (const lot of supplyLots) {
+        if (lot.available_quantity < lot.received_quantity) {
+          throw new BadRequestException('Não é possível excluir a compra pois os insumos recebidos já foram parcialmente ou totalmente consumidos.');
+        }
+      }
+    }
+
+    if (supplyLots && supplyLots.length > 0) {
+      for (const lot of supplyLots) {
+        const { data: supplyItem } = await this.supabaseService.admin
+          .from('supply_items')
+          .select('current_stock')
+          .eq('id', lot.supply_item_id)
+          .single();
+        
+        if (supplyItem) {
+          await this.supabaseService.admin
+            .from('supply_items')
+            .update({ current_stock: Number(supplyItem.current_stock) - Number(lot.received_quantity) })
+            .eq('id', lot.supply_item_id);
+        }
+      }
+
+      await this.supabaseService.admin
+        .from('stock_movements')
+        .delete()
+        .eq('reference_table', 'purchases')
+        .eq('reference_id', id);
+
+      await this.supabaseService.admin
+        .from('supply_lots')
+        .delete()
+        .eq('purchase_id', id);
+    }
+
+    await this.supabaseService.admin
+      .from('purchase_items')
+      .delete()
+      .eq('purchase_id', id);
+
+    await this.supabaseService.admin
+      .from('financial_entries')
+      .delete()
+      .eq('reference_table', 'purchases')
+      .eq('reference_id', id);
+
+    const { error: deletePurchaseError } = await this.supabaseService.admin
+      .from('purchases')
+      .delete()
+      .eq('id', id);
+
+    if (deletePurchaseError) {
+      throw new BadRequestException(deletePurchaseError.message);
+    }
+
+    return { success: true };
+  }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { differenceInDays, format } from 'date-fns';
-import { AlertTriangle, Award, DollarSign, Loader2, TrendingUp } from 'lucide-react';
+import { AlertTriangle, Award, DollarSign, Loader2, TrendingUp, Trash2 } from 'lucide-react';
 import type { AnaliseLaboral, EstoqueProduto, LoteLeite, PrecificacaoLeite } from '../data/mockData';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -10,9 +10,21 @@ import {
  loadMilkLots,
  loadMilkPricings,
  loadSupplyLots,
+ deleteSupplyLot,
+ deleteFinishedProductLot,
  type MilkLotDetail,
  type SupplyLotInventoryItem,
 } from '../services/operationsApi';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 
 function getErrorMessage(error: unknown) {
  if (error instanceof Error) {
@@ -34,6 +46,10 @@ export default function LotesEstoqueDetalhado() {
  const [loading, setLoading] = useState(true);
  const [detailLoading, setDetailLoading] = useState(false);
  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+ const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+ const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+ const [deleteType, setDeleteType] = useState<'supply' | 'product' | null>(null);
+ const [isDeleting, setIsDeleting] = useState(false);
  const {
  producers,
  supplyItems,
@@ -105,6 +121,29 @@ export default function LotesEstoqueDetalhado() {
  active = false;
  };
  }, [selectedLoteId]);
+
+ const handleDelete = async () => {
+    if (!itemToDelete || !deleteType) return;
+    setIsDeleting(true);
+    setErrorMessage(null);
+
+    try {
+      if (deleteType === 'supply') {
+        await deleteSupplyLot(itemToDelete);
+        setSupplyLots((current) => current.filter((l) => l.id !== itemToDelete));
+      } else if (deleteType === 'product') {
+        await deleteFinishedProductLot(itemToDelete);
+        setEstoquesProdutos((current) => current.filter((l) => l.id !== itemToDelete));
+      }
+      setDeleteConfirmOpen(false);
+      setItemToDelete(null);
+    } catch (error) {
+      setDeleteConfirmOpen(false);
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
  const getAnaliseByLoteId = (loteId: string) => analises.find((analise) => analise.loteId === loteId);
  const getPrecificacaoByLoteId = (loteId: string) =>
@@ -414,6 +453,7 @@ export default function LotesEstoqueDetalhado() {
  <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Disponivel</th>
  <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Validade</th>
  <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Status</th>
+ <th className="px-6 py-3 text-right text-xs font-medium uppercase text-gray-500">Ações</th>
  </tr>
  </thead>
  <tbody className="divide-y divide-gray-200">
@@ -443,6 +483,19 @@ export default function LotesEstoqueDetalhado() {
  <td className="px-6 py-4">
  <SupplyLotStatusBadge status={lot.status} />
  </td>
+ <td className="px-6 py-4 text-right">
+    <button
+      onClick={() => {
+        setItemToDelete(lot.id);
+        setDeleteType('supply');
+        setDeleteConfirmOpen(true);
+      }}
+      className="text-red-600 hover:text-red-900"
+      title="Excluir lote"
+    >
+      <Trash2 className="h-5 w-5" />
+    </button>
+  </td>
  </tr>
  );
  })}
@@ -470,6 +523,7 @@ export default function LotesEstoqueDetalhado() {
  <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Produzido</th>
  <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Disponivel</th>
  <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Validade</th>
+ <th className="px-6 py-3 text-right text-xs font-medium uppercase text-gray-500">Ações</th>
  </tr>
  </thead>
  <tbody className="divide-y divide-gray-200">
@@ -501,6 +555,19 @@ export default function LotesEstoqueDetalhado() {
  {daysToExpire < 7 ? ` (${daysToExpire}d)` : ''}
  </span>
  </td>
+ <td className="px-6 py-4 text-right">
+    <button
+      onClick={() => {
+        setItemToDelete(stock.id);
+        setDeleteType('product');
+        setDeleteConfirmOpen(true);
+      }}
+      className="text-red-600 hover:text-red-900"
+      title="Excluir lote"
+    >
+      <Trash2 className="h-5 w-5" />
+    </button>
+  </td>
  </tr>
  );
  })}
@@ -668,6 +735,32 @@ export default function LotesEstoqueDetalhado() {
  </div>
  </div>
  ) : null}
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Lote</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir este lote de {deleteType === 'supply' ? 'insumo' : 'produto acabado'}? Esta ação não pode ser desfeita.
+              A exclusão não será permitida se o lote tiver sido parcial ou totalmente utilizado/vendido.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+              onClick={(e) => {
+                e.preventDefault();
+                void handleDelete();
+              }}
+            >
+              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
  </div>
  );
 }

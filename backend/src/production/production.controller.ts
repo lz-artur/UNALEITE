@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
@@ -34,5 +34,10 @@ export class ProductionController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     return this.productionService.completeOrder(orderId, payload, user);
+  }
+
+  @Delete(':id')
+  deleteOrder(@Param('id') id: string) {
+    return this.productionService.deleteOrder(id);
   }
 }

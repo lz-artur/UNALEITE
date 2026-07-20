@@ -248,4 +248,68 @@ export class QualityService {
       throw new BadRequestException(error.message);
     }
   }
+
+  async deleteAnalysis(id: string) {
+    const { data: analysis, error: analysisError } = await this.supabaseService.admin
+      .from('milk_lot_analyses')
+      .select('id, milk_lot_id')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (analysisError) {
+      throw new BadRequestException(analysisError.message);
+    }
+
+    if (!analysis) {
+      throw new NotFoundException('Análise não encontrada');
+    }
+
+    const { data: lot, error: lotFindError } = await this.supabaseService.admin
+      .from('milk_lots')
+      .select('id, volume_liters, available_volume_liters')
+      .eq('id', analysis.milk_lot_id)
+      .maybeSingle();
+
+    if (lotFindError) {
+      throw new BadRequestException(lotFindError.message);
+    }
+
+    if (lot && lot.available_volume_liters < lot.volume_liters) {
+      throw new BadRequestException('Não é possível excluir a análise pois o lote já foi parcialmente ou totalmente consumido na produção.');
+    }
+
+    const { error: deleteError } = await this.supabaseService.admin
+      .from('milk_lot_analyses')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) {
+      throw new BadRequestException(deleteError.message);
+    }
+
+    if (lot) {
+      await this.supabaseService.admin
+        .from('milk_lots')
+        .update({ status: MILK_LOT_STATUS.PENDING_ANALYSIS, latest_analysis_id: null, cost_per_liter: null, total_value: null })
+        .eq('id', lot.id);
+        
+      await this.supabaseService.admin
+        .from('milk_lot_pricing')
+        .delete()
+        .eq('milk_lot_id', lot.id);
+
+      await this.supabaseService.admin
+        .from('lot_block_events')
+        .delete()
+        .eq('lot_id', lot.id);
+
+      await this.supabaseService.admin
+        .from('financial_entries')
+        .delete()
+        .eq('reference_table', 'milk_lots')
+        .eq('reference_id', lot.id);
+    }
+
+    return { success: true };
+  }
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
@@ -44,5 +44,10 @@ export class MilkReceptionController {
   @Get('milk-lots/:id')
   getMilkLot(@Param('id') id: string) {
     return this.milkReceptionService.getMilkLot(id);
+  }
+
+  @Delete('milk-lots/:id')
+  deleteReception(@Param('id') id: string) {
+    return this.milkReceptionService.deleteReception(id);
   }
 }

@@ -1,9 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Plus, Search } from 'lucide-react';
+import { Loader2, Plus, Search, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import type { LoteLeite } from '../data/mockData';
 import { useCadastros } from '../context/CadastrosContext';
-import { createMilkReception, loadMilkLots, loadMilkLotDetail, updateMilkReception } from '../services/operationsApi';
+import { createMilkReception, loadMilkLots, loadMilkLotDetail, updateMilkReception, deleteMilkReception } from '../services/operationsApi';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 
 function getErrorMessage(error: unknown) {
  if (error instanceof Error) {
@@ -34,9 +44,12 @@ export default function RecepcaoLeite() {
  const [loading, setLoading] = useState(true);
  const [saving, setSaving] = useState(false);
  const [errorMessage, setErrorMessage] = useState<string | null>(null);
- const [formError, setFormError] = useState<string | null>(null);
- const [formState, setFormState] = useState(emptyFormState);
- const { producers, routes, transporters, getProducerById, getRouteById } = useCadastros();
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formState, setFormState] = useState(emptyFormState);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const { producers, routes, transporters, getProducerById, getRouteById } = useCadastros();
 
  const loadData = async () => {
  setLoading(true);
@@ -179,10 +192,28 @@ export default function RecepcaoLeite() {
  setShowModal(false);
  } catch (error) {
  setFormError(getErrorMessage(error));
- } finally {
- setSaving(false);
- }
- };
+  } finally {
+  setSaving(false);
+  }
+  };
+
+  const handleDelete = async () => {
+    if (!itemToDelete) return;
+    setIsDeleting(true);
+    setErrorMessage(null);
+
+    try {
+      await deleteMilkReception(itemToDelete);
+      setLotes((current) => current.filter((l) => l.id !== itemToDelete));
+      setDeleteConfirmOpen(false);
+      setItemToDelete(null);
+    } catch (error) {
+      setDeleteConfirmOpen(false);
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
  const getStatusColor = (status: string) => {
  switch (status) {
@@ -252,9 +283,10 @@ export default function RecepcaoLeite() {
  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Rota</th>
  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Volume (L)</th>
  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Temperatura</th>
- <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Data/Hora</th>
- <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th>
- </tr>
+  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Data/Hora</th>
+  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th>
+  <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Ações</th>
+  </tr>
  </thead>
  <tbody className="divide-y divide-gray-200">
  {filteredLotes.map((lote) => {
@@ -282,11 +314,24 @@ export default function RecepcaoLeite() {
  {format(lote.dataHoraRecebimento, 'dd/MM/yyyy HH:mm')}
  </td>
  <td className="px-6 py-4">
- <span className={`rounded-full px-2 py-1 text-xs font-medium ${getStatusColor(lote.status)}`}>
- {lote.status}
- </span>
- </td>
- </tr>
+  <span className={`rounded-full px-2 py-1 text-xs font-medium ${getStatusColor(lote.status)}`}>
+  {lote.status}
+  </span>
+  </td>
+  <td className="px-6 py-4 text-right">
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        setItemToDelete(lote.id);
+        setDeleteConfirmOpen(true);
+      }}
+      className="text-red-600 hover:text-red-900"
+      title="Excluir lote"
+    >
+      <Trash2 className="h-5 w-5" />
+    </button>
+  </td>
+  </tr>
  );
  })}
  </tbody>
@@ -488,6 +533,33 @@ export default function RecepcaoLeite() {
       </div>
     </div>
   ) : null}
+
+  <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>Excluir Recepção de Leite</AlertDialogTitle>
+        <AlertDialogDescription>
+          Tem certeza que deseja excluir esta recepção? Esta ação não pode ser desfeita. 
+          Isso também excluirá o lote de leite e o pagamento associado. 
+          A exclusão não será permitida se houver análises ou uso do lote na produção.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+        <AlertDialogAction
+          disabled={isDeleting}
+          className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+          onClick={(e) => {
+            e.preventDefault();
+            void handleDelete();
+          }}
+        >
+          {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          Excluir
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
   </div>
   );
 }

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 
 @Injectable()
@@ -59,5 +59,51 @@ export class InventoryService {
     }
 
     return data ?? [];
+  }
+
+  async deleteSupplyLot(id: string) {
+    const { data: lot, error: findError } = await this.supabaseService.admin
+      .from('supply_lots')
+      .select('id, received_quantity, available_quantity')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (findError) throw new BadRequestException(findError.message);
+    if (!lot) throw new NotFoundException('Lote de insumo não encontrado');
+
+    if (lot.available_quantity < lot.received_quantity) {
+      throw new BadRequestException('Não é possível excluir o lote de insumo pois ele já foi parcialmente ou totalmente consumido.');
+    }
+
+    const { error: deleteError } = await this.supabaseService.admin
+      .from('supply_lots')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) throw new BadRequestException(deleteError.message);
+    return { success: true };
+  }
+
+  async deleteFinishedProductLot(id: string) {
+    const { data: lot, error: findError } = await this.supabaseService.admin
+      .from('finished_product_lots')
+      .select('id, quantity_produced, available_quantity')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (findError) throw new BadRequestException(findError.message);
+    if (!lot) throw new NotFoundException('Lote de produto acabado não encontrado');
+
+    if (lot.available_quantity < lot.quantity_produced) {
+      throw new BadRequestException('Não é possível excluir o lote de produto pois ele já foi parcialmente ou totalmente vendido.');
+    }
+
+    const { error: deleteError } = await this.supabaseService.admin
+      .from('finished_product_lots')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) throw new BadRequestException(deleteError.message);
+    return { success: true };
   }
 }

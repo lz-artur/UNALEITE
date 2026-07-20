@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Loader2, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import type { AnaliseLaboral as AnaliseLaboralType, LoteLeite } from '../data/mockData';
-import { createMilkAnalysis, loadMilkAnalyses, loadMilkLots } from '../services/operationsApi';
+import { createMilkAnalysis, loadMilkAnalyses, loadMilkLots, deleteMilkAnalysis } from '../services/operationsApi';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 
 const emptyFormState = {
  alizarol: '',
@@ -40,6 +50,9 @@ export default function AnaliseLaboral() {
  const [errorMessage, setErrorMessage] = useState<string | null>(null);
  const [formError, setFormError] = useState<string | null>(null);
  const [formState, setFormState] = useState(emptyFormState);
+ const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+ const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+ const [isDeleting, setIsDeleting] = useState(false);
 
  const loadData = async () => {
  setLoading(true);
@@ -138,6 +151,37 @@ export default function AnaliseLaboral() {
  }
  };
 
+ const handleDelete = async () => {
+    if (!itemToDelete) return;
+    setIsDeleting(true);
+    setErrorMessage(null);
+
+    try {
+      await deleteMilkAnalysis(itemToDelete);
+      setAnalises((current) => current.filter((a) => a.id !== itemToDelete));
+      
+      const analiseToDelete = analises.find(a => a.id === itemToDelete);
+      if (analiseToDelete) {
+        setLotes((current) => 
+          current.map((lote) => {
+            if (lote.id === analiseToDelete.loteId) {
+              return { ...lote, status: 'Aguardando Analise' };
+            }
+            return lote;
+          })
+        );
+      }
+
+      setDeleteConfirmOpen(false);
+      setItemToDelete(null);
+    } catch (error) {
+      setDeleteConfirmOpen(false);
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
  return (
  <div className="space-y-6">
  <div className="flex items-start justify-between gap-4">
@@ -224,6 +268,7 @@ export default function AnaliseLaboral() {
  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Antibioticos</th>
  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Gordura</th>
  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Resultado</th>
+ <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Ações</th>
  </tr>
  </thead>
  <tbody className="divide-y divide-gray-200">
@@ -270,6 +315,18 @@ export default function AnaliseLaboral() {
  {analise.aprovado ? 'Aprovado' : 'Reprovado'}
  </span>
  </td>
+ <td className="px-6 py-4 text-right">
+    <button
+      onClick={() => {
+        setItemToDelete(analise.id);
+        setDeleteConfirmOpen(true);
+      }}
+      className="text-red-600 hover:text-red-900"
+      title="Excluir análise"
+    >
+      <Trash2 className="h-5 w-5" />
+    </button>
+  </td>
  </tr>
  );
  })}
@@ -436,6 +493,33 @@ export default function AnaliseLaboral() {
  </div>
  </div>
  ) : null}
- </div>
- );
+
+  <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>Excluir Análise</AlertDialogTitle>
+        <AlertDialogDescription>
+          Tem certeza que deseja excluir esta análise? Esta ação não pode ser desfeita. 
+          O status do lote retornará para Aguardando Análise e os pagamentos vinculados serão removidos.
+          Não será possível excluir se o lote já tiver sido utilizado na produção.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+        <AlertDialogAction
+          disabled={isDeleting}
+          className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+          onClick={(e) => {
+            e.preventDefault();
+            void handleDelete();
+          }}
+        >
+          {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          Excluir
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+  </div>
+  );
 }

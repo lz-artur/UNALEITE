@@ -132,6 +132,24 @@ export class FinanceService {
   }
 
   async deleteEntry(id: string) {
+    const { data: entry, error: fetchError } = await this.supabaseService.admin
+      .from('financial_entries')
+      .select('status')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchError) {
+      throw new BadRequestException(fetchError.message);
+    }
+
+    if (!entry) {
+      throw new NotFoundException('Lançamento financeiro não encontrado');
+    }
+
+    if (entry.status === 'Pago') {
+      throw new BadRequestException('Não é possível excluir um lançamento financeiro que já foi pago/liquidado.');
+    }
+
     const { error } = await this.supabaseService.admin
       .from('financial_entries')
       .delete()

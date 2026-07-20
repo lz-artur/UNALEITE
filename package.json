@@ -8,7 +8,9 @@
     "dev": "vite",
     "backend:build": "npm --prefix backend run build",
     "backend:dev": "npm --prefix backend run start:dev",
-    "backend:test": "npm --prefix backend run test -- --runInBand"
+    "backend:test": "npm --prefix backend run test -- --runInBand",
+    "test": "vitest run",
+    "test:ui": "vitest --ui"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -70,9 +72,14 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.1.12",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@vitejs/plugin-react": "4.7.0",
+    "jsdom": "^29.1.1",
     "tailwindcss": "4.1.12",
-    "vite": "6.3.5"
+    "vite": "6.3.5",
+    "vitest": "^4.1.10"
   },
   "peerDependencies": {
     "react": "18.3.1",

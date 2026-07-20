@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Factory, Loader2, Plus, TrendingDown, TrendingUp } from 'lucide-react';
+import { Factory, Loader2, Plus, TrendingDown, TrendingUp, Trash2 } from 'lucide-react';
 import type { LoteLeite, OrdemProducao } from '../data/mockData';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -7,7 +7,18 @@ import {
  createProductionOrder,
  loadMilkLots,
  loadProductionOrders,
+ deleteProductionOrder,
 } from '../services/operationsApi';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 
 const emptyCreateForm = {
  milkLotId: '',
@@ -39,6 +50,9 @@ export default function Producao() {
  const [submitError, setSubmitError] = useState<string | null>(null);
  const [saving, setSaving] = useState(false);
  const [completing, setCompleting] = useState(false);
+ const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+ const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+ const [isDeleting, setIsDeleting] = useState(false);
  const { finishedProducts, getFinishedProductById, getUnitSymbol } = useCadastros();
 
  const loadData = async () => {
@@ -142,6 +156,21 @@ export default function Producao() {
  setSubmitError(getErrorMessage(error));
  } finally {
  setCompleting(false);
+ }
+ };
+
+ const handleDelete = async () => {
+ if (!itemToDelete) return;
+ setIsDeleting(true);
+ try {
+ await deleteProductionOrder(itemToDelete);
+ await loadData();
+ setDeleteConfirmOpen(false);
+ setItemToDelete(null);
+ } catch (error) {
+ setErrorMessage(getErrorMessage(error));
+ } finally {
+ setIsDeleting(false);
  }
  };
 
@@ -290,26 +319,36 @@ export default function Producao() {
  '-'
  )}
  </td>
- <td className="px-6 py-4">
- <StatusBadge status={op.status} />
- </td>
- <td className="px-6 py-4">
- {op.status === 'Em Andamento' ? (
- <button
- onClick={() => {
- setSelectedOrder(op);
- setCompleteForm(emptyCompleteForm);
- setSubmitError(null);
- }}
- className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-100"
- >
- Finalizar OP
- </button>
- ) : (
- <span className="text-sm text-gray-400">Concluida</span>
- )}
- </td>
- </tr>
+  <td className="px-6 py-4">
+  <StatusBadge status={op.status} />
+  </td>
+  <td className="px-6 py-4 flex items-center justify-end gap-2">
+  {op.status === 'Em Andamento' ? (
+  <button
+  onClick={() => {
+  setSelectedOrder(op);
+  setCompleteForm(emptyCompleteForm);
+  setSubmitError(null);
+  }}
+  className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-100"
+  >
+  Finalizar OP
+  </button>
+  ) : (
+  <span className="text-sm text-gray-400 mr-2">Concluida</span>
+  )}
+    <button
+      onClick={() => {
+        setItemToDelete(op.id);
+        setDeleteConfirmOpen(true);
+      }}
+      className="text-red-600 hover:text-red-900"
+      title="Excluir ordem de produção"
+    >
+      <Trash2 className="h-5 w-5" />
+    </button>
+  </td>
+  </tr>
  );
  })}
  </tbody>
@@ -480,7 +519,34 @@ export default function Producao() {
  </div>
  </div>
  ) : null}
- </div>
+
+  <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>Excluir Ordem de Produção</AlertDialogTitle>
+        <AlertDialogDescription>
+          Tem certeza que deseja excluir esta ordem de produção? Esta ação não pode ser desfeita.
+          Isso restaurará os volumes de leite cru e insumos utilizados.
+          A exclusão não será permitida se o lote do produto acabado já tiver sido parcialmente ou totalmente vendido.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+        <AlertDialogAction
+          disabled={isDeleting}
+          className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+          onClick={(e) => {
+            e.preventDefault();
+            void handleDelete();
+          }}
+        >
+          {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          Excluir
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+  </div>
  );
 }
 

@@ -407,4 +407,102 @@ export class ProductionService {
 
     return data.id as string;
   }
+
+  async deleteOrder(id: string) {
+    const order = await this.getById('production_orders', id);
+
+    const { data: finishedLots, error: finishedLotsError } = await this.supabaseService.admin
+      .from('finished_product_lots')
+      .select('id, quantity_produced, available_quantity')
+      .eq('production_order_id', id);
+
+    if (finishedLotsError) throw new BadRequestException(finishedLotsError.message);
+
+    if (finishedLots && finishedLots.length > 0) {
+      for (const lot of finishedLots) {
+        if (lot.available_quantity < lot.quantity_produced) {
+          throw new BadRequestException('Não é possível excluir a OP pois os produtos gerados já foram parcialmente ou totalmente vendidos.');
+        }
+      }
+    }
+
+    const { data: milkConsumptions, error: milkError } = await this.supabaseService.admin
+      .from('production_order_milk_consumptions')
+      .select('milk_lot_id, liters_consumed')
+      .eq('production_order_id', id);
+
+    if (milkError) throw new BadRequestException(milkError.message);
+
+    if (milkConsumptions && milkConsumptions.length > 0) {
+      for (const mc of milkConsumptions) {
+        const { data: milkLot } = await this.supabaseService.admin
+          .from('milk_lots')
+          .select('available_volume_liters, volume_liters')
+          .eq('id', mc.milk_lot_id)
+          .single();
+
+        if (milkLot) {
+          const restoredVolume = Number(milkLot.available_volume_liters) + Number(mc.liters_consumed);
+          const newStatus = restoredVolume >= milkLot.volume_liters ? MILK_LOT_STATUS.APPROVED : MILK_LOT_STATUS.PARTIALLY_USED;
+          await this.supabaseService.admin
+            .from('milk_lots')
+            .update({ available_volume_liters: restoredVolume, status: newStatus })
+            .eq('id', mc.milk_lot_id);
+        }
+      }
+      await this.supabaseService.admin.from('production_order_milk_consumptions').delete().eq('production_order_id', id);
+    }
+
+    const { data: supplyConsumptions, error: supplyError } = await this.supabaseService.admin
+      .from('production_order_supply_consumptions')
+      .select('supply_lot_id, quantity_consumed')
+      .eq('production_order_id', id);
+
+    if (supplyError) throw new BadRequestException(supplyError.message);
+
+    if (supplyConsumptions && supplyConsumptions.length > 0) {
+      for (const sc of supplyConsumptions) {
+        const { data: supplyLot } = await this.supabaseService.admin
+          .from('supply_lots')
+          .select('available_quantity, received_quantity, supply_item_id')
+          .eq('id', sc.supply_lot_id)
+          .single();
+
+        if (supplyLot) {
+          const restoredVolume = Number(supplyLot.available_quantity) + Number(sc.quantity_consumed);
+          const newStatus = restoredVolume >= supplyLot.received_quantity ? SUPPLY_LOT_STATUS.AVAILABLE : SUPPLY_LOT_STATUS.PARTIALLY_USED;
+          await this.supabaseService.admin
+            .from('supply_lots')
+            .update({ available_quantity: restoredVolume, status: newStatus })
+            .eq('id', sc.supply_lot_id);
+
+          const { data: supplyItem } = await this.supabaseService.admin
+            .from('supply_items')
+            .select('current_stock')
+            .eq('id', supplyLot.supply_item_id)
+            .single();
+          
+          if (supplyItem) {
+            await this.supabaseService.admin
+              .from('supply_items')
+              .update({ current_stock: Number(supplyItem.current_stock) + Number(sc.quantity_consumed) })
+              .eq('id', supplyLot.supply_item_id);
+          }
+        }
+      }
+      await this.supabaseService.admin.from('production_order_supply_consumptions').delete().eq('production_order_id', id);
+    }
+
+    await this.supabaseService.admin.from('stock_movements').delete().eq('reference_table', 'production_orders').eq('reference_id', id);
+    await this.supabaseService.admin.from('finished_product_lots').delete().eq('production_order_id', id);
+
+    const { error: deleteOrderError } = await this.supabaseService.admin
+      .from('production_orders')
+      .delete()
+      .eq('id', id);
+
+    if (deleteOrderError) throw new BadRequestException(deleteOrderError.message);
+
+    return { success: true };
+  }
 }

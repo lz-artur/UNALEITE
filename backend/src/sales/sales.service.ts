@@ -473,4 +473,64 @@ export class SalesService {
 
     return data ?? [];
   }
+
+  async deleteOrder(id: string) {
+    const bundle = await this.loadSalesBundle();
+    const salesOrder = bundle.salesOrders.find((entry) => String(entry.id) === id);
+
+    if (!salesOrder) {
+      throw new NotFoundException('Pedido de venda não encontrado');
+    }
+
+    const fulfillments = bundle.fulfillments.filter((f) => String(f.sales_order_id) === id);
+
+    for (const fulfillment of fulfillments) {
+      const lot = bundle.finishedProductLots.find(
+        (l) => String(l.id) === String(fulfillment.finished_product_lot_id)
+      );
+
+      if (lot) {
+        const restoredVolume = Number(lot.available_quantity) + Number(fulfillment.quantity);
+        await this.supabaseService.admin
+          .from('finished_product_lots')
+          .update({ available_quantity: restoredVolume })
+          .eq('id', lot.id);
+      }
+    }
+
+    if (fulfillments.length > 0) {
+      await this.supabaseService.admin
+        .from('sales_order_fulfillments')
+        .delete()
+        .eq('sales_order_id', id);
+    }
+
+    await this.supabaseService.admin
+      .from('stock_movements')
+      .delete()
+      .eq('reference_table', 'sales_orders')
+      .eq('reference_id', id);
+
+    await this.supabaseService.admin
+      .from('sales_order_items')
+      .delete()
+      .eq('sales_order_id', id);
+
+    await this.supabaseService.admin
+      .from('financial_entries')
+      .delete()
+      .eq('reference_table', 'sales_orders')
+      .eq('reference_id', id);
+
+    const { error: deleteOrderError } = await this.supabaseService.admin
+      .from('sales_orders')
+      .delete()
+      .eq('id', id);
+
+    if (deleteOrderError) {
+      throw new BadRequestException(deleteOrderError.message);
+    }
+
+    return { success: true };
+  }
 }

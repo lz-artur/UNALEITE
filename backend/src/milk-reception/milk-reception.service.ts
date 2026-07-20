@@ -307,4 +307,72 @@ export class MilkReceptionService {
 
     return data.id as string;
   }
+
+  async deleteReception(milkLotId: string) {
+    const { data: lot, error: lotFindError } = await this.supabaseService.admin
+      .from('milk_lots')
+      .select('id, milk_reception_id, volume_liters, available_volume_liters')
+      .eq('id', milkLotId)
+      .maybeSingle();
+
+    if (lotFindError) {
+      throw new BadRequestException(lotFindError.message);
+    }
+
+    if (!lot) {
+      throw new NotFoundException('Milk lot not found');
+    }
+
+    if (lot.available_volume_liters < lot.volume_liters) {
+      throw new BadRequestException('Não é possível excluir o lote pois ele já foi parcialmente ou totalmente consumido na produção.');
+    }
+
+    const { count: analysisCount, error: analysisError } = await this.supabaseService.admin
+      .from('milk_lot_analyses')
+      .select('*', { count: 'exact', head: true })
+      .eq('milk_lot_id', milkLotId);
+
+    if (analysisError) {
+      throw new BadRequestException(analysisError.message);
+    }
+
+    if (analysisCount && analysisCount > 0) {
+      throw new BadRequestException('Não é possível excluir o lote pois existem análises de qualidade vinculadas a ele.');
+    }
+
+    const { count: productionOrderCount, error: productionOrderError } = await this.supabaseService.admin
+      .from('production_orders')
+      .select('*', { count: 'exact', head: true })
+      .eq('milk_lot_id', milkLotId);
+
+    if (productionOrderError) {
+      throw new BadRequestException(productionOrderError.message);
+    }
+
+    if (productionOrderCount && productionOrderCount > 0) {
+      throw new BadRequestException('Não é possível excluir o lote pois ele está vinculado a uma ordem de produção.');
+    }
+
+    await this.supabaseService.admin.from('lot_block_events').delete().eq('lot_id', milkLotId);
+
+    const { error: deleteLotError } = await this.supabaseService.admin
+      .from('milk_lots')
+      .delete()
+      .eq('id', milkLotId);
+
+    if (deleteLotError) {
+      throw new BadRequestException(deleteLotError.message);
+    }
+
+    const { error: deleteReceptionError } = await this.supabaseService.admin
+      .from('milk_receptions')
+      .delete()
+      .eq('id', lot.milk_reception_id);
+
+    if (deleteReceptionError) {
+      throw new BadRequestException(deleteReceptionError.message);
+    }
+
+    return { success: true };
+  }
 }

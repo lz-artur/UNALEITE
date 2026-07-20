@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Plus, ShoppingCart } from 'lucide-react';
+import { Loader2, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -7,9 +7,20 @@ import {
   loadPurchaseDetail,
   loadPurchases,
   receivePurchase,
+  deletePurchase,
   type PurchaseFilters,
   type PurchaseRecord,
 } from '../services/operationsApi';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
@@ -37,6 +48,9 @@ export default function Compras() {
   const [saving, setSaving] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [createForm, setCreateForm] = useState({
     supplierId: '',
     ...getDefaultDates(),
@@ -265,6 +279,29 @@ export default function Compras() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!itemToDelete) return;
+    setIsDeleting(true);
+    setErrorMessage(null);
+
+    try {
+      await deletePurchase(itemToDelete);
+      setPurchases((current) => current.filter((purchase) => purchase.id !== itemToDelete));
+      
+      if (selectedPurchase?.id === itemToDelete) {
+        setSelectedPurchase(null);
+      }
+
+      setDeleteConfirmOpen(false);
+      setItemToDelete(null);
+    } catch (error) {
+      setDeleteConfirmOpen(false);
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const statusBadgeClass = (status: string) => {
     if (status === 'Recebida') return 'bg-green-100 text-green-800';
     if (status === 'Parcialmente Recebida') return 'bg-yellow-100 text-yellow-800';
@@ -379,6 +416,7 @@ export default function Compras() {
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Valor</th>
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Acoes</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -417,6 +455,18 @@ export default function Compras() {
                           </button>
                         ) : null}
                       </div>
+                    </td>
+                    <td className="px-6 py-4 w-12">
+                      <button
+                        onClick={() => {
+                          setItemToDelete(purchase.id);
+                          setDeleteConfirmOpen(true);
+                        }}
+                        className="text-red-600 hover:text-red-900"
+                        title="Excluir compra"
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -800,6 +850,33 @@ export default function Compras() {
           </div>
         </div>
       ) : null}
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Pedido de Compra</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir este pedido de compra? Esta ação não pode ser desfeita.
+              Isso também excluirá todos os recebimentos e lançamentos financeiros associados, e restaurará 
+              os volumes dos lotes de insumos. A exclusão não será permitida se algum lote de insumo recebido já tiver sido consumido.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+              onClick={(e) => {
+                e.preventDefault();
+                void handleDelete();
+              }}
+            >
+              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

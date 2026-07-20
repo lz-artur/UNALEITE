@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
@@ -40,5 +40,10 @@ export class PurchasesController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     return this.purchasesService.receivePurchase(id, payload, user);
+  }
+
+  @Delete(':id')
+  deletePurchase(@Param('id') id: string) {
+    return this.purchasesService.deletePurchase(id);
   }
 }
