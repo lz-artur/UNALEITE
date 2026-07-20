@@ -13,11 +13,14 @@ import {
   Download,
   Edit2,
   CheckCircle,
-  Eye
+  Eye,
+  X,
+  CircleX
 } from 'lucide-react';
-import { loadFinancialEntries, createFinancialEntry, deleteFinancialEntry, settleFinancialEntry, updateFinancialEntry, type FinancialEntryRecord } from '../../services/operationsApi';
+import { loadFinancialEntries, createFinancialEntry, createBatchFinancialEntries, deleteFinancialEntry, settleFinancialEntry, unsettleFinancialEntry, updateFinancialEntry, uploadFinancialAttachment, type FinancialEntryRecord } from '../../services/operationsApi';
 import type { ContaFinanceira } from '../../data/mockData';
 import NovaReceitaModal from './NovaReceitaModal';
+import BaixaModal from './BaixaModal';
 import { toast } from 'sonner';
 
 export default function ContasReceber() {
@@ -35,6 +38,7 @@ export default function ContasReceber() {
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [isBatchDropdownOpen, setIsBatchDropdownOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<FinancialEntryRecord | null>(null);
+  const [entryToSettle, setEntryToSettle] = useState<FinancialEntryRecord | null>(null);
   const [viewingEntry, setViewingEntry] = useState<FinancialEntryRecord | null>(null);
 
   const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -67,14 +71,19 @@ export default function ContasReceber() {
     setCurrentPage(1); // Reset page on month change
   }, [currentDate]);
 
-  const handleSaveReceita = async (payload: Omit<ContaFinanceira, 'id' | 'statusCalculado'>) => {
+  const handleSaveReceita = async (payloads: Omit<ContaFinanceira, 'id' | 'statusCalculado'>[]) => {
     try {
-      if (editingEntry) {
-        await updateFinancialEntry(editingEntry.id, payload);
+      if (editingEntry && payloads.length === 1) {
+        await updateFinancialEntry(editingEntry.id, payloads[0]);
         toast.success('Receita atualizada com sucesso!');
       } else {
-        await createFinancialEntry(payload);
-        toast.success('Receita criada com sucesso!');
+        if (payloads.length > 1) {
+          await createBatchFinancialEntries(payloads);
+          toast.success(`${payloads.length} receitas (parcelas) criadas com sucesso!`);
+        } else if (payloads.length === 1) {
+          await createFinancialEntry(payloads[0]);
+          toast.success('Receita criada com sucesso!');
+        }
       }
       setIsModalOpen(false);
       setEditingEntry(null);
@@ -408,7 +417,7 @@ export default function ContasReceber() {
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto flex-grow">
+      <div className="overflow-x-auto overflow-y-visible flex-grow pb-32 min-h-[400px]">
         <table className="w-full text-sm text-left">
           <thead className="text-xs text-gray-500 bg-gray-50 border-b border-gray-200">
             <tr>
@@ -489,7 +498,6 @@ export default function ContasReceber() {
                     </td>
                     <td className="px-4 py-3 text-right relative">
                       <div className="flex items-center justify-end gap-2">
-                        <FileText className="w-4 h-4 text-gray-400 hover:text-blue-500 cursor-pointer" />
                         <button 
                           onClick={() => setOpenDropdownId(openDropdownId === entry.id ? null : entry.id)}
                           className="flex items-center gap-1 text-xs font-medium text-blue-600 bg-white border border-gray-300 rounded px-2 py-1 hover:bg-gray-50"
@@ -500,21 +508,34 @@ export default function ContasReceber() {
                       
                       {openDropdownId === entry.id && (
                         <div className="absolute right-4 top-10 w-36 bg-white rounded-md shadow-lg border border-gray-200 z-20 py-1">
-                          <button 
-                            onClick={async () => {
-                              try {
-                                await settleFinancialEntry(entry.id);
-                                toast.success('Conta baixada com sucesso!');
+                          {entry.statusCalculado !== 'Pago' && entry.status !== 'Pago' && (
+                            <button 
+                              onClick={() => {
+                                setEntryToSettle(entry);
                                 setOpenDropdownId(null);
-                                void loadData();
-                              } catch (e) {
-                                toast.error('Erro ao baixar conta.');
-                              }
-                            }}
-                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                          >
-                            <CheckCircle className="w-4 h-4 text-green-500" /> Dar baixa
-                          </button>
+                              }}
+                              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                            >
+                              <CheckCircle className="w-4 h-4 text-green-500" /> Dar baixa
+                            </button>
+                          )}
+                          {(entry.statusCalculado === 'Pago' || entry.status === 'Pago') && (
+                            <button 
+                              onClick={async () => {
+                                try {
+                                  await unsettleFinancialEntry(entry.id);
+                                  toast.success('Baixa cancelada com sucesso!');
+                                  setOpenDropdownId(null);
+                                  void loadData();
+                                } catch (e) {
+                                  toast.error('Erro ao cancelar baixa.');
+                                }
+                              }}
+                              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                            >
+                              <CircleX className="w-4 h-4 text-amber-500" /> Cancelar baixa
+                            </button>
+                          )}
                           <button 
                             onClick={() => {
                               setEditingEntry(entry);
@@ -659,8 +680,26 @@ export default function ContasReceber() {
             setEditingEntry(null);
           }} 
           onSave={handleSaveReceita} 
-          initialData={editingEntry}
+          initialData={editingEntry || undefined}
         />
+
+      {entryToSettle && (
+        <BaixaModal
+          isOpen={!!entryToSettle}
+          onClose={() => setEntryToSettle(null)}
+          onConfirm={async (file) => {
+            try {
+              const url = await uploadFinancialAttachment(file);
+              await settleFinancialEntry(entryToSettle.id, undefined, url);
+              toast.success('Receita baixada com sucesso!');
+              void loadData();
+            } catch (error) {
+              toast.error('Erro ao realizar baixa ou enviar comprovante.');
+              throw error;
+            }
+          }}
+        />
+      )}
         
         {viewingEntry && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -677,6 +716,16 @@ export default function ContasReceber() {
                 <div><span className="font-semibold text-gray-700">Valor Total:</span> {formatCurrency(viewingEntry.valor)}</div>
                 <div><span className="font-semibold text-gray-700">Data de Vencimento:</span> {safeFormatDate(viewingEntry.dataVencimento)}</div>
                 <div><span className="font-semibold text-gray-700">Data de Recebimento:</span> {viewingEntry.dataPagamento ? safeFormatDate(viewingEntry.dataPagamento) : '-'}</div>
+                {viewingEntry.centroCusto && <div><span className="font-semibold text-gray-700">Centro de Custo:</span> {viewingEntry.centroCusto}</div>}
+                {viewingEntry.subcategoriaContabil && <div><span className="font-semibold text-gray-700">Subcategoria:</span> {viewingEntry.subcategoriaContabil}</div>}
+                {viewingEntry.formaPagamento && <div><span className="font-semibold text-gray-700">Forma de Pagamento:</span> {viewingEntry.formaPagamento}</div>}
+                {viewingEntry.tipoPagamento && <div><span className="font-semibold text-gray-700">Tipo:</span> {viewingEntry.tipoPagamento}</div>}
+                {viewingEntry.anexoUrl && (
+                  <div>
+                    <span className="font-semibold text-gray-700">Comprovante:</span>{' '}
+                    <a href={viewingEntry.anexoUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Ver Anexo</a>
+                  </div>
+                )}
                 <div>
                   <span className="font-semibold text-gray-700">Situação:</span> 
                   <span className={`ml-2 inline-block px-2 py-0.5 text-xs font-medium rounded ${getStatusStyle(viewingEntry.statusCalculado || viewingEntry.status)}`}>

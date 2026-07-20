@@ -172,6 +172,13 @@ export interface ContaFinanceira {
   fornecedorId?: string;
   clienteId?: string;
   produtorId?: string;
+  centroCusto?: string;
+  subcategoriaContabil?: string;
+  formaPagamento?: string;
+  tipoPagamento?: string;
+  anexoUrl?: string;
+  installmentGroupId?: string;
+  installmentNumber?: number;
 }
 
 // Dados Mockados

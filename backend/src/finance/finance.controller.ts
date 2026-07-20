@@ -36,6 +36,22 @@ export class FinanceController {
     return this.financeService.settleEntry(id, payload, user);
   }
 
+  @Post(':id/unsettle')
+  unsettleEntry(
+    @Param('id') id: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.financeService.unsettleEntry(id, user);
+  }
+
+  @Post('batch')
+  createBatchEntries(
+    @Body() payloads: any[],
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.financeService.createBatchEntries(payloads, user);
+  }
+
   @Put(':id')
   updateEntry(
     @Param('id') id: string,

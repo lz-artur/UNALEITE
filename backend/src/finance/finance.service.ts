@@ -83,6 +83,43 @@ export class FinanceService {
       .update({
         payment_date: paymentDate,
         status: 'Pago',
+        attachment_url: payload.attachmentUrl ?? currentEntry.attachment_url,
+        updated_by: user?.id ?? null,
+      })
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return this.normalizeEntry(data);
+  }
+
+  async unsettleEntry(
+    id: string,
+    user?: AuthenticatedUser,
+  ) {
+    const { data: currentEntry, error: currentError } = await this.supabaseService.admin
+      .from('financial_entries')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (currentError) {
+      throw new BadRequestException(currentError.message);
+    }
+
+    if (!currentEntry) {
+      throw new NotFoundException('Financial entry not found');
+    }
+
+    const { data, error } = await this.supabaseService.admin
+      .from('financial_entries')
+      .update({
+        payment_date: null,
+        status: 'Aberto',
         updated_by: user?.id ?? null,
       })
       .eq('id', id)
@@ -111,6 +148,26 @@ export class FinanceService {
     }
 
     return this.normalizeEntry(data);
+  }
+
+  async createBatchEntries(payloads: Record<string, any>[], user?: AuthenticatedUser) {
+    if (!payloads || payloads.length === 0) return [];
+    
+    const entries = payloads.map((payload) => ({
+      ...payload,
+      created_by: user?.id ?? null,
+    }));
+
+    const { data, error } = await this.supabaseService.admin
+      .from('financial_entries')
+      .insert(entries)
+      .select('*');
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return (data ?? []).map(entry => this.normalizeEntry(entry));
   }
 
   async updateEntry(id: string, payload: Record<string, any>, user?: AuthenticatedUser) {

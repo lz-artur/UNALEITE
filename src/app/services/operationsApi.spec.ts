@@ -9,15 +9,27 @@ import {
   deleteSalesOrder,
   deletePurchase,
   deleteFinancialEntry,
+  createBatchFinancialEntries,
+  unsettleFinancialEntry,
+  uploadFinancialAttachment,
 } from './operationsApi';
+import { supabase } from '../lib/supabase';
 
 vi.mock('./api', async () => {
   const original = await vi.importActual('./api');
   return {
     ...original,
-    apiRequest: vi.fn(),
+    apiRequest: vi.fn().mockResolvedValue([]),
   };
 });
+
+vi.mock('../lib/supabase', () => ({
+  supabase: {
+    storage: {
+      from: vi.fn(),
+    },
+  },
+}));
 
 describe('operationsApi - Deletion endpoints', () => {
   beforeEach(() => {
@@ -77,6 +89,42 @@ describe('operationsApi - Deletion endpoints', () => {
     await deleteFinancialEntry('entry-1');
     expect(api.apiRequest).toHaveBeenCalledWith('/financial-entries/entry-1', {
       method: 'DELETE',
+    });
+  });
+
+  describe('New Financial Methods', () => {
+    it('createBatchFinancialEntries calls POST /financial-entries/batch', async () => {
+      const payloads = [{ valor: 100 } as any];
+      await createBatchFinancialEntries(payloads);
+      expect(api.apiRequest).toHaveBeenCalledWith('/financial-entries/batch', {
+        method: 'POST',
+        body: JSON.stringify([{ amount: 100 }]),
+      });
+    });
+
+    it('unsettleFinancialEntry calls POST /financial-entries/:id/unsettle', async () => {
+      await unsettleFinancialEntry('entry-2');
+      expect(api.apiRequest).toHaveBeenCalledWith('/financial-entries/entry-2/unsettle', {
+        method: 'POST',
+      });
+    });
+
+    it('uploadFinancialAttachment uploads to supabase and returns url', async () => {
+      const uploadMock = vi.fn().mockResolvedValue({ error: null });
+      const getPublicUrlMock = vi.fn().mockReturnValue({ data: { publicUrl: 'https://fake-url.com/file.png' } });
+      
+      (supabase.storage.from as any).mockReturnValue({
+        upload: uploadMock,
+        getPublicUrl: getPublicUrlMock,
+      });
+
+      const file = new File([''], 'test.png', { type: 'image/png' });
+      const url = await uploadFinancialAttachment(file);
+
+      expect(supabase.storage.from).toHaveBeenCalledWith('comprovantes');
+      expect(uploadMock).toHaveBeenCalled();
+      expect(getPublicUrlMock).toHaveBeenCalled();
+      expect(url).toBe('https://fake-url.com/file.png');
     });
   });
 });

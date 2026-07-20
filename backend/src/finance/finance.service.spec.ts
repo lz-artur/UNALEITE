@@ -77,4 +77,100 @@ describe('FinanceService', () => {
       );
     });
   });
+
+  describe('unsettleEntry', () => {
+    let updateMock: jest.Mock;
+    let selectMock: jest.Mock;
+
+    beforeEach(() => {
+      selectMock = jest.fn();
+      updateMock = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({
+              data: { id: 'entry-1', status: 'Aberto', payment_date: null, due_date: '2023-01-01' },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      supabaseServiceMock.admin.from.mockImplementation((table: string) => {
+        if (table === 'financial_entries') {
+          return {
+            select: selectMock,
+            update: updateMock,
+          };
+        }
+        return {};
+      });
+    });
+
+    it('should unsettle a financial entry successfully', async () => {
+      selectMock.mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({
+            data: { id: 'entry-1', status: 'Pago' },
+            error: null,
+          }),
+        }),
+      });
+
+      const result = await service.unsettleEntry('entry-1');
+      expect((result as any).status).toBe('Aberto');
+      expect((result as any).computed_status).toBe('Vencido'); // past date
+      expect(updateMock).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'Aberto', payment_date: null }),
+      );
+    });
+
+    it('should throw NotFoundException if entry does not exist during unsettle', async () => {
+      selectMock.mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
+        }),
+      });
+
+      await expect(service.unsettleEntry('entry-1')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('createBatchEntries', () => {
+    let insertMock: jest.Mock;
+
+    beforeEach(() => {
+      insertMock = jest.fn().mockReturnValue({
+        select: jest.fn().mockResolvedValue({
+          data: [
+            { id: '1', due_date: '2029-01-01', status: 'Aberto' },
+            { id: '2', due_date: '2029-02-01', status: 'Aberto' },
+          ],
+          error: null,
+        }),
+      });
+
+      supabaseServiceMock.admin.from.mockImplementation(() => ({
+        insert: insertMock,
+      }));
+    });
+
+    it('should insert multiple entries successfully', async () => {
+      const payloads = [{ valor: 100 }, { valor: 200 }];
+      const result = await service.createBatchEntries(payloads);
+      
+      expect(result).toHaveLength(2);
+      expect(insertMock).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ valor: 100, created_by: null }),
+          expect.objectContaining({ valor: 200, created_by: null }),
+        ]),
+      );
+    });
+
+    it('should return empty array if payloads are empty', async () => {
+      const result = await service.createBatchEntries([]);
+      expect(result).toEqual([]);
+      expect(insertMock).not.toHaveBeenCalled();
+    });
+  });
 });

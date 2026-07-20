@@ -17,6 +17,7 @@ import {
   precificacoes as mockPrecificacoes,
 } from '../data/mockData';
 import { apiRequest, withFallback } from './api';
+import { supabase } from '../lib/supabase';
 
 export interface DashboardStats {
   leiteRecebidoMes: number;
@@ -554,6 +555,13 @@ function mapFinancialEntry(row: any): ContaFinanceira {
     referenceTable: row.reference_table ?? undefined,
     referenceId: row.reference_id ?? undefined,
     statusCalculado: row.computed_status ?? row.status,
+    centroCusto: row.cost_center ?? undefined,
+    subcategoriaContabil: row.accounting_subcategory ?? undefined,
+    formaPagamento: row.payment_method ?? undefined,
+    tipoPagamento: row.payment_type ?? undefined,
+    anexoUrl: row.attachment_url ?? undefined,
+    installmentGroupId: row.installment_group_id ?? undefined,
+    installmentNumber: row.installment_number ?? undefined,
   };
 }
 
@@ -749,12 +757,16 @@ export async function loadFinancialEntries(filters?: FinancialEntryFilters) {
   }, () => mockContasFinanceiras);
 }
 
-export async function settleFinancialEntry(entryId: string, paymentDate?: string) {
+export async function settleFinancialEntry(entryId: string, paymentDate?: string, attachmentUrl?: string) {
   return apiRequest<any>(`/financial-entries/${entryId}/settle`, {
     method: 'POST',
-    body: JSON.stringify({
-      paymentDate,
-    }),
+    body: JSON.stringify({ paymentDate, attachmentUrl }),
+  }).then(mapFinancialEntry);
+}
+
+export async function unsettleFinancialEntry(entryId: string) {
+  return apiRequest<any>(`/financial-entries/${entryId}/unsettle`, {
+    method: 'POST',
   }).then(mapFinancialEntry);
 }
 
@@ -769,6 +781,13 @@ export async function createFinancialEntry(payload: Omit<ContaFinanceira, 'id' |
       category: payload.categoria,
       client_id: payload.clienteId,
       status: payload.status,
+      cost_center: payload.centroCusto,
+      accounting_subcategory: payload.subcategoriaContabil,
+      payment_method: payload.formaPagamento,
+      payment_type: payload.tipoPagamento,
+      attachment_url: payload.anexoUrl,
+      installment_group_id: payload.installmentGroupId,
+      installment_number: payload.installmentNumber,
     }),
   }).then(mapFinancialEntry).catch(() => {
     // Mock fallback since API might not have this endpoint yet
@@ -781,9 +800,58 @@ export async function createFinancialEntry(payload: Omit<ContaFinanceira, 'id' |
       category: payload.categoria,
       client_id: payload.clienteId,
       status: payload.status,
-      computed_status: payload.status
+      computed_status: payload.status,
+      cost_center: payload.centroCusto,
+      accounting_subcategory: payload.subcategoriaContabil,
+      payment_method: payload.formaPagamento,
+      payment_type: payload.tipoPagamento,
+      attachment_url: payload.anexoUrl,
+      installment_group_id: payload.installmentGroupId,
+      installment_number: payload.installmentNumber,
     });
   });
+}
+
+export async function createBatchFinancialEntries(payloads: Omit<ContaFinanceira, 'id' | 'statusCalculado'>[]) {
+  return apiRequest<any[]>('/financial-entries/batch', {
+    method: 'POST',
+    body: JSON.stringify(payloads.map(payload => ({
+      entry_type: payload.tipo,
+      description: payload.descricao,
+      amount: payload.valor,
+      due_date: payload.dataVencimento,
+      category: payload.categoria,
+      client_id: payload.clienteId,
+      status: payload.status,
+      cost_center: payload.centroCusto,
+      accounting_subcategory: payload.subcategoriaContabil,
+      payment_method: payload.formaPagamento,
+      payment_type: payload.tipoPagamento,
+      attachment_url: payload.anexoUrl,
+      installment_group_id: payload.installmentGroupId,
+      installment_number: payload.installmentNumber,
+    }))),
+  }).then(entries => entries.map(mapFinancialEntry));
+}
+
+export async function uploadFinancialAttachment(file: File): Promise<string> {
+  const fileExt = file.name.split('.').pop();
+  const fileName = `${crypto.randomUUID()}.${fileExt}`;
+  const filePath = `comprovantes/${fileName}`;
+
+  const { error } = await supabase.storage
+    .from('comprovantes')
+    .upload(filePath, file);
+
+  if (error) {
+    throw error;
+  }
+
+  const { data } = supabase.storage
+    .from('comprovantes')
+    .getPublicUrl(filePath);
+
+  return data.publicUrl;
 }
 
 export async function updateFinancialEntry(id: string, payload: Partial<ContaFinanceira>) {
@@ -797,6 +865,11 @@ export async function updateFinancialEntry(id: string, payload: Partial<ContaFin
       category: payload.categoria,
       client_id: payload.clienteId,
       status: payload.status,
+      cost_center: payload.centroCusto,
+      accounting_subcategory: payload.subcategoriaContabil,
+      payment_method: payload.formaPagamento,
+      payment_type: payload.tipoPagamento,
+      attachment_url: payload.anexoUrl,
     }),
   }).then(mapFinancialEntry);
 }
