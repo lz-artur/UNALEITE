@@ -152,9 +152,10 @@ export class DomainRulesService {
   }
 
   calculateSupplyLotStatus(availableQuantity: number, expirationDate?: string | null) {
-    if (expirationDate && new Date(expirationDate) < new Date()) {
-      return SUPPLY_LOT_STATUS.EXPIRED;
-    }
+    // Desabilitado temporariamente para inserção de dados retroativos
+    // if (expirationDate && new Date(expirationDate) < new Date()) {
+    //   return SUPPLY_LOT_STATUS.EXPIRED;
+    // }
 
     if (availableQuantity <= 0) {
       return SUPPLY_LOT_STATUS.USED;

@@ -148,13 +148,14 @@ export class SalesService {
         throw new BadRequestException('O lote do produto acabado não corresponde ao item do pedido');
       }
 
-      if (lot.expiration_date) {
-        const expDateStr = String(lot.expiration_date).split('T')[0];
-        const todayStr = new Date().toISOString().split('T')[0];
-        if (expDateStr < todayStr) {
-          throw new BadRequestException(`O lote ${String(lot.lot_code)} está vencido`);
-        }
-      }
+      // Desabilitado temporariamente para inserção de dados retroativos
+      // if (lot.expiration_date) {
+      //   const expDateStr = String(lot.expiration_date).split('T')[0];
+      //   const todayStr = new Date().toISOString().split('T')[0];
+      //   if (expDateStr < todayStr) {
+      //     throw new BadRequestException(`O lote ${String(lot.lot_code)} está vencido`);
+      //   }
+      // }
 
       if (itemPayload.quantity > Number(lot.available_quantity)) {
         throw new BadRequestException(`O lote ${String(lot.lot_code)} não tem quantidade disponível suficiente`);

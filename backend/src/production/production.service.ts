@@ -126,13 +126,14 @@ export class ProductionService {
     for (const consumption of supplyConsumptions) {
       const supplyLot = await this.getById('supply_lots', consumption.supplyLotId);
       const availableQuantity = Number(supplyLot.available_quantity);
-      const isExpired =
-        supplyLot.expiration_date != null &&
-        (supplyLot.expiration_date && String(supplyLot.expiration_date).split('T')[0] < new Date().toISOString().split('T')[0]);
+      // Desabilitado temporariamente para inserção de dados retroativos
+      // const isExpired =
+      //   supplyLot.expiration_date != null &&
+      //   (supplyLot.expiration_date && String(supplyLot.expiration_date).split('T')[0] < new Date().toISOString().split('T')[0]);
 
       if (
-        ([SUPPLY_LOT_STATUS.BLOCKED, SUPPLY_LOT_STATUS.EXPIRED, SUPPLY_LOT_STATUS.USED] as string[]).includes(String(supplyLot.status)) ||
-        isExpired
+        ([SUPPLY_LOT_STATUS.BLOCKED, SUPPLY_LOT_STATUS.USED] as string[]).includes(String(supplyLot.status))
+        // || isExpired
       ) {
         throw new BadRequestException(`Supply lot ${supplyLot.internal_lot_code} is unavailable`);
       }
@@ -142,9 +143,10 @@ export class ProductionService {
       }
     }
 
-    if (new Date(milkLot.received_at) > new Date()) {
-      throw new BadRequestException('Milk lot received date is invalid');
-    }
+    // Desabilitado temporariamente para inserção de dados retroativos
+    // if (new Date(milkLot.received_at) > new Date()) {
+    //   throw new BadRequestException('Milk lot received date is invalid');
+    // }
 
     const newAvailableVolume =
       Number(milkLot.available_volume_liters) - Number(order.liters_planned);
@@ -356,13 +358,14 @@ export class ProductionService {
           break;
         }
 
-        if (lot.expiration_date) {
-          const expDateStr = String(lot.expiration_date).split('T')[0];
-          const todayStr = new Date().toISOString().split('T')[0];
-          if (expDateStr < todayStr) {
-            continue;
-          }
-        }
+        // Desabilitado temporariamente para inserção de dados retroativos
+        // if (lot.expiration_date) {
+        //   const expDateStr = String(lot.expiration_date).split('T')[0];
+        //   const todayStr = new Date().toISOString().split('T')[0];
+        //   if (expDateStr < todayStr) {
+        //     continue;
+        //   }
+        // }
 
         const available = Number(lot.available_quantity);
         if (available <= 0) {
