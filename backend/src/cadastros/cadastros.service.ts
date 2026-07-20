@@ -111,6 +111,28 @@ export class CadastrosService {
     );
   }
 
+  async delete(entity: CadastroEntity, id: string) {
+    const definition = this.getDefinition(entity);
+
+    if (entity === 'productSpecs') {
+      await this.supabaseService.admin.from('product_spec_items').delete().eq('product_spec_id', id);
+    }
+
+    const { error } = await this.supabaseService.admin
+      .from(definition.table)
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      if (error.code === '23503') {
+        throw new BadRequestException('Não é possível excluir este registro pois ele está vinculado a outros dados no sistema.');
+      }
+      throw new BadRequestException(error.message);
+    }
+
+    return { success: true };
+  }
+
   private getDefinition(entity: CadastroEntity) {
     const definition = CADASTRO_ENTITY_DEFINITIONS[entity];
 

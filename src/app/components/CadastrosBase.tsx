@@ -22,7 +22,10 @@ import {
  Landmark,
  Tags,
  Tag,
+ MoreHorizontal,
+ Trash2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import type {
  BlockReasonRecord,
  FinishedProductRecord,
@@ -264,7 +267,8 @@ function StatusBadge({ status }: { status: SupplyLotStatus }) {
  return <span className={`px-2 py-1 text-xs font-medium rounded-full ${classes}`}>{status}</span>;
 }
 
-export default function CadastrosBase() {
+export default function CadastrosBase({ section = 'producers' }: { section?: SectionKey }) {
+ const selectedSection = section;
  const {
  producers,
  routes,
@@ -303,6 +307,7 @@ export default function CadastrosBase() {
  saveAccountingCategory,
  saveAccountingSubcategory,
  toggleActive,
+ deleteRecord,
  getUnitSymbol,
  getTransporterById,
  getProducerCountByRoute,
@@ -315,13 +320,14 @@ export default function CadastrosBase() {
  getRouteById,
  } = useCadastros();
 
- const [selectedSection, setSelectedSection] = useState<SectionKey>('producers');
+ // const [selectedSection, setSelectedSection] = useState<SectionKey>('producers');
  const [searchTerm, setSearchTerm] = useState('');
  const [isFormOpen, setIsFormOpen] = useState(false);
  const [formState, setFormState] = useState<FormState>({});
  const [validationErrors, setValidationErrors] = useState<string[]>([]);
  const [linkedIds, setLinkedIds] = useState<string[]>([]);
  const [specItems, setSpecItems] = useState<ProductSpecItemRecord[]>([]);
+ const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
 
  const currentSection = sections.find((section) => section.key === selectedSection)!;
 
@@ -1334,23 +1340,57 @@ export default function CadastrosBase() {
 
  function renderActions(record: { id: string; active?: boolean }, allowToggle = true) {
  return (
- <div className="flex items-center gap-2">
+ <div className="relative flex items-center gap-2">
  <button
- onClick={() => startEdit(record)}
- className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
+ onClick={() => setOpenDropdownId(openDropdownId === record.id ? null : record.id)}
+ className="p-1 rounded-full hover:bg-gray-100 transition-colors"
  >
- <Pencil className="w-4 h-4" />
+ <MoreHorizontal className="w-5 h-5 text-gray-500" />
+ </button>
+
+ {openDropdownId === record.id && (
+ <div className="absolute right-0 top-8 w-36 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+ <button
+ onClick={() => {
+ startEdit(record);
+ setOpenDropdownId(null);
+ }}
+ className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+ >
+ <Pencil className="w-4 h-4 text-blue-600" />
  Editar
  </button>
  {allowToggle && typeof record.active === 'boolean' ? (
  <button
- onClick={() => toggleActive(selectedSection, record.id)}
- className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
+ onClick={() => {
+ toggleActive(selectedSection, record.id);
+ setOpenDropdownId(null);
+ }}
+ className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
  >
- <Power className="w-4 h-4" />
+ <Power className="w-4 h-4 text-gray-600" />
  {record.active ? 'Inativar' : 'Ativar'}
  </button>
  ) : null}
+ <button
+ onClick={async () => {
+ if (confirm('Tem certeza que deseja excluir este registro?')) {
+ try {
+ await deleteRecord(selectedSection, record.id);
+ toast.success('Registro excluído com sucesso!');
+ } catch (e) {
+ // Error is already toasted by api.ts
+ }
+ }
+ setOpenDropdownId(null);
+ }}
+ className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-50 flex items-center gap-2"
+ >
+ <Trash2 className="w-4 h-4 text-red-600" />
+ Excluir
+ </button>
+ </div>
+ )}
  </div>
  );
  }
@@ -1882,38 +1922,7 @@ export default function CadastrosBase() {
  <div className="space-y-6">
  {renderCommonHeader()}
 
- <div className="grid grid-cols-1 xl:grid-cols-[260px_minmax(0,1fr)] gap-6">
- <aside className="bg-white rounded-2xl border border-gray-200 p-4 h-fit">
- <p className="text-xs font-semibold tracking-wide text-gray-500 uppercase mb-3">Cadastros do MVP</p>
- <div className="space-y-1">
- {sections.map((section) => {
- const Icon = section.icon;
- const isActive = selectedSection === section.key;
-
- return (
- <button
- key={section.key}
- onClick={() => {
- setSelectedSection(section.key);
- setSearchTerm('');
- }}
- className={`w-full text-left rounded-xl px-3 py-3 transition-colors ${
- isActive ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'
- }`}
- >
- <div className="flex items-start gap-3">
- <Icon className="w-5 h-5 mt-0.5 flex-shrink-0" />
- <div>
- <p className="font-medium text-sm">{section.label}</p>
- <p className="text-xs text-gray-500 mt-1">{section.description}</p>
- </div>
- </div>
- </button>
- );
- })}
- </div>
- </aside>
-
+ <div className="w-full">
  <div className="space-y-6">
  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
  {metrics.map((metric) => (

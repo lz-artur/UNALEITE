@@ -44,13 +44,38 @@ const menuItems = [
   },
   { id: 'folha-leite', label: 'Folha do Leite', icon: FileText },
   { id: 'dre', label: 'DRE Gerencial', icon: BarChart3 },
-  { id: 'cadastros', label: 'Cadastros', icon: Users },
+  {
+    id: 'cadastros',
+    label: 'Cadastros',
+    icon: Users,
+    subItems: [
+      { id: 'cadastros-producers', label: 'Produtores' },
+      { id: 'cadastros-routes', label: 'Rotas' },
+      { id: 'cadastros-transporters', label: 'Transportadores' },
+      { id: 'cadastros-milkTypes', label: 'Tipos de Matéria-prima' },
+      { id: 'cadastros-qualityParameters', label: 'Parâmetros de Qualidade' },
+      { id: 'cadastros-milkPriceRules', label: 'Regras de Preço do Leite' },
+      { id: 'cadastros-supplyItems', label: 'Insumos' },
+      { id: 'cadastros-suppliers', label: 'Fornecedores' },
+      { id: 'cadastros-finishedProducts', label: 'Produtos Acabados' },
+      { id: 'cadastros-productSpecs', label: 'Ficha Técnica' },
+      { id: 'cadastros-supplyLots', label: 'Lotes de Insumos' },
+      { id: 'cadastros-blockReasons', label: 'Motivos de Bloqueio' },
+      { id: 'cadastros-units', label: 'Unidades de Medida' },
+      { id: 'cadastros-stockLocations', label: 'Locais de Estoque' },
+      { id: 'cadastros-costCenters', label: 'Centros de Custo' },
+      { id: 'cadastros-bankAccounts', label: 'Contas Bancárias' },
+      { id: 'cadastros-accountingCategories', label: 'Categorias Financeiras' },
+      { id: 'cadastros-accountingSubcategories', label: 'Subcategorias' },
+    ],
+  },
 ];
 
 export default function Layout({ children, currentPage, onNavigate }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
     financeiro: currentPage === 'contas-receber' || currentPage === 'contas-pagar' || currentPage === 'financeiro',
+    cadastros: currentPage.startsWith('cadastros'),
   });
   const { user, signOut } = useAuth();
 

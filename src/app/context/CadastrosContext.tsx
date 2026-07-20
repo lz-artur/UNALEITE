@@ -28,6 +28,7 @@ import {
   saveRouteRecord,
   saveSupplierRecord,
   toggleCadastroRecord,
+  deleteCadastroRecord,
 } from '../services/cadastrosApi';
 
 type EntityWithActive = { id: string; active: boolean };
@@ -62,6 +63,7 @@ interface CadastrosContextValue extends CadastrosState {
   saveAccountingCategory: (record: AccountingCategoryRecord) => void;
   saveAccountingSubcategory: (record: AccountingSubcategoryRecord) => void;
   toggleActive: (entity: EntityName, id: string) => void;
+  deleteRecord: (entity: EntityName, id: string) => Promise<void>;
   getUnitSymbol: (id?: string) => string;
   getProducerById: (id?: string) => ProducerRecord | undefined;
   getRouteById: (id?: string) => RouteRecord | undefined;
@@ -436,6 +438,19 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const deleteRecord = async (entity: EntityName, id: string) => {
+    try {
+      await deleteCadastroRecord(entity, id);
+      setState((current) => ({
+        ...current,
+        [entity]: (current[entity] as any[]).filter((item) => item.id !== id),
+      }));
+    } catch (error) {
+      console.error(`Failed to delete entity ${entity}`, error);
+      throw error;
+    }
+  };
+
   const value = useMemo<CadastrosContextValue>(
     () => ({
       ...state,
@@ -458,6 +473,7 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       saveAccountingCategory,
       saveAccountingSubcategory,
       toggleActive,
+      deleteRecord,
       getUnitSymbol: (id) => state.units.find((item) => item.id === id)?.symbol || '-',
       getProducerById: (id) => state.producers.find((item) => item.id === id),
       getRouteById: (id) => state.routes.find((item) => item.id === id),

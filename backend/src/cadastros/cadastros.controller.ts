@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Delete,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -59,5 +60,13 @@ export class CadastrosController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     return this.cadastrosService.toggleActive(entity, id, user);
+  }
+
+  @Delete(':entity/:id')
+  delete(
+    @Param('entity') entity: CadastroEntity,
+    @Param('id') id: string,
+  ) {
+    return this.cadastrosService.delete(entity, id);
   }
 }

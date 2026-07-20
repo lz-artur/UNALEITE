@@ -37,6 +37,11 @@ function AppContent() {
   }
 
   const renderPage = () => {
+    if (currentPage.startsWith('cadastros')) {
+      const section = currentPage === 'cadastros' ? 'producers' : currentPage.replace('cadastros-', '');
+      return <CadastrosBase section={section as any} />;
+    }
+
     switch (currentPage) {
       case 'dashboard':
         return <Dashboard />;
@@ -64,8 +69,6 @@ function AppContent() {
         return <FolhaLeite />;
       case 'dre':
         return <DreGerencial />;
-      case 'cadastros':
-        return <CadastrosBase />;
       default:
         return <Dashboard />;
     }

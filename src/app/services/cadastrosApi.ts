@@ -642,6 +642,13 @@ export async function toggleCadastroRecord(entity: CadastroEntity, id: string) {
   });
 }
 
+export async function deleteCadastroRecord(entity: CadastroEntity, id: string) {
+  const endpoint = entityEndpointMap[entity];
+  return apiRequest(`/cadastros/${endpoint}/${id}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function saveRouteRecord(record: RouteRecord, producerIds: string[]) {
   const isNew = !record.id || isFakeId(String(record.id));
   const payload = serializeRoute(record);
