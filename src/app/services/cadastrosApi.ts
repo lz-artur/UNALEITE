@@ -19,6 +19,8 @@ import type {
   BankAccountRecord,
   AccountingCategoryRecord,
   AccountingSubcategoryRecord,
+  PaymentMethodRecord,
+  PaymentTypeRecord,
 } from '../data/cadastrosData';
 import { initialCadastrosState } from '../data/cadastrosData';
 import { apiRequest, withFallback } from './api';
@@ -44,6 +46,8 @@ const entityEndpointMap: Record<CadastroEntity, string> = {
   bankAccounts: 'bankAccounts',
   accountingCategories: 'accountingCategories',
   accountingSubcategories: 'accountingSubcategories',
+  paymentMethods: 'paymentMethods',
+  paymentTypes: 'paymentTypes',
 };
 
 function mapUnit(row: any): UnitRecord {
@@ -301,6 +305,22 @@ function mapAccountingSubcategory(row: any): AccountingSubcategoryRecord {
   };
 }
 
+function mapPaymentMethod(row: any): PaymentMethodRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    active: row.active,
+  };
+}
+
+function mapPaymentType(row: any): PaymentTypeRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    active: row.active,
+  };
+}
+
 const entityMappers: Record<CadastroEntity, (rows: any[]) => CadastrosState[CadastroEntity]> = {
   units: (rows) => rows.map(mapUnit),
   stockLocations: (rows) => rows.map(mapStockLocation),
@@ -320,6 +340,8 @@ const entityMappers: Record<CadastroEntity, (rows: any[]) => CadastrosState[Cada
   bankAccounts: (rows) => rows.map(mapBankAccount),
   accountingCategories: (rows) => rows.map(mapAccountingCategory),
   accountingSubcategories: (rows) => rows.map(mapAccountingSubcategory),
+  paymentMethods: (rows) => rows.map(mapPaymentMethod),
+  paymentTypes: (rows) => rows.map(mapPaymentType),
 };
 
 function serializeUnit(record: UnitRecord) {
@@ -573,6 +595,22 @@ function serializeAccountingSubcategory(record: AccountingSubcategoryRecord) {
   };
 }
 
+function serializePaymentMethod(record: PaymentMethodRecord) {
+  return {
+    id: record.id,
+    name: record.name,
+    active: record.active,
+  };
+}
+
+function serializePaymentType(record: PaymentTypeRecord) {
+  return {
+    id: record.id,
+    name: record.name,
+    active: record.active,
+  };
+}
+
 const entitySerializers: Record<CadastroEntity, (record: any) => Record<string, unknown>> = {
   units: serializeUnit,
   stockLocations: serializeStockLocation,
@@ -592,6 +630,8 @@ const entitySerializers: Record<CadastroEntity, (record: any) => Record<string, 
   bankAccounts: serializeBankAccount,
   accountingCategories: serializeAccountingCategory,
   accountingSubcategories: serializeAccountingSubcategory,
+  paymentMethods: serializePaymentMethod,
+  paymentTypes: serializePaymentType,
 };
 
 export async function loadCadastrosState() {

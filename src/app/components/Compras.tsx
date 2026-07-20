@@ -56,7 +56,15 @@ export default function Compras() {
     ...getDefaultDates(),
     notes: '',
     items: [{ localId: 'item-1', supplyItemId: '', quantity: '', unitCost: '' }],
+    paymentMethodId: '',
+    paymentTypeId: '',
+    costCenterId: '',
+    accountingCategoryId: '',
+    accountingSubcategoryId: '',
+    bankAccountId: '',
+    installments: [] as Array<{ localId: string; dueDate: string; amount: string }>,
   });
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [receiveForm, setReceiveForm] = useState<{
     receivedAt: string;
     items: Record<
@@ -78,6 +86,12 @@ export default function Compras() {
     suppliers,
     supplyItems,
     stockLocations,
+    costCenters,
+    bankAccounts,
+    accountingCategories,
+    accountingSubcategories,
+    paymentMethods,
+    paymentTypes,
     getSupplierById,
     getSupplyItemById,
     getUnitSymbol,
@@ -128,6 +142,13 @@ export default function Compras() {
       ...getDefaultDates(),
       notes: '',
       items: [{ localId: `item-${Date.now()}`, supplyItemId: '', quantity: '', unitCost: '' }],
+      paymentMethodId: '',
+      paymentTypeId: '',
+      costCenterId: '',
+      accountingCategoryId: '',
+      accountingSubcategoryId: '',
+      bankAccountId: '',
+      installments: [],
     });
     setShowCreateModal(true);
     setErrorMessage(null);
@@ -152,6 +173,33 @@ export default function Compras() {
       return;
     }
 
+    const selectedPaymentType = paymentTypes.find((pt) => pt.id === createForm.paymentTypeId);
+    const isDividido = selectedPaymentType?.name.toLowerCase().includes('dividido') || selectedPaymentType?.name.toLowerCase().includes('prazo');
+
+    const normalizedInstallments = isDividido
+      ? createForm.installments
+          .filter((inst) => inst.amount && Number(inst.amount) > 0 && inst.dueDate)
+          .map((inst) => ({
+            dueDate: new Date(inst.dueDate).toISOString(),
+            amount: Number(inst.amount),
+          }))
+      : [];
+
+    if (isDividido) {
+      const totalItems = normalizedItems.reduce((acc, item) => acc + item.quantity * item.unitCost, 0);
+      const totalInstallments = normalizedInstallments.reduce((acc, inst) => acc + inst.amount, 0);
+
+      // Tolerar diferenca de centavos
+      if (Math.abs(totalItems - totalInstallments) > 0.1) {
+        setErrorMessage('A soma das parcelas deve ser igual ao valor total da compra.');
+        return;
+      }
+      if (normalizedInstallments.length === 0) {
+        setErrorMessage('Informe pelo menos uma parcela válida.');
+        return;
+      }
+    }
+
     setSaving(true);
     setErrorMessage(null);
 
@@ -161,6 +209,13 @@ export default function Compras() {
         purchaseDate: new Date(createForm.purchaseDate).toISOString(),
         dueDate: createForm.dueDate ? new Date(createForm.dueDate).toISOString() : undefined,
         notes: createForm.notes || undefined,
+        paymentMethodId: createForm.paymentMethodId || undefined,
+        paymentTypeId: createForm.paymentTypeId || undefined,
+        costCenterId: createForm.costCenterId || undefined,
+        accountingCategoryId: createForm.accountingCategoryId || undefined,
+        accountingSubcategoryId: createForm.accountingSubcategoryId || undefined,
+        bankAccountId: createForm.bankAccountId || undefined,
+        installments: normalizedInstallments.length > 0 ? normalizedInstallments : undefined,
         items: normalizedItems,
       });
       setPurchases((current) => [createdPurchase, ...current]);
@@ -437,7 +492,10 @@ export default function Compras() {
                     <td className="px-6 py-4">
                       <div className="flex flex-wrap gap-2">
                         <button
-                          onClick={() => setSelectedPurchase(purchase)}
+                          onClick={() => {
+                            setSelectedPurchase(purchase);
+                            setShowDetailModal(true);
+                          }}
                           className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                         >
                           Detalhes
@@ -476,48 +534,110 @@ export default function Compras() {
         )}
       </div>
 
-      {selectedPurchase ? (
-        <div className="rounded-xl border border-gray-200 bg-white p-6">
-          <div className="mb-4 flex items-start justify-between">
-            <div>
-              <h3 className="font-bold text-gray-900">{selectedPurchase.number}</h3>
-              <p className="text-sm text-gray-600">{selectedPurchase.supplierName}</p>
+      {showDetailModal && selectedPurchase ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white shadow-xl flex flex-col">
+            <div className="border-b border-gray-200 p-6 flex justify-between items-center bg-gray-50 sticky top-0 rounded-t-xl z-10">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Detalhes da Compra {selectedPurchase.number}</h3>
+                <p className="text-sm text-gray-600 font-medium">{selectedPurchase.supplierName}</p>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClass(selectedPurchase.status)} shadow-sm`}>
+                {selectedPurchase.status}
+              </span>
             </div>
-            <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(selectedPurchase.status)}`}>
-              {selectedPurchase.status}
-            </span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Insumo</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Pedido</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Recebido</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Pendente</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Custo</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {selectedPurchase.items.map((item) => (
-                  <tr key={item.id}>
-                    <td className="px-4 py-3 font-medium">{item.supplyItemName}</td>
-                    <td className="px-4 py-3">
-                      {item.orderedQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
-                    </td>
-                    <td className="px-4 py-3">
-                      {item.receivedQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
-                    </td>
-                    <td className="px-4 py-3">
-                      {item.pendingQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
-                    </td>
-                    <td className="px-4 py-3">R$ {item.unitCost.toFixed(2)}</td>
-                    <td className="px-4 py-3 text-sm">{item.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            
+            <div className="p-6 overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                  <h4 className="text-sm font-bold text-blue-900 uppercase tracking-wider mb-3">Informacoes Gerais</h4>
+                  <dl className="space-y-2 text-sm">
+                    <div className="flex justify-between border-b border-blue-100 pb-1">
+                      <dt className="text-blue-800">Data da Compra:</dt>
+                      <dd className="font-semibold text-blue-900">{format(selectedPurchase.purchaseDate, 'dd/MM/yyyy')}</dd>
+                    </div>
+                    <div className="flex justify-between border-b border-blue-100 pb-1">
+                      <dt className="text-blue-800">Vencimento:</dt>
+                      <dd className="font-semibold text-blue-900">{format(selectedPurchase.dueDate, 'dd/MM/yyyy')}</dd>
+                    </div>
+                    <div className="flex justify-between border-b border-blue-100 pb-1">
+                      <dt className="text-blue-800">Valor Total:</dt>
+                      <dd className="font-semibold text-blue-900">R$ {selectedPurchase.totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</dd>
+                    </div>
+                  </dl>
+                </div>
+
+                <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                  <h4 className="text-sm font-bold text-indigo-900 uppercase tracking-wider mb-3">Financeiro & Contabil</h4>
+                  <dl className="space-y-2 text-sm">
+                    <div className="flex justify-between border-b border-indigo-100 pb-1">
+                      <dt className="text-indigo-800">Forma Pagto:</dt>
+                      <dd className="font-semibold text-indigo-900">{paymentMethods.find(m => m.id === selectedPurchase.paymentMethodId)?.name || '-'}</dd>
+                    </div>
+                    <div className="flex justify-between border-b border-indigo-100 pb-1">
+                      <dt className="text-indigo-800">Tipo Pagto:</dt>
+                      <dd className="font-semibold text-indigo-900">{paymentTypes.find(t => t.id === selectedPurchase.paymentTypeId)?.name || '-'}</dd>
+                    </div>
+                    <div className="flex justify-between border-b border-indigo-100 pb-1">
+                      <dt className="text-indigo-800">Centro Custo:</dt>
+                      <dd className="font-semibold text-indigo-900">{costCenters.find(c => c.id === selectedPurchase.costCenterId)?.name || '-'}</dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+
+              <h4 className="font-bold text-gray-900 mb-4 text-lg border-b pb-2">Itens Solicitados</h4>
+              <div className="overflow-x-auto rounded-lg border border-gray-200">
+                <table className="w-full">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-bold uppercase text-gray-600">Insumo</th>
+                      <th className="px-4 py-3 text-right text-xs font-bold uppercase text-gray-600">Pedido</th>
+                      <th className="px-4 py-3 text-right text-xs font-bold uppercase text-gray-600">Recebido</th>
+                      <th className="px-4 py-3 text-right text-xs font-bold uppercase text-gray-600">Pendente</th>
+                      <th className="px-4 py-3 text-right text-xs font-bold uppercase text-gray-600">Custo Unit.</th>
+                      <th className="px-4 py-3 text-center text-xs font-bold uppercase text-gray-600">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 bg-white">
+                    {selectedPurchase.items.map((item) => (
+                      <tr key={item.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-900">{item.supplyItemName}</td>
+                        <td className="px-4 py-3 text-right text-gray-700">
+                          {item.orderedQuantity.toLocaleString('pt-BR')} <span className="text-xs text-gray-500">{getUnitSymbol(item.unitId)}</span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium text-green-600">
+                          {item.receivedQuantity.toLocaleString('pt-BR')} <span className="text-xs text-green-700/50">{getUnitSymbol(item.unitId)}</span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium text-orange-500">
+                          {item.pendingQuantity.toLocaleString('pt-BR')} <span className="text-xs text-orange-600/50">{getUnitSymbol(item.unitId)}</span>
+                        </td>
+                        <td className="px-4 py-3 text-right text-gray-700 font-mono">R$ {item.unitCost.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-center text-sm">
+                          <span className={`px-2 py-1 rounded-md text-xs font-medium ${item.status === 'Pendente' ? 'bg-orange-100 text-orange-800' : 'bg-green-100 text-green-800'}`}>{item.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              
+              {selectedPurchase.notes && (
+                <div className="mt-6 bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <h4 className="text-sm font-bold text-gray-700 mb-2">Observacoes:</h4>
+                  <p className="text-gray-600 text-sm whitespace-pre-line">{selectedPurchase.notes}</p>
+                </div>
+              )}
+            </div>
+            
+            <div className="border-t border-gray-200 p-4 bg-gray-50 rounded-b-xl flex justify-end">
+              <button
+                onClick={() => setShowDetailModal(false)}
+                className="rounded-lg bg-gray-900 px-5 py-2 text-white hover:bg-gray-800 font-medium transition-colors shadow-sm"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -551,7 +671,127 @@ export default function Compras() {
                   value={createForm.dueDate}
                   onChange={(value) => setCreateForm((current) => ({ ...current, dueDate: value }))}
                 />
+                <FilterSelect
+                  label="Conta Bancaria"
+                  value={createForm.bankAccountId}
+                  onChange={(value) => setCreateForm((current) => ({ ...current, bankAccountId: value }))}
+                  options={[
+                    { label: 'Selecione...', value: '' },
+                    ...bankAccounts.filter(b => b.active).map((b) => ({ label: b.name, value: b.id })),
+                  ]}
+                />
+                <FilterSelect
+                  label="Centro de Custo"
+                  value={createForm.costCenterId}
+                  onChange={(value) => setCreateForm((current) => ({ ...current, costCenterId: value }))}
+                  options={[
+                    { label: 'Selecione...', value: '' },
+                    ...costCenters.filter(c => c.active).map((c) => ({ label: c.name, value: c.id })),
+                  ]}
+                />
+                <FilterSelect
+                  label="Categoria contabil"
+                  value={createForm.accountingCategoryId}
+                  onChange={(value) => setCreateForm((current) => ({ ...current, accountingCategoryId: value }))}
+                  options={[
+                    { label: 'Selecione...', value: '' },
+                    ...accountingCategories.filter(c => c.active && c.entryType === 'Pagar').map((c) => ({ label: c.name, value: c.id })),
+                  ]}
+                />
+                <FilterSelect
+                  label="Subcategoria contabil"
+                  value={createForm.accountingSubcategoryId}
+                  onChange={(value) => setCreateForm((current) => ({ ...current, accountingSubcategoryId: value }))}
+                  options={[
+                    { label: 'Selecione...', value: '' },
+                    ...accountingSubcategories.filter(s => s.active && s.categoryId === createForm.accountingCategoryId).map((s) => ({ label: s.name, value: s.id })),
+                  ]}
+                />
               </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 mt-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                <FilterSelect
+                  label="Forma de Pagamento"
+                  value={createForm.paymentMethodId}
+                  onChange={(value) => setCreateForm((current) => ({ ...current, paymentMethodId: value }))}
+                  options={[
+                    { label: 'Selecione...', value: '' },
+                    ...paymentMethods.filter(p => p.active).map((p) => ({ label: p.name, value: p.id })),
+                  ]}
+                />
+                <FilterSelect
+                  label="Tipo de Pagamento"
+                  value={createForm.paymentTypeId}
+                  onChange={(value) => setCreateForm((current) => ({ ...current, paymentTypeId: value }))}
+                  options={[
+                    { label: 'Selecione...', value: '' },
+                    ...paymentTypes.filter(p => p.active).map((p) => ({ label: p.name, value: p.id })),
+                  ]}
+                />
+              </div>
+
+              {paymentTypes.find(pt => pt.id === createForm.paymentTypeId)?.name.toLowerCase().includes('dividido') || 
+               paymentTypes.find(pt => pt.id === createForm.paymentTypeId)?.name.toLowerCase().includes('prazo') ? (
+                <div className="bg-orange-50 p-4 rounded-xl border border-orange-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-bold text-orange-900">Parcelas</h4>
+                    <button
+                      onClick={() =>
+                        setCreateForm((current) => ({
+                          ...current,
+                          installments: [
+                            ...current.installments,
+                            { localId: `inst-${Date.now()}`, dueDate: '', amount: '' },
+                          ],
+                        }))
+                      }
+                      className="rounded-lg border border-orange-300 bg-white px-3 py-1.5 text-sm text-orange-800 hover:bg-orange-100"
+                    >
+                      + Adicionar Parcela
+                    </button>
+                  </div>
+                  {createForm.installments.map((inst) => (
+                    <div key={inst.localId} className="flex gap-3 mb-2 items-end">
+                      <div className="flex-1">
+                        <FilterField
+                          label="Data Vencimento"
+                          type="date"
+                          value={inst.dueDate}
+                          onChange={(value) => setCreateForm(c => ({
+                            ...c, 
+                            installments: c.installments.map(i => i.localId === inst.localId ? { ...i, dueDate: value } : i)
+                          }))}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <FilterField
+                          label="Valor"
+                          type="number"
+                          value={inst.amount}
+                          onChange={(value) => setCreateForm(c => ({
+                            ...c, 
+                            installments: c.installments.map(i => i.localId === inst.localId ? { ...i, amount: value } : i)
+                          }))}
+                        />
+                      </div>
+                      <button
+                        onClick={() =>
+                          setCreateForm((current) => ({
+                            ...current,
+                            installments: current.installments.filter(i => i.localId !== inst.localId),
+                          }))
+                        }
+                        className="rounded-lg bg-red-100 px-3 py-2 text-sm text-red-700 hover:bg-red-200 h-[42px] mb-0.5"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  {createForm.installments.length === 0 && (
+                    <p className="text-sm text-orange-700 mt-2">Nenhuma parcela adicionada. O valor deve bater com o total da compra.</p>
+                  )}
+                </div>
+              ) : null}
 
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Observacoes</label>

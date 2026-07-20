@@ -47,6 +47,8 @@ import type {
  BankAccountRecord,
  AccountingCategoryRecord,
  AccountingSubcategoryRecord,
+ PaymentMethodRecord,
+ PaymentTypeRecord,
 } from '../data/cadastrosData';
 import { useCadastros } from '../context/CadastrosContext';
 
@@ -68,7 +70,9 @@ type SectionKey =
  | 'costCenters'
  | 'bankAccounts'
  | 'accountingCategories'
- | 'accountingSubcategories';
+ | 'accountingSubcategories'
+ | 'paymentMethods'
+ | 'paymentTypes';
 
 type FormState = Record<string, unknown>;
 
@@ -98,6 +102,8 @@ const sections: SectionDefinition[] = [
  { key: 'bankAccounts', label: 'Contas Bancárias', description: 'Contas usadas para pagamentos e boletos.', icon: Landmark },
  { key: 'accountingCategories', label: 'Categorias Financeiras', description: 'Categorias de receitas e despesas.', icon: Tags },
  { key: 'accountingSubcategories', label: 'Subcategorias', description: 'Detalhamento das categorias financeiras.', icon: Tag },
+ { key: 'paymentMethods', label: 'Formas de Pagamento', description: 'Pix, Dinheiro, Boleto, etc.', icon: ClipboardList },
+ { key: 'paymentTypes', label: 'Tipos de Pagamento', description: 'À vista, A prazo/Dividido.', icon: ClipboardList },
 ];
 
 function formatDate(value?: string) {
@@ -288,6 +294,8 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  bankAccounts,
  accountingCategories,
  accountingSubcategories,
+ paymentMethods,
+ paymentTypes,
  saveProducer,
  saveRoute,
  saveTransporter,
@@ -306,6 +314,8 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  saveBankAccount,
  saveAccountingCategory,
  saveAccountingSubcategory,
+ savePaymentMethod,
+ savePaymentType,
  toggleActive,
  deleteRecord,
  getUnitSymbol,
@@ -369,6 +379,10 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  return accountingCategories;
  case 'accountingSubcategories':
  return accountingSubcategories;
+ case 'paymentMethods':
+ return paymentMethods;
+ case 'paymentTypes':
+ return paymentTypes;
  default:
  return [];
  }
@@ -391,6 +405,8 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  bankAccounts,
  accountingCategories,
  accountingSubcategories,
+ paymentMethods,
+ paymentTypes,
  selectedSection,
  ]);
 
@@ -658,6 +674,10 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  return { id: '', name: '', entryType: 'Pagar', showInDre: false, active: true };
  case 'accountingSubcategories':
  return { id: '', categoryId: '', name: '', active: true };
+ case 'paymentMethods':
+ return { id: '', name: '', active: true };
+ case 'paymentTypes':
+ return { id: '', name: '', active: true };
  default:
  return {};
  }
@@ -798,14 +818,21 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  break;
  case 'bankAccounts':
  if (!formState.name) errors.push('Informe o nome de identificação da conta.');
+ if (hasDuplicate(bankAccounts, (item) => item.name === formState.name)) errors.push('Já existe conta com este nome.');
  break;
  case 'accountingCategories':
  if (!formState.name) errors.push('Informe o nome da categoria.');
- if (!formState.entryType) errors.push('Informe o tipo de lançamento.');
+ if (!formState.entryType) errors.push('Informe o tipo de categoria.');
  break;
  case 'accountingSubcategories':
  if (!formState.name) errors.push('Informe o nome da subcategoria.');
- if (!formState.categoryId) errors.push('Selecione uma categoria vinculada.');
+ if (!formState.categoryId) errors.push('Selecione uma categoria pai.');
+ break;
+ case 'paymentMethods':
+ if (!formState.name) errors.push('Informe o nome da forma de pagamento.');
+ break;
+ case 'paymentTypes':
+ if (!formState.name) errors.push('Informe o nome do tipo de pagamento.');
  break;
  default:
  break;
@@ -974,6 +1001,18 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  saveAccountingSubcategory({
  ...(formState as unknown as AccountingSubcategoryRecord),
  id: String(formState.id || generateId('subcat')),
+ });
+ break;
+ case 'paymentMethods':
+ savePaymentMethod({
+ ...(formState as unknown as PaymentMethodRecord),
+ id: String(formState.id || generateId('pm')),
+ });
+ break;
+ case 'paymentTypes':
+ savePaymentType({
+ ...(formState as unknown as PaymentTypeRecord),
+ id: String(formState.id || generateId('pt')),
  });
  break;
  default:
@@ -1326,6 +1365,36 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  <tr key={item.id} className="hover:bg-gray-50">
  <Td strong>{item.name}</Td>
  <Td>{cat?.name || '-'}</Td>
+ <Td><ActiveBadge active={item.active} /></Td>
+ <Td>{renderActions(item)}</Td>
+ </tr>
+ );
+ })}
+ </TableShell>
+ );
+ case 'paymentMethods':
+ return (
+ <TableShell headers={['Forma de Pagamento', 'Status', 'Ações']}>
+ {filteredRecords.map((record) => {
+ const item = record as PaymentMethodRecord;
+ return (
+ <tr key={item.id} className="hover:bg-gray-50">
+ <Td strong>{item.name}</Td>
+ <Td><ActiveBadge active={item.active} /></Td>
+ <Td>{renderActions(item)}</Td>
+ </tr>
+ );
+ })}
+ </TableShell>
+ );
+ case 'paymentTypes':
+ return (
+ <TableShell headers={['Tipo de Pagamento', 'Status', 'Ações']}>
+ {filteredRecords.map((record) => {
+ const item = record as PaymentTypeRecord;
+ return (
+ <tr key={item.id} className="hover:bg-gray-50">
+ <Td strong>{item.name}</Td>
  <Td><ActiveBadge active={item.active} /></Td>
  <Td>{renderActions(item)}</Td>
  </tr>
@@ -1910,6 +1979,20 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  options={accountingCategories.filter(item => item.active).map(item => ({ label: `${item.name} (${item.entryType})`, value: item.id }))}
  />
  <Field label="Nome da Subcategoria" required value={String(formState.name || '')} onChange={(value) => updateField('name', value)} />
+ <ToggleSelect label="Ativo" value={Boolean(formState.active)} onChange={(value) => updateField('active', value)} />
+ </div>
+ );
+ case 'paymentMethods':
+ return (
+ <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+ <Field label="Nome da Forma de Pagamento" required value={String(formState.name || '')} onChange={(value) => updateField('name', value)} />
+ <ToggleSelect label="Ativo" value={Boolean(formState.active)} onChange={(value) => updateField('active', value)} />
+ </div>
+ );
+ case 'paymentTypes':
+ return (
+ <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+ <Field label="Nome do Tipo de Pagamento" required value={String(formState.name || '')} onChange={(value) => updateField('name', value)} />
  <ToggleSelect label="Ativo" value={Boolean(formState.active)} onChange={(value) => updateField('active', value)} />
  </div>
  );

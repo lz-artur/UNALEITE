@@ -20,6 +20,8 @@ import {
   type BankAccountRecord,
   type AccountingCategoryRecord,
   type AccountingSubcategoryRecord,
+  type PaymentMethodRecord,
+  type PaymentTypeRecord,
 } from '../data/cadastrosData';
 import {
   loadCadastrosState,
@@ -62,6 +64,8 @@ interface CadastrosContextValue extends CadastrosState {
   saveBankAccount: (record: BankAccountRecord) => void;
   saveAccountingCategory: (record: AccountingCategoryRecord) => void;
   saveAccountingSubcategory: (record: AccountingSubcategoryRecord) => void;
+  savePaymentMethod: (record: PaymentMethodRecord) => void;
+  savePaymentType: (record: PaymentTypeRecord) => void;
   toggleActive: (entity: EntityName, id: string) => void;
   deleteRecord: (entity: EntityName, id: string) => Promise<void>;
   getUnitSymbol: (id?: string) => string;
@@ -95,7 +99,9 @@ type EntityName =
   | 'costCenters'
   | 'bankAccounts'
   | 'accountingCategories'
-  | 'accountingSubcategories';
+  | 'accountingSubcategories'
+  | 'paymentMethods'
+  | 'paymentTypes';
 
 const CadastrosContext = createContext<CadastrosContextValue | undefined>(undefined);
 
@@ -389,6 +395,24 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
     handleSaveResult('accountingSubcategories', record.id, saveCadastroRecord('accountingSubcategories', record) as Promise<AccountingSubcategoryRecord>);
   };
 
+  const savePaymentMethod = (record: PaymentMethodRecord) => {
+    setState((current) => ({
+      ...current,
+      paymentMethods: upsertRecord(current.paymentMethods, record),
+    }));
+
+    handleSaveResult('paymentMethods', record.id, saveCadastroRecord('paymentMethods', record) as Promise<PaymentMethodRecord>);
+  };
+
+  const savePaymentType = (record: PaymentTypeRecord) => {
+    setState((current) => ({
+      ...current,
+      paymentTypes: upsertRecord(current.paymentTypes, record),
+    }));
+
+    handleSaveResult('paymentTypes', record.id, saveCadastroRecord('paymentTypes', record) as Promise<PaymentTypeRecord>);
+  };
+
   const toggleActive = (entity: EntityName, id: string) => {
     setState((current) => {
       switch (entity) {
@@ -428,6 +452,10 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
           return { ...current, accountingCategories: toggleItems(current.accountingCategories, id) };
         case 'accountingSubcategories':
           return { ...current, accountingSubcategories: toggleItems(current.accountingSubcategories, id) };
+        case 'paymentMethods':
+          return { ...current, paymentMethods: toggleItems(current.paymentMethods, id) };
+        case 'paymentTypes':
+          return { ...current, paymentTypes: toggleItems(current.paymentTypes, id) };
         default:
           return current;
       }
@@ -472,6 +500,8 @@ export function CadastrosProvider({ children }: { children: ReactNode }) {
       saveBankAccount,
       saveAccountingCategory,
       saveAccountingSubcategory,
+      savePaymentMethod,
+      savePaymentType,
       toggleActive,
       deleteRecord,
       getUnitSymbol: (id) => state.units.find((item) => item.id === id)?.symbol || '-',

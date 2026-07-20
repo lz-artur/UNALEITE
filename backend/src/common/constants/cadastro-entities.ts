@@ -16,7 +16,9 @@ export type CadastroEntity =
   | 'costCenters'
   | 'bankAccounts'
   | 'accountingCategories'
-  | 'accountingSubcategories';
+  | 'accountingSubcategories'
+  | 'paymentMethods'
+  | 'paymentTypes';
 
 interface CadastroEntityDefinition {
   table: string;
@@ -130,6 +132,18 @@ export const CADASTRO_ENTITY_DEFINITIONS: Record<CadastroEntity, CadastroEntityD
   },
   accountingSubcategories: {
     table: 'accounting_subcategories',
+    searchableColumns: ['name'],
+    orderBy: 'name',
+    activeColumn: 'active',
+  },
+  paymentMethods: {
+    table: 'payment_methods',
+    searchableColumns: ['name'],
+    orderBy: 'name',
+    activeColumn: 'active',
+  },
+  paymentTypes: {
+    table: 'payment_types',
     searchableColumns: ['name'],
     orderBy: 'name',
     activeColumn: 'active',

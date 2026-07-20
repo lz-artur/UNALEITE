@@ -80,7 +80,37 @@ export interface PurchaseRecord {
   status: string;
   totalAmount: number;
   notes?: string;
+  paymentMethodId?: string;
+  paymentTypeId?: string;
+  costCenterId?: string;
+  accountingCategoryId?: string;
+  accountingSubcategoryId?: string;
+  bankAccountId?: string;
   items: PurchaseItemRecord[];
+}
+
+export interface PurchaseInstallment {
+  dueDate: string;
+  amount: number;
+}
+
+export interface CreatePurchasePayload {
+  supplierId: string;
+  purchaseDate: string;
+  dueDate?: string;
+  notes?: string;
+  paymentMethodId?: string;
+  paymentTypeId?: string;
+  costCenterId?: string;
+  accountingCategoryId?: string;
+  accountingSubcategoryId?: string;
+  bankAccountId?: string;
+  installments?: PurchaseInstallment[];
+  items: Array<{
+    supplyItemId: string;
+    quantity: number;
+    unitCost: number;
+  }>;
 }
 
 export interface PurchaseFilters {
@@ -472,6 +502,12 @@ function mapPurchase(row: any): PurchaseRecord {
     status: row.status,
     totalAmount: Number(row.totalAmount),
     notes: row.notes ?? undefined,
+    paymentMethodId: row.paymentMethodId ?? undefined,
+    paymentTypeId: row.paymentTypeId ?? undefined,
+    costCenterId: row.costCenterId ?? undefined,
+    accountingCategoryId: row.accountingCategoryId ?? undefined,
+    accountingSubcategoryId: row.accountingSubcategoryId ?? undefined,
+    bankAccountId: row.bankAccountId ?? undefined,
     items: (row.items ?? []).map((item: any) => ({
       id: item.id,
       supplyItemId: item.supplyItemId,
@@ -1015,17 +1051,7 @@ export async function loadPurchaseDetail(purchaseId: string) {
   return mapPurchase(purchase);
 }
 
-export async function createPurchase(payload: {
-  supplierId: string;
-  purchaseDate: string;
-  dueDate?: string;
-  notes?: string;
-  items: Array<{
-    supplyItemId: string;
-    quantity: number;
-    unitCost: number;
-  }>;
-}) {
+export async function createPurchase(payload: CreatePurchasePayload) {
   const purchase = await apiRequest<any>('/purchases', {
     method: 'POST',
     body: JSON.stringify(payload),

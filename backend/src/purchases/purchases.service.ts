@@ -57,6 +57,12 @@ export class PurchasesService {
         status: PURCHASE_STATUS.OPEN,
         total_amount: totalAmount,
         notes: payload.notes ?? null,
+        payment_method_id: payload.paymentMethodId ?? null,
+        payment_type_id: payload.paymentTypeId ?? null,
+        cost_center_id: payload.costCenterId ?? null,
+        accounting_category_id: payload.accountingCategoryId ?? null,
+        accounting_subcategory_id: payload.accountingSubcategoryId ?? null,
+        bank_account_id: payload.bankAccountId ?? null,
         created_by: user?.id ?? null,
         updated_by: user?.id ?? null,
       })
@@ -94,7 +100,7 @@ export class PurchasesService {
       throw new BadRequestException(itemsError.message);
     }
 
-    await this.upsertFinancialEntry(purchase, supplier, totalAmount, user);
+    await this.upsertFinancialEntry(purchase, supplier, totalAmount, payload, user);
 
     return this.getPurchase(String(purchase.id));
   }
@@ -320,6 +326,12 @@ export class PurchasesService {
       status: String(purchase.status),
       totalAmount: Number(purchase.total_amount ?? 0),
       notes: purchase.notes ? String(purchase.notes) : '',
+      paymentMethodId: purchase.payment_method_id ? String(purchase.payment_method_id) : undefined,
+      paymentTypeId: purchase.payment_type_id ? String(purchase.payment_type_id) : undefined,
+      costCenterId: purchase.cost_center_id ? String(purchase.cost_center_id) : undefined,
+      accountingCategoryId: purchase.accounting_category_id ? String(purchase.accounting_category_id) : undefined,
+      accountingSubcategoryId: purchase.accounting_subcategory_id ? String(purchase.accounting_subcategory_id) : undefined,
+      bankAccountId: purchase.bank_account_id ? String(purchase.bank_account_id) : undefined,
       items,
     };
   }
@@ -431,26 +443,55 @@ export class PurchasesService {
     purchase: Record<string, unknown>,
     supplier: Record<string, unknown>,
     amount: number,
+    payload: CreatePurchaseDto,
     user?: AuthenticatedUser,
   ) {
     const description = `Compra ${String(purchase.purchase_number)} - ${String(supplier.name)}`;
-
-    const { error } = await this.supabaseService.admin.from('financial_entries').insert({
+    const commonFields = {
       entry_type: 'Pagar',
-      description,
-      amount,
-      due_date: purchase.due_date,
       status: 'Aberto',
       category: 'Compras',
       supplier_id: purchase.supplier_id,
       reference_table: 'purchases',
       reference_id: purchase.id,
+      cost_center_id: payload.costCenterId ?? null,
+      accounting_category_id: payload.accountingCategoryId ?? null,
+      accounting_subcategory_id: payload.accountingSubcategoryId ?? null,
+      bank_account_id: payload.bankAccountId ?? null,
       created_by: user?.id ?? null,
       updated_by: user?.id ?? null,
-    });
+    };
 
-    if (error && !error.message.includes('duplicate')) {
-      throw new BadRequestException(error.message);
+    if (payload.installments && payload.installments.length > 0) {
+      // Usar a mesma lógica para agrupar as parcelas
+      const { v4: uuidv4 } = require('uuid');
+      const installmentGroupId = uuidv4();
+      
+      const entries = payload.installments.map((installment, index) => ({
+        ...commonFields,
+        description: `${description} (Parcela ${index + 1}/${payload.installments!.length})`,
+        amount: installment.amount,
+        due_date: installment.dueDate,
+        installment_group_id: installmentGroupId,
+        installment_number: index + 1,
+      }));
+
+      const { error } = await this.supabaseService.admin.from('financial_entries').insert(entries);
+
+      if (error && !error.message.includes('duplicate')) {
+        throw new BadRequestException(error.message);
+      }
+    } else {
+      const { error } = await this.supabaseService.admin.from('financial_entries').insert({
+        ...commonFields,
+        description,
+        amount,
+        due_date: purchase.due_date,
+      });
+
+      if (error && !error.message.includes('duplicate')) {
+        throw new BadRequestException(error.message);
+      }
     }
   }
 

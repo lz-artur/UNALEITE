@@ -226,6 +226,18 @@ export interface AccountingSubcategoryRecord {
   active: boolean;
 }
 
+export interface PaymentMethodRecord {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
+export interface PaymentTypeRecord {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
 export interface CadastrosState {
   units: UnitRecord[];
   stockLocations: StockLocationRecord[];
@@ -245,6 +257,8 @@ export interface CadastrosState {
   bankAccounts: BankAccountRecord[];
   accountingCategories: AccountingCategoryRecord[];
   accountingSubcategories: AccountingSubcategoryRecord[];
+  paymentMethods: PaymentMethodRecord[];
+  paymentTypes: PaymentTypeRecord[];
 }
 
 export const initialCadastrosState: CadastrosState = {
@@ -699,4 +713,6 @@ export const initialCadastrosState: CadastrosState = {
   bankAccounts: [],
   accountingCategories: [],
   accountingSubcategories: [],
+  paymentMethods: [],
+  paymentTypes: [],
 };

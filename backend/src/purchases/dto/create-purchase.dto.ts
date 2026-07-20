@@ -10,6 +10,15 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
+class PurchaseInstallmentDto {
+  @IsDateString()
+  dueDate!: string;
+
+  @IsNumber()
+  @Min(0.01)
+  amount!: number;
+}
+
 class CreatePurchaseItemDto {
   @IsString()
   supplyItemId!: string;
@@ -43,4 +52,34 @@ export class CreatePurchaseDto {
   @ValidateNested({ each: true })
   @Type(() => CreatePurchaseItemDto)
   items!: CreatePurchaseItemDto[];
+
+  @IsOptional()
+  @IsString()
+  paymentMethodId?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentTypeId?: string;
+
+  @IsOptional()
+  @IsString()
+  costCenterId?: string;
+
+  @IsOptional()
+  @IsString()
+  accountingCategoryId?: string;
+
+  @IsOptional()
+  @IsString()
+  accountingSubcategoryId?: string;
+
+  @IsOptional()
+  @IsString()
+  bankAccountId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PurchaseInstallmentDto)
+  installments?: PurchaseInstallmentDto[];
 }
