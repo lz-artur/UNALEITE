@@ -37,6 +37,14 @@ export class CreateClientDto {
 
   @IsOptional()
   @IsString()
+  neighborhood?: string;
+
+  @IsOptional()
+  @IsString()
+  cep?: string;
+
+  @IsOptional()
+  @IsString()
   city?: string;
 
   @IsOptional()

@@ -131,6 +131,8 @@ export interface ClientRecord {
   email?: string;
   address?: string;
   addressNumber?: string;
+  neighborhood?: string;
+  cep?: string;
   city?: string;
   state?: string;
   notes?: string;
@@ -555,6 +557,8 @@ function mapClient(row: any): ClientRecord {
     email: row.email ?? undefined,
     address: row.address ?? undefined,
     addressNumber: row.address_number ?? undefined,
+    neighborhood: row.neighborhood ?? undefined,
+    cep: row.cep ?? undefined,
     city: row.city ?? undefined,
     state: row.state ?? undefined,
     notes: row.notes ?? undefined,

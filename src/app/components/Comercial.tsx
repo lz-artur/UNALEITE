@@ -74,6 +74,8 @@ export default function Comercial() {
     email: '',
     address: '',
     addressNumber: '',
+    neighborhood: '',
+    cep: '',
     city: '',
     state: '',
     notes: '',
@@ -185,6 +187,8 @@ export default function Comercial() {
       email: '',
       address: '',
       addressNumber: '',
+      neighborhood: '',
+      cep: '',
       city: '',
       state: '',
       notes: '',
@@ -206,6 +210,8 @@ export default function Comercial() {
       email: client.email ?? '',
       address: client.address ?? '',
       addressNumber: client.addressNumber ?? '',
+      neighborhood: client.neighborhood ?? '',
+      cep: client.cep ?? '',
       city: client.city ?? '',
       state: client.state ?? '',
       notes: client.notes ?? '',
@@ -235,6 +241,8 @@ export default function Comercial() {
         email: clientForm.email || undefined,
         address: clientForm.address || undefined,
         addressNumber: clientForm.addressNumber || undefined,
+        neighborhood: clientForm.neighborhood || undefined,
+        cep: clientForm.cep || undefined,
         city: clientForm.city || undefined,
         state: clientForm.state || undefined,
         notes: clientForm.notes || undefined,
@@ -722,6 +730,8 @@ export default function Comercial() {
             <InputField label="E-mail" type="text" value={clientForm.email} onChange={(value) => setClientForm((current) => ({ ...current, email: value }))} />
             <InputField label="Endereco" type="text" value={clientForm.address} onChange={(value) => setClientForm((current) => ({ ...current, address: value }))} />
             <InputField label="Numero (Residencia/Empresa)" type="text" value={clientForm.addressNumber} onChange={(value) => setClientForm((current) => ({ ...current, addressNumber: value }))} />
+            <InputField label="Bairro" type="text" value={clientForm.neighborhood} onChange={(value) => setClientForm((current) => ({ ...current, neighborhood: value }))} />
+            <InputField label="CEP" type="text" value={clientForm.cep} onChange={(value) => setClientForm((current) => ({ ...current, cep: value }))} />
             <InputField label="Cidade" type="text" value={clientForm.city} onChange={(value) => setClientForm((current) => ({ ...current, city: value }))} />
             <InputField label="UF" type="text" value={clientForm.state} onChange={(value) => setClientForm((current) => ({ ...current, state: value }))} />
           </div>
