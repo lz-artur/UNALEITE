@@ -22,6 +22,15 @@ class FulfillSalesOrderItemDto {
   quantity!: number;
 }
 
+export class InstallmentEntryDto {
+  @IsNumber()
+  @Min(0.01)
+  amount!: number;
+
+  @IsDateString()
+  dueDate!: string;
+}
+
 export class FulfillSalesOrderDto {
   @IsOptional()
   @IsDateString()
@@ -44,4 +53,10 @@ export class FulfillSalesOrderDto {
   @ValidateNested({ each: true })
   @Type(() => FulfillSalesOrderItemDto)
   items!: FulfillSalesOrderItemDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InstallmentEntryDto)
+  installmentEntries?: InstallmentEntryDto[];
 }

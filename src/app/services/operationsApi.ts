@@ -1202,6 +1202,7 @@ export async function fulfillSalesOrder(payload: {
   fulfilledAt?: string;
   paymentMethod?: string;
   installments?: number;
+  installmentEntries?: Array<{ amount: number; dueDate: string }>;
   bankAccountId?: string;
   items: Array<{
     salesOrderItemId: string;
@@ -1213,6 +1214,10 @@ export async function fulfillSalesOrder(payload: {
     method: 'POST',
     body: JSON.stringify({
       fulfilledAt: payload.fulfilledAt,
+      paymentMethod: payload.paymentMethod,
+      installments: payload.installments,
+      installmentEntries: payload.installmentEntries,
+      bankAccountId: payload.bankAccountId,
       items: payload.items,
     }),
   });

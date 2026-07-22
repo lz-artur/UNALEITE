@@ -249,17 +249,55 @@ export class SalesService {
 
     await this.refreshSalesOrderStatus(salesOrderId, user);
 
-    if (payload.paymentMethod || payload.installments || payload.bankAccountId) {
-      await this.supabaseService.admin
-        .from('financial_entries')
-        .update({
-          ...(payload.paymentMethod ? { payment_method: payload.paymentMethod } : {}),
-          ...(payload.installments ? { installments: payload.installments } : {}),
-          ...(payload.bankAccountId ? { bank_account_id: payload.bankAccountId } : {}),
-          updated_by: user?.id ?? null,
-        })
-        .eq('reference_table', 'sales_orders')
-        .eq('reference_id', salesOrderId);
+    if (payload.paymentMethod || payload.installments || payload.bankAccountId || payload.installmentEntries?.length) {
+      if (payload.installmentEntries?.length) {
+        const { data: originalEntries } = await this.supabaseService.admin
+          .from('financial_entries')
+          .select('*')
+          .eq('reference_table', 'sales_orders')
+          .eq('reference_id', salesOrderId);
+
+        const originalEntry = originalEntries?.[0];
+
+        if (originalEntry) {
+          await this.supabaseService.admin
+            .from('financial_entries')
+            .delete()
+            .eq('reference_table', 'sales_orders')
+            .eq('reference_id', salesOrderId);
+
+          const groupId = `${salesOrderId}-${Date.now()}`;
+          const newEntries = payload.installmentEntries.map((installment, index) => {
+            const { id, created_at, updated_at, computed_status, ...rest } = originalEntry;
+            return {
+              ...rest,
+              amount: installment.amount,
+              due_date: installment.dueDate,
+              description: `${originalEntry.description} (Parcela ${index + 1}/${payload.installmentEntries!.length})`,
+              installment_group_id: groupId,
+              installment_number: index + 1,
+              payment_method: payload.paymentMethod || originalEntry.payment_method,
+              bank_account_id: payload.bankAccountId || originalEntry.bank_account_id,
+              updated_by: user?.id ?? null,
+            };
+          });
+
+          await this.supabaseService.admin
+            .from('financial_entries')
+            .insert(newEntries);
+        }
+      } else {
+        await this.supabaseService.admin
+          .from('financial_entries')
+          .update({
+            ...(payload.paymentMethod ? { payment_method: payload.paymentMethod } : {}),
+            ...(payload.installments ? { installments: payload.installments } : {}),
+            ...(payload.bankAccountId ? { bank_account_id: payload.bankAccountId } : {}),
+            updated_by: user?.id ?? null,
+          })
+          .eq('reference_table', 'sales_orders')
+          .eq('reference_id', salesOrderId);
+      }
     }
 
     return this.getSalesOrder(salesOrderId);

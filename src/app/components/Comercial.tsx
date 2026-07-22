@@ -93,12 +93,16 @@ export default function Comercial() {
     fulfilledAt: string;
     paymentMethod: string;
     installments: string;
+    isParcelado: boolean;
+    parcelas: Array<{ id: string; dueDate: string; amount: string }>;
     bankAccountId: string;
     items: Record<string, Array<{ localId: string; finishedProductLotId: string; quantity: string }>>;
   }>({
     fulfilledAt: getToday(),
     paymentMethod: '',
     installments: '',
+    isParcelado: false,
+    parcelas: [{ id: crypto.randomUUID(), dueDate: '', amount: '' }],
     bankAccountId: '',
     items: {},
   });
@@ -352,6 +356,8 @@ export default function Comercial() {
         fulfilledAt: getToday(),
         paymentMethod: '',
         installments: '',
+        isParcelado: false,
+        parcelas: [{ id: crypto.randomUUID(), dueDate: '', amount: '' }],
         bankAccountId: '',
         items: nextItems,
       });
@@ -383,6 +389,11 @@ export default function Comercial() {
       return;
     }
 
+    if (fulfillForm.isParcelado && fulfillForm.parcelas.some((p) => !p.amount || !p.dueDate)) {
+      setErrorMessage('Preencha todos os campos das parcelas (valor e data de vencimento).');
+      return;
+    }
+
     if (items.some((entry) => !entry.values.finishedProductLotId)) {
       setErrorMessage('Selecione os lotes acabados para todos os itens atendidos.');
       return;
@@ -397,6 +408,12 @@ export default function Comercial() {
         fulfilledAt: new Date(fulfillForm.fulfilledAt).toISOString(),
         paymentMethod: fulfillForm.paymentMethod || undefined,
         installments: fulfillForm.installments ? Number(fulfillForm.installments) : undefined,
+        installmentEntries: fulfillForm.isParcelado 
+          ? fulfillForm.parcelas.map(p => ({ 
+              amount: parseFloat(p.amount.replace(',', '.')), 
+              dueDate: new Date(p.dueDate + 'T12:00:00').toISOString() 
+            }))
+          : undefined,
         bankAccountId: fulfillForm.bankAccountId || undefined,
         items: items.map(({ item, values }) => ({
           salesOrderItemId: item.id,
@@ -898,7 +915,7 @@ export default function Comercial() {
           saving={saving}
           maxWidth="max-w-5xl"
         >
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <InputField
               label="Data do atendimento"
               type="date"
@@ -918,12 +935,6 @@ export default function Comercial() {
                 { label: 'Cartão', value: 'Cartão' },
               ]}
             />
-            <InputField
-              label="Parcelas"
-              type="number"
-              value={fulfillForm.installments}
-              onChange={(value) => setFulfillForm((current) => ({ ...current, installments: value }))}
-            />
             <SelectField
               label="Conta de recebimento"
               value={fulfillForm.bankAccountId}
@@ -934,6 +945,71 @@ export default function Comercial() {
               ]}
             />
           </div>
+          <div className="mt-4 flex items-center">
+            <input 
+              type="checkbox" 
+              id="isParcelado" 
+              checked={fulfillForm.isParcelado} 
+              onChange={(e) => setFulfillForm(current => ({ ...current, isParcelado: e.target.checked }))}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 mr-2 h-4 w-4"
+            />
+            <label htmlFor="isParcelado" className="text-sm font-medium text-gray-700 cursor-pointer">
+              Lançamento parcelado
+            </label>
+          </div>
+          {fulfillForm.isParcelado && (
+            <div className="mt-4 border border-gray-200 rounded-md p-3 bg-gray-50 flex flex-col gap-3">
+              <h3 className="text-sm font-medium text-gray-700">Parcelas</h3>
+              {fulfillForm.parcelas.map((parcela, index) => (
+                <div key={parcela.id} className="flex items-end gap-3">
+                  <div className="flex-1">
+                    <InputField
+                      label={`Valor (R$) P. ${index + 1}`}
+                      type="number"
+                      value={parcela.amount}
+                      onChange={(value) => setFulfillForm(current => ({
+                        ...current,
+                        parcelas: current.parcelas.map(p => p.id === parcela.id ? { ...p, amount: value } : p)
+                      }))}
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <InputField
+                      label={`Vencimento P. ${index + 1}`}
+                      type="date"
+                      value={parcela.dueDate}
+                      onChange={(value) => setFulfillForm(current => ({
+                        ...current,
+                        parcelas: current.parcelas.map(p => p.id === parcela.id ? { ...p, dueDate: value } : p)
+                      }))}
+                    />
+                  </div>
+                  {fulfillForm.parcelas.length > 1 && (
+                    <button 
+                      type="button" 
+                      onClick={() => setFulfillForm(current => ({
+                        ...current,
+                        parcelas: current.parcelas.filter(p => p.id !== parcela.id)
+                      }))}
+                      className="mb-1 p-2 text-red-500 hover:bg-red-50 rounded"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button 
+                type="button" 
+                onClick={() => setFulfillForm(current => ({
+                  ...current,
+                  parcelas: [...current.parcelas, { id: crypto.randomUUID(), dueDate: '', amount: '' }]
+                }))}
+                className="self-start mt-2 flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700"
+              >
+                <Plus className="w-4 h-4" /> Adicionar parcela
+              </button>
+            </div>
+          )}
           <div className="mt-4 space-y-4">
             {selectedOrder.items
               .filter((item) => item.pendingQuantity > 0)
