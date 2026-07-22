@@ -417,10 +417,28 @@ function mapAnalysis(row: any): AnaliseLaboral {
     ph: row.ph != null ? Number(row.ph) : undefined,
     porcentagem_agua: row.porcentagem_agua != null ? Number(row.porcentagem_agua) : undefined,
     est: row.est != null ? Number(row.est) : undefined,
-    esd: row.esd != null ? Number(row.esd) : undefined,
     redutase: row.redutase ?? undefined,
     aprovado: Boolean(row.approved),
     observacoes: row.observacoes ?? undefined,
+    subanalyses: row.subanalyses ? row.subanalyses
+      .sort((a: any, b: any) => (a.compartment_number || 0) - (b.compartment_number || 0))
+      .map((sub: any) => ({
+        alizarol: sub.alizarol,
+        acidez: sub.acidez != null ? Number(sub.acidez) : undefined,
+        crioscopia: sub.crioscopia != null ? Number(sub.crioscopia) : undefined,
+        densidade: sub.densidade != null ? Number(sub.densidade) : undefined,
+        antibioticos: sub.antibioticos,
+        gordura: sub.gordura != null ? Number(sub.gordura) : undefined,
+        proteina: sub.proteina != null ? Number(sub.proteina) : undefined,
+        alcool: sub.alcool ?? undefined,
+        ph: sub.ph != null ? Number(sub.ph) : undefined,
+        porcentagem_agua: sub.porcentagem_agua != null ? Number(sub.porcentagem_agua) : undefined,
+        est: sub.est != null ? Number(sub.est) : undefined,
+        esd: sub.esd != null ? Number(sub.esd) : undefined,
+        redutase: sub.redutase ?? undefined,
+        aprovado: Boolean(sub.approved),
+        observacoes: sub.observacoes ?? undefined,
+      })) : [],
   };
 }
 

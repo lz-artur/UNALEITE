@@ -64,6 +64,7 @@ export interface AnaliseLaboral {
   redutase?: string;
   aprovado: boolean;
   observacoes?: string;
+  subanalyses?: Omit<AnaliseLaboral, 'id' | 'loteId' | 'dataAnalise' | 'subanalyses'>[];
 }
 
 export interface PrecificacaoLeite {

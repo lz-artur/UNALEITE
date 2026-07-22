@@ -21,7 +21,7 @@ export class QualityService {
   async listAnalyses() {
     const { data, error } = await this.supabaseService.admin
       .from('milk_lot_analyses')
-      .select('*')
+      .select('*, subanalyses:milk_lot_subanalyses(*)')
       .order('analyzed_at', { ascending: false });
 
     if (error) {
@@ -51,14 +51,15 @@ export class QualityService {
   ) {
     const milkLot = await this.getMilkLot(milkLotId);
     const qualityParameters = await this.getQualityParameters();
-    const evaluation = this.domainRulesService.evaluateAnalysis(qualityParameters, payload);
+    const { subanalyses, ...mainPayload } = payload;
+    const evaluation = this.domainRulesService.evaluateAnalysis(qualityParameters, mainPayload);
 
     const { data: analysis, error: analysisError } = await this.supabaseService.admin
       .from('milk_lot_analyses')
       .insert({
         milk_lot_id: milkLotId,
         analyzed_at: new Date().toISOString(),
-        ...payload,
+        ...mainPayload,
         approved: evaluation.approved,
         created_by: user?.id ?? null,
         updated_by: user?.id ?? null,
@@ -70,9 +71,36 @@ export class QualityService {
       throw new BadRequestException(analysisError.message);
     }
 
+    if (subanalyses && subanalyses.length > 0) {
+      const subanalysesInsertPayload = subanalyses.map((sub) => {
+        const subEval = this.domainRulesService.evaluateAnalysis(qualityParameters, sub);
+        return {
+          milk_lot_analysis_id: analysis.id,
+          analyzed_at: analysis.analyzed_at,
+          ...sub,
+          approved: subEval.approved,
+          created_by: user?.id ?? null,
+          updated_by: user?.id ?? null,
+        };
+      });
+
+      const { data: insertedSubs, error: subanalysesError } = await this.supabaseService.admin
+        .from('milk_lot_subanalyses')
+        .insert(subanalysesInsertPayload)
+        .select('*');
+
+      if (subanalysesError) {
+        throw new BadRequestException(subanalysesError.message);
+      }
+
+      analysis.subanalyses = insertedSubs;
+    } else {
+      analysis.subanalyses = [];
+    }
+
     const currentRule = await this.getCurrentPriceRule(milkLot.received_at);
     const pricingCalc = currentRule
-      ? this.domainRulesService.calculateMilkPricing(currentRule, payload, milkLot.volume_liters)
+      ? this.domainRulesService.calculateMilkPricing(currentRule, mainPayload, milkLot.volume_liters)
       : null;
 
     let pricing: Record<string, unknown> | null = null;

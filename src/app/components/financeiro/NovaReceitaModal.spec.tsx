@@ -16,6 +16,20 @@ vi.mock('sonner', () => ({
   },
 }));
 
+vi.mock('../../context/CadastrosContext', () => ({
+  useCadastros: () => ({
+    contasBancarias: [],
+    centrosCusto: [],
+    categoriasContabeis: [],
+    accountingCategories: [],
+    accountingSubcategories: [],
+    costCenters: [],
+    bankAccounts: [],
+    paymentMethods: [],
+    paymentTypes: [],
+  }),
+}));
+
 describe('NovaReceitaModal Component', () => {
   const mockOnSave = vi.fn();
   const mockOnClose = vi.fn();
