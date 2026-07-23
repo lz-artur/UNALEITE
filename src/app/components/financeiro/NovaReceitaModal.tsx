@@ -29,6 +29,7 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
   const [subcategoriaContabil, setSubcategoriaContabil] = useState('');
   const [formaPagamento, setFormaPagamento] = useState('');
   const [tipoPagamento, setTipoPagamento] = useState('');
+  const [tipoCusto, setTipoCusto] = useState<'Fixo' | 'Variável' | ''>('');
   
   const [isParcelado, setIsParcelado] = useState(false);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
@@ -47,6 +48,7 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
     setSubcategoriaContabil('');
     setFormaPagamento('');
     setTipoPagamento('');
+    setTipoCusto('');
     setIsParcelado(false);
     setParcelas([{ id: crypto.randomUUID(), dataVencimento: '', valor: '' }]);
     setFile(null);
@@ -63,6 +65,7 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
       setSubcategoriaContabil(initialData.accountingSubcategoryId || initialData.subcategoriaContabil || '');
       setFormaPagamento(initialData.formaPagamento || '');
       setTipoPagamento(initialData.tipoPagamento || '');
+      setTipoCusto(initialData.tipoCusto || '');
       setIsParcelado(false);
       setParcelas([]);
       setFile(null);
@@ -123,6 +126,7 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
         accountingSubcategoryId: subcategoriaContabil,
         formaPagamento,
         tipoPagamento,
+        tipoCusto: tipoCusto || undefined,
         anexoUrl,
       };
 
@@ -363,6 +367,21 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
                 <option value="">Selecione...</option>
                 <option value="À vista">À vista</option>
                 <option value="A prazo">A prazo</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Custo Fixo/Variável</label>
+              <select
+                value={tipoCusto}
+                onChange={(e) => setTipoCusto(e.target.value as 'Fixo' | 'Variável' | '')}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">Selecione...</option>
+                <option value="Fixo">Fixo</option>
+                <option value="Variável">Variável</option>
               </select>
             </div>
           </div>

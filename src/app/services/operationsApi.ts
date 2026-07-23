@@ -627,6 +627,7 @@ function mapFinancialEntry(row: any): ContaFinanceira {
     anexoUrl: row.attachment_url ?? undefined,
     installmentGroupId: row.installment_group_id ?? undefined,
     installmentNumber: row.installment_number ?? undefined,
+    tipoCusto: row.cost_type ?? undefined,
   };
 }
 
@@ -853,6 +854,7 @@ export async function createFinancialEntry(payload: Omit<ContaFinanceira, 'id' |
       attachment_url: payload.anexoUrl,
       installment_group_id: payload.installmentGroupId,
       installment_number: payload.installmentNumber,
+      cost_type: payload.tipoCusto,
     }),
   }).then(mapFinancialEntry).catch(() => {
     // Mock fallback since API might not have this endpoint yet
@@ -876,6 +878,7 @@ export async function createFinancialEntry(payload: Omit<ContaFinanceira, 'id' |
       attachment_url: payload.anexoUrl,
       installment_group_id: payload.installmentGroupId,
       installment_number: payload.installmentNumber,
+      tipoCusto: payload.tipoCusto,
     });
   });
 }
@@ -901,6 +904,7 @@ export async function createBatchFinancialEntries(payloads: Omit<ContaFinanceira
       attachment_url: payload.anexoUrl,
       installment_group_id: payload.installmentGroupId,
       installment_number: payload.installmentNumber,
+      cost_type: payload.tipoCusto,
     }))),
   }).then(entries => entries.map(mapFinancialEntry));
 }
@@ -944,6 +948,7 @@ export async function updateFinancialEntry(id: string, payload: Partial<ContaFin
       payment_method: payload.formaPagamento,
       payment_type: payload.tipoPagamento,
       attachment_url: payload.anexoUrl,
+      cost_type: payload.tipoCusto,
     }),
   }).then(mapFinancialEntry);
 }

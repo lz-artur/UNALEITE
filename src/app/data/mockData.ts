@@ -183,6 +183,7 @@ export interface ContaFinanceira {
   anexoUrl?: string;
   installmentGroupId?: string;
   installmentNumber?: number;
+  tipoCusto?: 'Fixo' | 'Variável';
 }
 
 // Dados Mockados

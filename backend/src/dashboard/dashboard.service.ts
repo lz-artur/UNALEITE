@@ -42,7 +42,10 @@ export class DashboardService {
       .filter((entry) => entry.entry_type === 'Receber' && entry.status !== 'Pago')
       .reduce((sum, entry) => sum + Number(entry.amount), 0);
     const milkPayroll = financialEntries
-      .filter((entry) => entry.category === 'Matéria Prima')
+      .filter((entry) => 
+        String(entry.category).toUpperCase().includes('MATÉRIA-PRIMA') || 
+        String(entry.category).toUpperCase().includes('MATÉRIA PRIMA')
+      )
       .reduce((sum, entry) => sum + Number(entry.amount), 0);
     const overdueEntries = financialEntries.filter((entry) => this.isOverdue(entry)).length;
     const overdueAmount = financialEntries
