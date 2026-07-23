@@ -625,6 +625,7 @@ function mapFinancialEntry(row: any): ContaFinanceira {
     formaPagamento: row.payment_method ?? undefined,
     tipoPagamento: row.payment_type ?? undefined,
     anexoUrl: row.attachment_url ?? undefined,
+    anexosUrls: row.attachment_urls ?? undefined,
     installmentGroupId: row.installment_group_id ?? undefined,
     installmentNumber: row.installment_number ?? undefined,
     tipoCusto: row.cost_type ?? undefined,

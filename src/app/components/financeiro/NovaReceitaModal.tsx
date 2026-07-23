@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Loader2, Plus, Trash2, Upload } from 'lucide-react';
 import type { ContaFinanceira } from '../../data/mockData';
-import { type FinancialEntryRecord, uploadFinancialAttachment } from '../../services/operationsApi';
+import { type FinancialEntryRecord, uploadFinancialAttachment, loadClients, type ClientRecord } from '../../services/operationsApi';
 import { toast } from 'sonner';
 import { useCadastros } from '../../context/CadastrosContext';
 
@@ -31,10 +31,13 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
   const [tipoPagamento, setTipoPagamento] = useState('');
   const [tipoCusto, setTipoCusto] = useState<'Fixo' | 'Variável' | ''>('');
   
+  const [clientes, setClientes] = useState<ClientRecord[]>([]);
+  const [clienteId, setClienteId] = useState('');
+  
   const [isParcelado, setIsParcelado] = useState(false);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
   
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -49,9 +52,10 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
     setFormaPagamento('');
     setTipoPagamento('');
     setTipoCusto('');
+    setClienteId('');
     setIsParcelado(false);
     setParcelas([{ id: crypto.randomUUID(), dataVencimento: '', valor: '' }]);
-    setFile(null);
+    setFiles([]);
   };
 
   useEffect(() => {
@@ -66,13 +70,20 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
       setFormaPagamento(initialData.formaPagamento || '');
       setTipoPagamento(initialData.tipoPagamento || '');
       setTipoCusto(initialData.tipoCusto || '');
+      setClienteId(initialData.clienteId || '');
       setIsParcelado(false);
       setParcelas([]);
-      setFile(null);
+      setFiles([]);
     } else {
       resetForm();
     }
   }, [initialData, isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      loadClients({ activeOnly: true }).then(setClientes).catch(console.error);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -92,7 +103,8 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
     e.preventDefault();
     if (!descricao) return;
     
-    if (status === 'Pago' && !file && !initialData?.anexoUrl) {
+    const hasAttachments = files.length > 0 || (initialData?.anexosUrls && initialData.anexosUrls.length > 0) || initialData?.anexoUrl;
+    if (status === 'Pago' && !hasAttachments) {
       toast.error('O comprovante é obrigatório para registrar uma conta como Paga.');
       return;
     }
@@ -109,10 +121,16 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
 
     setIsSubmitting(true);
     try {
-      let anexoUrl = initialData?.anexoUrl;
-      if (file) {
-        anexoUrl = await uploadFinancialAttachment(file);
+      let uploadedUrls: string[] = [];
+      if (files.length > 0) {
+        uploadedUrls = await Promise.all(files.map(uploadFinancialAttachment));
       }
+
+      const allAnexos = [
+        ...(initialData?.anexosUrls || []),
+        ...(initialData?.anexoUrl && (!initialData?.anexosUrls || initialData.anexosUrls.length === 0) ? [initialData.anexoUrl] : []),
+        ...uploadedUrls
+      ];
 
       const basePayload: Omit<ContaFinanceira, 'id' | 'statusCalculado' | 'valor' | 'dataVencimento'> = {
         tipo: 'Receber',
@@ -127,7 +145,8 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
         formaPagamento,
         tipoPagamento,
         tipoCusto: tipoCusto || undefined,
-        anexoUrl,
+        clienteId: clienteId || undefined,
+        anexosUrls: allAnexos.length > 0 ? allAnexos : undefined,
       };
 
       let payloads: Omit<ContaFinanceira, 'id' | 'statusCalculado'>[] = [];
@@ -184,6 +203,20 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
               placeholder="Ex: Venda Supermercado Bom Preço"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
+            <select
+              value={clienteId}
+              onChange={(e) => setClienteId(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+            >
+              <option value="">Selecione...</option>
+              {clientes.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
           </div>
           
           {!initialData && (
@@ -388,26 +421,62 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
 
 
           <div className="mt-2 border-t border-gray-100 pt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Comprovante {status === 'Pago' ? <span className="text-red-500">* (Obrigatório para Baixa)</span> : ''}</label>
-            <div className="flex items-center gap-3">
-              <label className="cursor-pointer flex items-center justify-center gap-2 bg-gray-50 border border-gray-300 rounded-md px-4 py-2 hover:bg-gray-100 transition-colors text-sm font-medium text-gray-700">
-                <Upload className="w-4 h-4" /> Selecionar arquivo
+            <label className="block text-sm font-medium text-gray-700 mb-2">Comprovantes {status === 'Pago' ? <span className="text-red-500">* (Obrigatório para Baixa)</span> : ''}</label>
+            <div className="flex flex-col gap-3">
+              <label className="self-start cursor-pointer flex items-center justify-center gap-2 bg-gray-50 border border-gray-300 rounded-md px-4 py-2 hover:bg-gray-100 transition-colors text-sm font-medium text-gray-700">
+                <Upload className="w-4 h-4" /> Adicionar arquivo
                 <input 
                   type="file" 
                   className="hidden" 
                   accept=".pdf,image/*"
+                  multiple
                   onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      setFile(e.target.files[0]);
+                    if (e.target.files) {
+                      setFiles(prev => [...prev, ...Array.from(e.target.files!)]);
                     }
                   }}
                 />
               </label>
-              {file && <span className="text-sm text-gray-600 truncate max-w-[200px]">{file.name}</span>}
-              {!file && initialData?.anexoUrl && (
-                <a href={initialData.anexoUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline">
-                  Ver anexo atual
-                </a>
+
+              {files.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-medium text-gray-500 uppercase">Arquivos selecionados:</span>
+                  {files.map((f, i) => (
+                    <div key={i} className="flex items-center justify-between bg-gray-50 p-2 rounded-md border border-gray-200">
+                      <span className="text-sm text-gray-600 truncate">{f.name}</span>
+                      <button type="button" onClick={() => setFiles(files.filter((_, index) => index !== i))} className="text-red-500 hover:text-red-700">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {initialData && (
+                <div className="flex flex-col gap-2">
+                  {initialData.anexosUrls && initialData.anexosUrls.length > 0 && (
+                    <>
+                      <span className="text-xs font-medium text-gray-500 uppercase mt-2">Arquivos já anexados:</span>
+                      {initialData.anexosUrls.map((url, i) => (
+                        <div key={i} className="flex items-center justify-between bg-gray-50 p-2 rounded-md border border-gray-200">
+                          <a href={url} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline truncate">
+                            Comprovante {i + 1}
+                          </a>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {initialData.anexoUrl && (!initialData.anexosUrls || initialData.anexosUrls.length === 0) && (
+                    <>
+                      <span className="text-xs font-medium text-gray-500 uppercase mt-2">Arquivo já anexado:</span>
+                      <div className="flex items-center justify-between bg-gray-50 p-2 rounded-md border border-gray-200">
+                        <a href={initialData.anexoUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline truncate">
+                          Comprovante
+                        </a>
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
             </div>
           </div>

@@ -181,6 +181,7 @@ export interface ContaFinanceira {
   formaPagamento?: string;
   tipoPagamento?: string;
   anexoUrl?: string;
+  anexosUrls?: string[];
   installmentGroupId?: string;
   installmentNumber?: number;
   tipoCusto?: 'Fixo' | 'Variável';
