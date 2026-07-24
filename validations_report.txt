@@ -1,0 +1,158 @@
+﻿
+Filename                  LineNumber Line                                                                              
+--------                  ---------- ----                                                                              
+cadastros.service.ts              37       throw new BadRequestException(error.message);                               
+cadastros.service.ts              52       throw new BadRequestException(error.message);                               
+cadastros.service.ts              97       throw new BadRequestException(`${entity} does not support active flag`);    
+cadastros.service.ts             128         throw new BadRequestException('Não é possível excluir este registro poi...
+cadastros.service.ts             130       throw new BadRequestException(error.message);                               
+cadastros.service.ts             140       throw new BadRequestException(`Unsupported cadastro entity: ${entity}`);    
+cadastros.service.ts             209       throw new BadRequestException(error.message);                               
+cadastros.service.ts             311         throw new BadRequestException(error.message);                             
+clients.service.ts                23       throw new BadRequestException(error.message);                               
+clients.service.ts                61       throw new BadRequestException(error.message);                               
+clients.service.ts                81       throw new BadRequestException(error.message);                               
+clients.service.ts               102       throw new BadRequestException(error.message);                               
+clients.service.ts               112       throw new BadRequestException('Client is inactive');                        
+clients.service.ts               156       throw new BadRequestException(error.message);                               
+clients.service.ts               161       throw new BadRequestException('Client document already exists');            
+dashboard.service.ts              77       throw new BadRequestException(error.message);                               
+finance.service.ts                22       throw new BadRequestException(error.message);                               
+finance.service.ts                70       throw new BadRequestException(currentError.message);                        
+finance.service.ts                94       throw new BadRequestException(error.message);                               
+finance.service.ts               111       throw new BadRequestException(currentError.message);                        
+finance.service.ts               130       throw new BadRequestException(error.message);                               
+finance.service.ts               147       throw new BadRequestException(error.message);                               
+finance.service.ts               167       throw new BadRequestException(error.message);                               
+finance.service.ts               185       throw new BadRequestException(error.message);                               
+finance.service.ts               199       throw new BadRequestException(fetchError.message);                          
+finance.service.ts               207       throw new BadRequestException('Não é possível excluir um lançamento finan...
+finance.service.ts               216       throw new BadRequestException(error.message);                               
+inventory.service.ts              32       throw new BadRequestException(error.message);                               
+inventory.service.ts              45       throw new BadRequestException(error.message);                               
+inventory.service.ts              58       throw new BadRequestException(error.message);                               
+inventory.service.ts              71     if (findError) throw new BadRequestException(findError.message);              
+inventory.service.ts              75       throw new BadRequestException('Não é possível excluir o lote de insumo po...
+inventory.service.ts              83     if (deleteError) throw new BadRequestException(deleteError.message);          
+inventory.service.ts              94     if (findError) throw new BadRequestException(findError.message);              
+inventory.service.ts              98       throw new BadRequestException('Não é possível excluir o lote de produto p...
+inventory.service.ts             106     if (deleteError) throw new BadRequestException(deleteError.message);          
+milk-payroll.service.ts           81         throw new BadRequestException(error.message);                             
+milk-payroll.service.ts          195       throw new BadRequestException(error.message);                               
+milk-reception.service.ts         23       throw new BadRequestException(error.message);                               
+milk-reception.service.ts         60       throw new BadRequestException(receptionError.message);                      
+milk-reception.service.ts         84       throw new BadRequestException(lotError.message);                            
+milk-reception.service.ts        101       throw new BadRequestException(lotFindError.message);                        
+milk-reception.service.ts        136       throw new BadRequestException(receptionError.message);                      
+milk-reception.service.ts        161       throw new BadRequestException(lotError.message);                            
+milk-reception.service.ts        177       throw new BadRequestException(error.message);                               
+milk-reception.service.ts        191       throw new BadRequestException(error.message);                               
+milk-reception.service.ts        252       throw new BadRequestException(productionOrders.error.message);              
+milk-reception.service.ts        256       throw new BadRequestException(finishedProductLots.error.message);           
+milk-reception.service.ts        279       throw new BadRequestException(error.message);                               
+milk-reception.service.ts        287       throw new BadRequestException(`${table} record is inactive`);               
+milk-reception.service.ts        301       throw new BadRequestException(error.message);                               
+milk-reception.service.ts        305       throw new BadRequestException('No active milk type available');             
+milk-reception.service.ts        319       throw new BadRequestException(lotFindError.message);                        
+milk-reception.service.ts        327       throw new BadRequestException('Não é possível excluir o lote pois ele já ...
+milk-reception.service.ts        336       throw new BadRequestException(analysisError.message);                       
+milk-reception.service.ts        340       throw new BadRequestException('Não é possível excluir o lote pois existem...
+milk-reception.service.ts        349       throw new BadRequestException(productionOrderError.message);                
+milk-reception.service.ts        353       throw new BadRequestException('Não é possível excluir o lote pois ele est...
+milk-reception.service.ts        364       throw new BadRequestException(deleteLotError.message);                      
+milk-reception.service.ts        373       throw new BadRequestException(deleteReceptionError.message);                
+production.service.ts             31       throw new BadRequestException(error.message);                               
+production.service.ts             46       throw new BadRequestException('Finished product is inactive');              
+production.service.ts             50       throw new BadRequestException('Milk lot is not available for production');  
+production.service.ts             54       throw new BadRequestException('Milk lot does not have enough available vo...
+production.service.ts             86       throw new BadRequestException(error.message);                               
+production.service.ts            114       throw new BadRequestException('Production order is not in progress');       
+production.service.ts            138         throw new BadRequestException(`Supply lot ${supplyLot.internal_lot_code...
+production.service.ts            142         throw new BadRequestException(`Supply lot ${supplyLot.internal_lot_code...
+production.service.ts            148     //   throw new BadRequestException('Milk lot received date is invalid');      
+production.service.ts            155       throw new BadRequestException('Milk lot would end with negative available...
+production.service.ts            177       throw new BadRequestException(orderError.message);                          
+production.service.ts            190       throw new BadRequestException(milkUpdateError.message);                     
+production.service.ts            198         throw new BadRequestException(`Supply lot ${supplyLot.internal_lot_code...
+production.service.ts            261       throw new BadRequestException(productLotError.message);                     
+production.service.ts            302       throw new BadRequestException(error.message);                               
+production.service.ts            322       throw new BadRequestException(error.message);                               
+production.service.ts            351         throw new BadRequestException(error.message);                             
+production.service.ts            384         throw new BadRequestException(                                            
+production.service.ts            404       throw new BadRequestException(error.message);                               
+production.service.ts            408       throw new BadRequestException('No active finished product stock location ...
+production.service.ts            422     if (finishedLotsError) throw new BadRequestException(finishedLotsError.mess...
+production.service.ts            427           throw new BadRequestException('Não é possível excluir a OP pois os pr...
+production.service.ts            437     if (milkError) throw new BadRequestException(milkError.message);              
+production.service.ts            464     if (supplyError) throw new BadRequestException(supplyError.message);          
+production.service.ts            507     if (deleteOrderError) throw new BadRequestException(deleteOrderError.message);
+purchases.service.ts              73       throw new BadRequestException(purchaseError.message);                       
+purchases.service.ts              79         throw new BadRequestException(`Supply item ${item.supplyItemId} not fou...
+purchases.service.ts             100       throw new BadRequestException(itemsError.message);                          
+purchases.service.ts             121       throw new BadRequestException('Purchase cannot receive more items');        
+purchases.service.ts             139         throw new BadRequestException(`Purchase item ${receivedItem.purchaseIte...
+purchases.service.ts             145         throw new BadRequestException(                                            
+purchases.service.ts             155         throw new BadRequestException(                                            
+purchases.service.ts             161         throw new BadRequestException(                                            
+purchases.service.ts             167         throw new BadRequestException(                                            
+purchases.service.ts             202         throw new BadRequestException(lotError.message);                          
+purchases.service.ts             226         throw new BadRequestException(updatePurchaseItemError.message);           
+purchases.service.ts             239         throw new BadRequestException(updateSupplyItemError.message);             
+purchases.service.ts             256         throw new BadRequestException(stockMovementError.message);                
+purchases.service.ts             374       throw new BadRequestException(error.message);                               
+purchases.service.ts             382       throw new BadRequestException('Supplier is inactive');                      
+purchases.service.ts             396       throw new BadRequestException(error.message);                               
+purchases.service.ts             401       throw new BadRequestException(`Supply item ${String(missingInactive.name)...
+purchases.service.ts             405       throw new BadRequestException('One or more supply items were not found');   
+purchases.service.ts             418       throw new BadRequestException(error.message);                               
+purchases.service.ts             438       throw new BadRequestException(purchaseUpdateError.message);                 
+purchases.service.ts             482         throw new BadRequestException(error.message);                             
+purchases.service.ts             493         throw new BadRequestException(error.message);                             
+purchases.service.ts             509       throw new BadRequestException(error.message);                               
+purchases.service.ts             513       throw new BadRequestException('No active supply stock location found');     
+purchases.service.ts             523       throw new BadRequestException(error.message);                               
+purchases.service.ts             538       throw new BadRequestException(supplyLotsError.message);                     
+purchases.service.ts             544           throw new BadRequestException('Não é possível excluir a compra pois o...
+purchases.service.ts             594       throw new BadRequestException(deletePurchaseError.message);                 
+quality.service.ts                28       throw new BadRequestException(error.message);                               
+quality.service.ts                41       throw new BadRequestException(error.message);                               
+quality.service.ts                70       throw new BadRequestException(analysisError.message);                       
+quality.service.ts               103         throw new BadRequestException(pricingInsert.error.message);               
+quality.service.ts               125       throw new BadRequestException(updateLotError.message);                      
+quality.service.ts               150       throw new BadRequestException(error.message);                               
+quality.service.ts               167       throw new BadRequestException(error.message);                               
+quality.service.ts               186       throw new BadRequestException(error.message);                               
+quality.service.ts               203       throw new BadRequestException(reasons.error.message);                       
+quality.service.ts               222       throw new BadRequestException(error.message);                               
+quality.service.ts               248       throw new BadRequestException(error.message);                               
+quality.service.ts               260       throw new BadRequestException(analysisError.message);                       
+quality.service.ts               274       throw new BadRequestException(lotFindError.message);                        
+quality.service.ts               278       throw new BadRequestException('Não é possível excluir a análise pois o lo...
+quality.service.ts               287       throw new BadRequestException(deleteError.message);                         
+reports.service.ts               366       throw new BadRequestException(error.message);                               
+sales.service.ts                  69       throw new BadRequestException(salesOrderError.message);                     
+sales.service.ts                  75         throw new BadRequestException(`Produto final ${item.productId} não enco...
+sales.service.ts                  96       throw new BadRequestException(itemsError.message);                          
+sales.service.ts                 120       throw new BadRequestException('O pedido de venda não pode ser atendido');   
+sales.service.ts                 138         throw new BadRequestException(`Item do pedido de venda ${itemPayload.sa...
+sales.service.ts                 144         throw new BadRequestException(`Lote de produto acabado ${itemPayload.fi...
+sales.service.ts                 148         throw new BadRequestException('O lote do produto acabado não correspond...
+sales.service.ts                 155           throw new BadRequestException(`O lote ${String(lot.lot_code)} está ve...
+sales.service.ts                 160         throw new BadRequestException(`O lote ${String(lot.lot_code)} não tem q...
+sales.service.ts                 168         throw new BadRequestException(                                            
+sales.service.ts                 188         throw new BadRequestException(fulfillmentError.message);                  
+sales.service.ts                 200         throw new BadRequestException(lotUpdateError.message);                    
+sales.service.ts                 217         throw new BadRequestException(movementError.message);                     
+sales.service.ts                 245         throw new BadRequestException(updateItemError.message);                   
+sales.service.ts                 390       throw new BadRequestException(error.message);                               
+sales.service.ts                 395       throw new BadRequestException(`O produto final ${String(inactive.name)} e...
+sales.service.ts                 399       throw new BadRequestException('Um ou mais produtos finais não foram encon...
+sales.service.ts                 413       throw new BadRequestException(error.message);                               
+sales.service.ts                 417       throw new BadRequestException('Um ou mais lotes de produto acabado não fo...
+sales.service.ts                 430       throw new BadRequestException(error.message);                               
+sales.service.ts                 450       throw new BadRequestException(updateError.message);                         
+sales.service.ts                 477       throw new BadRequestException(error.message);                               
+sales.service.ts                 485       throw new BadRequestException(error.message);                               
+sales.service.ts                 545       throw new BadRequestException(deleteOrderError.message);                    
+
+

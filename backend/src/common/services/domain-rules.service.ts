@@ -35,6 +35,12 @@ interface AnalysisPayload {
   cbt?: number | null;
   ccs?: number | null;
   temperatura?: number | null;
+  alcool?: string | null;
+  ph?: number | null;
+  porcentagem_agua?: number | null;
+  est?: number | null;
+  esd?: number | null;
+  redutase?: string | null;
 }
 
 @Injectable()
@@ -57,15 +63,25 @@ export class DomainRulesService {
       reasonNames.push('Antibiotico detectado');
     }
 
+    if (payload.alcool === ANALYSIS_STATUS.REPROVED) {
+      reasonNames.push('Álcool reprovado');
+    }
+
     const valuesByLabel: Record<string, number | string | null | undefined> = {
       'Gordura %': payload.gordura,
       'Proteina %': payload.proteina,
-      Acidez: payload.acidez,
-      Crioscopia: payload.crioscopia,
-      Densidade: payload.densidade,
-      Alizarol: payload.alizarol,
-      Antibiotico: payload.antibioticos,
-      Temperatura: payload.temperatura,
+      'Acidez': payload.acidez,
+      'Crioscopia': payload.crioscopia,
+      'Densidade': payload.densidade,
+      'Alizarol': payload.alizarol,
+      'Antibiotico': payload.antibioticos,
+      'Temperatura': payload.temperatura,
+      'Álcool': payload.alcool,
+      'pH': payload.ph,
+      'Porcentagem de Água': payload.porcentagem_agua,
+      'EST': payload.est,
+      'ESD': payload.esd,
+      'Redutase': payload.redutase,
     };
 
     for (const parameter of parameters) {

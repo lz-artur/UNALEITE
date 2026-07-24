@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle, Loader2, Trash2, ArrowRight } from 'lucide-
 import { format } from 'date-fns';
 import type { AnaliseLaboral as AnaliseLaboralType, LoteLeite } from '../data/mockData';
 import { createMilkAnalysis, loadMilkAnalyses, loadMilkLots, deleteMilkAnalysis } from '../services/operationsApi';
+import { useCadastros } from '../context/CadastrosContext';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,6 +51,7 @@ export default function AnaliseLaboral() {
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const { qualityParameters } = useCadastros();
   
   // Multi-compartment state
   const [step, setStep] = useState<1 | 2>(1);
@@ -191,7 +193,20 @@ export default function AnaliseLaboral() {
       const validStates = formStates.filter((s) => s[field] !== '' && !isNaN(Number(s[field])));
       const validValues = validStates.map((s) => Number(s[field]));
       if (validValues.length === 0) return '';
-      const avg = validValues.reduce((a, b) => a + b, 0) / validValues.length;
+      let avg = validValues.reduce((a, b) => a + b, 0) / validValues.length;
+      
+      // Normalização
+      if (field === 'densidade') {
+        if (avg >= 1000) avg = avg / 1000;
+        else if (avg >= 20 && avg <= 50) avg = 1 + (avg / 1000);
+      }
+      
+      if (field === 'crioscopia') {
+        if (avg < -500) avg = avg / 1000;
+        else if (avg > 500) avg = -avg / 1000;
+        else if (avg > 0 && avg < 1) avg = -avg;
+      }
+
       return avg.toFixed(4).replace(/\.?0+$/, ''); // Simple formatting
     };
 
@@ -235,22 +250,68 @@ export default function AnaliseLaboral() {
   }, [formStates, generalObservations]);
 
   const rejectionReasons = useMemo(() => {
-    const reasons = [];
-    if (computedFinalResult.alizarol === 'Reprovado') reasons.push('Alizarol reprovado');
-    if (computedFinalResult.antibioticos === 'Detectado') reasons.push('Antibiótico detectado');
-    
-    const acidez = Number(computedFinalResult.acidez);
-    if (computedFinalResult.acidez && (acidez < 14 || acidez > 18)) {
-      reasons.push(`Acidez (${computedFinalResult.acidez} °D) fora do padrão (14 a 18)`);
-    }
+    const reasons: string[] = [];
+    const activeParams = qualityParameters.filter(p => p.active);
 
-    const crio = Number(computedFinalResult.crioscopia);
-    if (computedFinalResult.crioscopia && (crio < -0.545 || crio > -0.520)) {
-      reasons.push(`Crioscopia (${computedFinalResult.crioscopia} °H) fora do padrão (-0.545 a -0.520)`);
+    const checkParam = (fieldName: keyof FormState, paramName: string, isQualitative: boolean, failValue?: string) => {
+      const param = activeParams.find(p => p.name.toLowerCase().includes(paramName.toLowerCase()));
+      if (!param || !param.autoBlock) return;
+
+      if (isQualitative) {
+        if (computedFinalResult[fieldName] === failValue) {
+          reasons.push(`${param.name} ${failValue?.toLowerCase()}`);
+        }
+      } else {
+        const valStr = computedFinalResult[fieldName];
+        if (valStr && !isNaN(Number(valStr))) {
+          const val = Number(valStr);
+          const min = param.minValue !== null && param.minValue !== '' ? Number(param.minValue) : -Infinity;
+          const max = param.maxValue !== null && param.maxValue !== '' ? Number(param.maxValue) : Infinity;
+          if (val < min || val > max) {
+            reasons.push(`${param.name} (${valStr} ${param.unitLabel || ''}) fora do padrão (${param.minValue || '-'} a ${param.maxValue || '-'})`);
+          }
+        }
+      }
+    };
+
+    checkParam('alizarol', 'alizarol', true, 'Reprovado');
+    checkParam('antibioticos', 'antibiotico', true, 'Detectado');
+    checkParam('alcool', 'álcool', true, 'Reprovado');
+    checkParam('acidez', 'acidez', false);
+    checkParam('crioscopia', 'crioscopia', false);
+    checkParam('densidade', 'densidade', false);
+    checkParam('gordura', 'gordura', false);
+    checkParam('proteina', 'proteina', false);
+    checkParam('temperatura', 'temperatura', false);
+    checkParam('ph', 'ph', false);
+    checkParam('porcentagem_agua', 'água', false);
+    checkParam('est', 'est', false);
+    checkParam('esd', 'esd', false);
+    checkParam('redutase', 'redutase', false);
+    
+    if (isReadOnly && selectedLote) {
+      const analise = analises.find(a => a.loteId === selectedLote);
+      if (analise && !analise.aprovado) {
+        const lote = lotes.find(l => l.id === selectedLote);
+        if (lote?.motivoBloqueio && !reasons.includes(lote.motivoBloqueio)) {
+          reasons.push(lote.motivoBloqueio);
+        }
+        if (reasons.length === 0) {
+          reasons.push('Análise reprovada: parâmetros fora do padrão de qualidade');
+        }
+      }
     }
     
     return reasons;
-  }, [computedFinalResult]);
+  }, [computedFinalResult, isReadOnly, selectedLote, analises, lotes, qualityParameters]);
+
+  const isParamActive = (paramName: string) => {
+    return qualityParameters.some(p => p.active && p.name.toLowerCase().includes(paramName.toLowerCase()));
+  };
+
+  const isParamRequired = (paramName: string) => {
+    return qualityParameters.some(p => p.active && p.required && p.name.toLowerCase().includes(paramName.toLowerCase()));
+  };
 
   const handleSubmit = async () => {
     if (!selectedLote) return;
@@ -258,16 +319,28 @@ export default function AnaliseLaboral() {
     // Validate all compartments
     for (let i = 0; i < formStates.length; i++) {
       const state = formStates[i];
-      if (
-        !state.alizarol ||
-        !state.antibioticos ||
-        !state.acidez ||
-        !state.crioscopia ||
-        !state.densidade ||
-        !state.temperatura
-      ) {
-        setFormError(`Preencha os campos obrigatorios para o Compartimento ${i + 1}.`);
-        return;
+      const requiredFields: { key: keyof FormState; name: string }[] = [
+        { key: 'alizarol', name: 'alizarol' },
+        { key: 'antibioticos', name: 'antibiotico' },
+        { key: 'alcool', name: 'álcool' },
+        { key: 'acidez', name: 'acidez' },
+        { key: 'crioscopia', name: 'crioscopia' },
+        { key: 'densidade', name: 'densidade' },
+        { key: 'temperatura', name: 'temperatura' },
+        { key: 'gordura', name: 'gordura' },
+        { key: 'proteina', name: 'proteina' },
+        { key: 'ph', name: 'ph' },
+        { key: 'porcentagem_agua', name: 'água' },
+        { key: 'est', name: 'est' },
+        { key: 'esd', name: 'esd' },
+        { key: 'redutase', name: 'redutase' },
+      ];
+
+      for (const field of requiredFields) {
+        if (isParamRequired(field.name) && !state[field.key]) {
+          setFormError(`Preencha os campos obrigatórios para o Compartimento ${i + 1}.`);
+          return;
+        }
       }
     }
 
@@ -393,10 +466,13 @@ export default function AnaliseLaboral() {
     label: string,
     type = 'number',
     step?: string,
-    placeholder?: string
+    placeholder?: string,
+    required = false
   ) => (
     <div className="mb-4">
-      <label className="mb-2 block font-medium text-gray-900">{label}</label>
+      <label className="mb-2 block font-medium text-gray-900">
+        {label} {required && '*'}
+      </label>
       <div className="flex gap-4 overflow-x-auto pb-2">
         {formStates.map((state, i) => (
           <div key={i} className="min-w-[150px] flex-1">
@@ -629,52 +705,34 @@ export default function AnaliseLaboral() {
 
                   <div>
                     <h4 className="mb-4 font-bold text-gray-900 text-lg border-b pb-2">Testes Qualitativos</h4>
-                    {renderSelectRow('alizarol', 'Alizarol', [
+                    {isParamActive('alizarol') && renderSelectRow('alizarol', 'Alizarol', [
                       { value: 'Aprovado', label: 'Aprovado' },
                       { value: 'Reprovado', label: 'Reprovado' },
-                    ], true)}
-                    {renderSelectRow('antibioticos', 'Antibióticos', [
+                    ], isParamRequired('alizarol'))}
+                    {isParamActive('antibiotico') && renderSelectRow('antibioticos', 'Antibióticos', [
                       { value: 'Nao Detectado', label: 'Não Detectado' },
                       { value: 'Detectado', label: 'Detectado' },
-                    ], true)}
-                    {renderSelectRow('alcool', 'Álcool', [
+                    ], isParamRequired('antibiotico'))}
+                    {isParamActive('álcool') && renderSelectRow('alcool', 'Álcool', [
                       { value: 'N/R', label: 'N/R' },
                       { value: 'Aprovado', label: 'Aprovado' },
                       { value: 'Reprovado', label: 'Reprovado' },
-                    ])}
+                    ], isParamRequired('álcool'))}
                   </div>
 
                   <div>
                     <h4 className="mb-4 font-bold text-gray-900 text-lg border-b pb-2">Análises Físico-Químicas</h4>
-                    {renderInputRow('acidez', 'Acidez (°D) *', 'number', '0.1', 'Ex: 16.0')}
-                    {renderInputRow('crioscopia', 'Crioscopia (°H) *', 'number', '0.001', 'Ex: -0.530')}
-                    {renderInputRow('densidade', 'Densidade (g/mL) *', 'number', '0.001', 'Ex: 1.028')}
-                    {renderInputRow('gordura', 'Gordura (%)', 'number', '0.1', 'Ex: 3.5')}
-                    {renderInputRow('proteina', 'Proteína (%)', 'number', '0.1', 'Ex: 3.2')}
-                    {renderInputRow('temperatura', 'Temperatura (°C) *', 'number', '0.1', 'Ex: 4.5')}
-                    {renderInputRow('ph', 'pH', 'number', '0.01', 'Ex: 6.77')}
-                    {renderInputRow('porcentagem_agua', 'Porcentagem de Água (%)', 'number', '0.01', 'Ex: 0.00')}
-                    {renderInputRow('est', 'E.S.T. (%)', 'number', '0.01', 'Ex: 11.65')}
-                    {renderInputRow('esd', 'E.S.D. (%)', 'number', '0.01', 'Ex: 8.45')}
-                    
-                    <div className="mb-4">
-                      <label className="mb-2 block font-medium text-gray-900">Redutase (h:mm)</label>
-                      <div className="flex gap-4 overflow-x-auto pb-2">
-                        {formStates.map((state, i) => (
-                          <div key={i} className="min-w-[150px] flex-1">
-                            <span className="mb-1 block text-xs font-semibold text-gray-500">Comp. {i + 1}</span>
-                            <input
-                              type="text"
-                              disabled={isReadOnly}
-                              value={state.redutase}
-                              onChange={(e) => updateCompartmentForm(i, 'redutase', e.target.value)}
-                              placeholder="Ex: -"
-                              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    {isParamActive('acidez') && renderInputRow('acidez', 'Acidez (°D)', 'number', '0.1', 'Ex: 16.0', isParamRequired('acidez'))}
+                    {isParamActive('crioscopia') && renderInputRow('crioscopia', 'Crioscopia (°H)', 'number', '0.001', 'Ex: -0.530', isParamRequired('crioscopia'))}
+                    {isParamActive('densidade') && renderInputRow('densidade', 'Densidade (g/mL)', 'number', '0.001', 'Ex: 1.028', isParamRequired('densidade'))}
+                    {isParamActive('gordura') && renderInputRow('gordura', 'Gordura (%)', 'number', '0.1', 'Ex: 3.5', isParamRequired('gordura'))}
+                    {isParamActive('proteina') && renderInputRow('proteina', 'Proteína (%)', 'number', '0.1', 'Ex: 3.2', isParamRequired('proteina'))}
+                    {isParamActive('temperatura') && renderInputRow('temperatura', 'Temperatura (°C)', 'number', '0.1', 'Ex: 4.5', isParamRequired('temperatura'))}
+                    {isParamActive('ph') && renderInputRow('ph', 'pH', 'number', '0.01', 'Ex: 6.7', isParamRequired('ph'))}
+                    {isParamActive('água') && renderInputRow('porcentagem_agua', 'Porcentagem de Água (%)', 'number', '0.1', 'Ex: 0.0', isParamRequired('água'))}
+                    {isParamActive('est') && renderInputRow('est', 'E.S.T. (%)', 'number', '0.01', 'Ex: 11.5', isParamRequired('est'))}
+                    {isParamActive('esd') && renderInputRow('esd', 'E.S.D. (%)', 'number', '0.01', 'Ex: 8.5', isParamRequired('esd'))}
+                    {isParamActive('redutase') && renderInputRow('redutase', 'Redutase (h:mm)', 'text', undefined, 'Ex: 2:00', isParamRequired('redutase'))}
                   </div>
 
                   <div>
