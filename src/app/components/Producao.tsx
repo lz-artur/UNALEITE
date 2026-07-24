@@ -9,6 +9,8 @@ import {
  loadMilkLots,
  loadProductionOrders,
  deleteProductionOrder,
+ loadSupplyLots,
+ type SupplyLotInventoryItem,
 } from '../services/operationsApi';
 import {
   AlertDialog,
@@ -26,6 +28,7 @@ const emptyCreateForm = {
  productId: '',
  litersToUse: '',
  actualQuantityProduced: '',
+ supplyConsumptions: [] as { supplyLotId: string; quantity: string }[],
 };
 
 const emptyCompleteForm = {
@@ -45,6 +48,7 @@ export default function Producao() {
  const [selectedOrder, setSelectedOrder] = useState<OrdemProducao | null>(null);
  const [ordensProducao, setOrdensProducao] = useState<OrdemProducao[]>([]);
  const [lotes, setLotes] = useState<LoteLeite[]>([]);
+ const [supplyLots, setSupplyLots] = useState<SupplyLotInventoryItem[]>([]);
  const [formState, setFormState] = useState(emptyCreateForm);
  const [completeForm, setCompleteForm] = useState(emptyCompleteForm);
  const [loading, setLoading] = useState(true);
@@ -65,9 +69,10 @@ export default function Producao() {
  setErrorMessage(null);
 
  try {
- const [orders, nextLotes] = await Promise.all([loadProductionOrders(), loadMilkLots()]);
+ const [orders, nextLotes, fetchedSupplyLots] = await Promise.all([loadProductionOrders(), loadMilkLots(), loadSupplyLots()]);
  setOrdensProducao(orders);
  setLotes(nextLotes);
+ setSupplyLots(fetchedSupplyLots);
  } catch (error) {
  setErrorMessage(getErrorMessage(error));
  } finally {
@@ -119,6 +124,10 @@ export default function Producao() {
  setSubmitError(null);
 
  try {
+ const payloadSupplyConsumptions = formState.supplyConsumptions
+   .filter(c => c.supplyLotId && Number(c.quantity) > 0)
+   .map(c => ({ supplyLotId: c.supplyLotId, quantity: Number(c.quantity) }));
+
  if (editingOrder) {
    await updateProductionOrder(editingOrder.id, {
      milkLotId: formState.milkLotId,
@@ -131,6 +140,7 @@ export default function Producao() {
      milkLotId: formState.milkLotId,
      productId: formState.productId,
      litersToUse,
+     supplyConsumptions: payloadSupplyConsumptions.length ? payloadSupplyConsumptions : undefined,
    });
  }
  setShowCreateModal(false);
@@ -496,8 +506,78 @@ export default function Producao() {
  </div>
  ) : null}
 
+ <div className="border-t border-gray-200 pt-4 mt-4">
+ <div className="flex justify-between items-center mb-2">
+ <h4 className="text-sm font-semibold text-gray-900">Insumos Planejados (Opcional)</h4>
+ <button
+ type="button"
+ onClick={() => setFormState(prev => ({ ...prev, supplyConsumptions: [...prev.supplyConsumptions, { supplyLotId: '', quantity: '' }] }))}
+ className="text-sm flex items-center text-blue-600 hover:text-blue-700"
+ >
+ <Plus className="h-4 w-4 mr-1" /> Adicionar insumo
+ </button>
+ </div>
+ 
+ <div className="space-y-3">
+ {formState.supplyConsumptions.map((consumption, index) => (
+ <div key={index} className="flex gap-2 items-start">
+ <div className="flex-1">
+ <select
+ value={consumption.supplyLotId}
+ onChange={(e) => {
+ const newCons = [...formState.supplyConsumptions];
+ newCons[index].supplyLotId = e.target.value;
+ setFormState(prev => ({ ...prev, supplyConsumptions: newCons }));
+ }}
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+ >
+ <option value="">Selecione o lote do insumo...</option>
+ {supplyLots.filter(l => l.availableQuantity > 0).map(lote => {
+ const item = getSupplyItemById(lote.supplyItemId);
+ return (
+ <option key={lote.id} value={lote.id}>
+ {item?.name || 'Insumo'} - Lote {lote.internalLotCode} ({lote.availableQuantity})
+ </option>
+ );
+ })}
+ </select>
+ </div>
+ <div className="w-24">
+ <input
+ type="number"
+ min="0"
+ step="0.0001"
+ placeholder="Qtd"
+ value={consumption.quantity}
+ onChange={(e) => {
+ const newCons = [...formState.supplyConsumptions];
+ newCons[index].quantity = e.target.value;
+ setFormState(prev => ({ ...prev, supplyConsumptions: newCons }));
+ }}
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+ />
+ </div>
+ <button
+ type="button"
+ onClick={() => {
+ const newCons = [...formState.supplyConsumptions];
+ newCons.splice(index, 1);
+ setFormState(prev => ({ ...prev, supplyConsumptions: newCons }));
+ }}
+ className="p-2 text-red-500 hover:bg-red-50 rounded-md"
+ >
+ <Trash2 className="h-4 w-4" />
+ </button>
+ </div>
+ ))}
+ {formState.supplyConsumptions.length === 0 && (
+ <p className="text-xs text-gray-500 italic">Nenhum insumo planejado selecionado. O sistema aplicará FEFO na finalização da OP.</p>
+ )}
+ </div>
+ </div>
+
  {selectedLot || selectedProduct ? (
- <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+ <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 mt-4">
  {selectedLot ? (
  <p>Volume disponivel do lote: {(selectedLot.volumeDisponivel ?? 0).toLocaleString('pt-BR')} L</p>
  ) : null}
@@ -505,7 +585,7 @@ export default function Producao() {
  <p>Rendimento teorico do produto: {selectedProduct.theoreticalYield.toFixed(2)}</p>
  ) : null}
  <p className="mt-2 text-blue-700">
- A finalizacao da OP vai consumir o leite, aplicar FEFO dos insumos e gerar lote acabado.
+ A finalizacao da OP vai consumir o leite e insumos para gerar lote acabado.
  </p>
  </div>
  ) : null}

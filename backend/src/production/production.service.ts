@@ -95,6 +95,17 @@ export class ProductionService {
       updated_by: user?.id ?? null,
     });
 
+    if (payload.supplyConsumptions?.length) {
+      const supplyConsumptionsToInsert = payload.supplyConsumptions.map(c => ({
+        production_order_id: order.id,
+        supply_lot_id: c.supplyLotId,
+        quantity_consumed: c.quantity,
+        created_by: user?.id ?? null,
+        updated_by: user?.id ?? null,
+      }));
+      await this.supabaseService.admin.from('production_order_supply_consumptions').insert(supplyConsumptionsToInsert);
+    }
+
     return {
       order,
       expectedYield,
@@ -119,10 +130,23 @@ export class ProductionService {
     const product = await this.getById('finished_products', String(order.product_id));
     const productSpec = await this.getActiveProductSpec(String(order.product_id));
 
-    const supplyConsumptions =
-      payload.supplyConsumptions?.length
-        ? payload.supplyConsumptions
-        : await this.buildFefoConsumptions(productSpec, Number(order.liters_planned));
+    let supplyConsumptions = payload.supplyConsumptions;
+    
+    if (!supplyConsumptions?.length) {
+      const { data: existingConsumptions } = await this.supabaseService.admin
+        .from('production_order_supply_consumptions')
+        .select('supply_lot_id, quantity_consumed')
+        .eq('production_order_id', orderId);
+
+      if (existingConsumptions && existingConsumptions.length > 0) {
+        supplyConsumptions = existingConsumptions.map(c => ({
+          supplyLotId: c.supply_lot_id,
+          quantity: c.quantity_consumed,
+        }));
+      } else {
+        supplyConsumptions = await this.buildFefoConsumptions(productSpec, Number(order.liters_planned));
+      }
+    }
 
     for (const consumption of supplyConsumptions) {
       const supplyLot = await this.getById('supply_lots', consumption.supplyLotId);
@@ -190,6 +214,11 @@ export class ProductionService {
     if (milkUpdateError) {
       throw new BadRequestException(milkUpdateError.message);
     }
+
+    await this.supabaseService.admin
+      .from('production_order_supply_consumptions')
+      .delete()
+      .eq('production_order_id', orderId);
 
     for (const consumption of supplyConsumptions) {
       const supplyLot = await this.getById('supply_lots', consumption.supplyLotId);
