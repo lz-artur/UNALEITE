@@ -778,6 +778,18 @@ export async function createProductionOrder(payload: {
   }).then((result) => mapProductionOrder(result.order));
 }
 
+export async function updateProductionOrder(orderId: string, payload: {
+  milkLotId?: string;
+  productId?: string;
+  litersToUse?: number;
+  actualQuantityProduced?: number;
+}) {
+  return apiRequest<{ order: any }>(`/production-orders/${orderId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }).then((result) => mapProductionOrder(result.order));
+}
+
 export async function completeProductionOrder(payload: {
   orderId: string;
   actualQuantityProduced: number;

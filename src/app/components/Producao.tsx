@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Factory, Loader2, Plus, TrendingDown, TrendingUp, Trash2 } from 'lucide-react';
+import { Factory, Loader2, Plus, TrendingDown, TrendingUp, Trash2, MoreHorizontal, Edit2, Check } from 'lucide-react';
 import type { LoteLeite, OrdemProducao } from '../data/mockData';
 import { useCadastros } from '../context/CadastrosContext';
 import {
  completeProductionOrder,
  createProductionOrder,
+ updateProductionOrder,
  loadMilkLots,
  loadProductionOrders,
  deleteProductionOrder,
@@ -24,6 +25,7 @@ const emptyCreateForm = {
  milkLotId: '',
  productId: '',
  litersToUse: '',
+ actualQuantityProduced: '',
 };
 
 const emptyCompleteForm = {
@@ -53,7 +55,10 @@ export default function Producao() {
  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
  const [isDeleting, setIsDeleting] = useState(false);
- const { finishedProducts, getFinishedProductById, getUnitSymbol } = useCadastros();
+ const [viewOrder, setViewOrder] = useState<OrdemProducao | null>(null);
+ const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+ const [editingOrder, setEditingOrder] = useState<OrdemProducao | null>(null);
+ const { finishedProducts, getFinishedProductById, getUnitSymbol, getSupplyItemById } = useCadastros();
 
  const loadData = async () => {
  setLoading(true);
@@ -97,7 +102,7 @@ export default function Producao() {
  ? finishedOrders.reduce((sum, op) => sum + (op.rendimentoReal || 0), 0) / finishedOrders.length
  : 0;
 
- const handleCreate = async () => {
+ const handleSave = async () => {
  const litersToUse = Number(formState.litersToUse);
 
  if (!formState.milkLotId || !formState.productId || litersToUse <= 0) {
@@ -105,7 +110,7 @@ export default function Producao() {
  return;
  }
 
- if (selectedLot && litersToUse > (selectedLot.volumeDisponivel ?? 0)) {
+ if (!editingOrder && selectedLot && litersToUse > (selectedLot.volumeDisponivel ?? 0)) {
  setSubmitError('O lote selecionado nao possui volume disponivel suficiente.');
  return;
  }
@@ -114,12 +119,22 @@ export default function Producao() {
  setSubmitError(null);
 
  try {
- await createProductionOrder({
- milkLotId: formState.milkLotId,
- productId: formState.productId,
- litersToUse,
- });
+ if (editingOrder) {
+   await updateProductionOrder(editingOrder.id, {
+     milkLotId: formState.milkLotId,
+     productId: formState.productId,
+     litersToUse,
+     actualQuantityProduced: formState.actualQuantityProduced ? Number(formState.actualQuantityProduced) : undefined,
+   });
+ } else {
+   await createProductionOrder({
+     milkLotId: formState.milkLotId,
+     productId: formState.productId,
+     litersToUse,
+   });
+ }
  setShowCreateModal(false);
+ setEditingOrder(null);
  setFormState(emptyCreateForm);
  await loadData();
  } catch (error) {
@@ -180,6 +195,7 @@ export default function Producao() {
  }
 
  setShowCreateModal(false);
+ setEditingOrder(null);
  setFormState(emptyCreateForm);
  setSubmitError(null);
  };
@@ -260,7 +276,7 @@ export default function Producao() {
  Nenhuma ordem de producao encontrada.
  </div>
  ) : (
- <div className="overflow-x-auto">
+ <div className="overflow-x-auto min-h-[300px]">
  <table className="w-full">
  <thead className="bg-gray-50">
  <tr>
@@ -275,7 +291,8 @@ export default function Producao() {
  </tr>
  </thead>
  <tbody className="divide-y divide-gray-200">
- {ordensProducao.map((op) => {
+ {ordensProducao.map((op, index) => {
+ const isLastItems = index >= ordensProducao.length - 2 && ordensProducao.length > 2;
  const produto = getFinishedProductById(op.produtoId);
  const lote = lotes.find((entry) => entry.id === op.loteLeiteId);
  const rendimentoDiferenca =
@@ -284,7 +301,11 @@ export default function Producao() {
  : 0;
 
  return (
- <tr key={op.id} className="hover:bg-gray-50">
+ <tr 
+  key={op.id} 
+  className="hover:bg-gray-50 cursor-pointer"
+  onClick={() => setViewOrder(op)}
+ >
  <td className="px-6 py-4 font-medium">{op.numero}</td>
  <td className="px-6 py-4">{produto?.name || '-'}</td>
  <td className="px-6 py-4 text-sm">{lote?.codigo || '-'}</td>
@@ -323,30 +344,66 @@ export default function Producao() {
   <StatusBadge status={op.status} />
   </td>
   <td className="px-6 py-4 flex items-center justify-end gap-2">
-  {op.status === 'Em Andamento' ? (
-  <button
-  onClick={() => {
-  setSelectedOrder(op);
-  setCompleteForm(emptyCompleteForm);
-  setSubmitError(null);
-  }}
-  className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-100"
-  >
-  Finalizar OP
-  </button>
-  ) : (
-  <span className="text-sm text-gray-400 mr-2">Concluida</span>
-  )}
-    <button
-      onClick={() => {
-        setItemToDelete(op.id);
-        setDeleteConfirmOpen(true);
-      }}
-      className="text-red-600 hover:text-red-900"
-      title="Excluir ordem de produção"
-    >
-      <Trash2 className="h-5 w-5" />
-    </button>
+    <div className="relative">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpenDropdownId(openDropdownId === op.id ? null : op.id);
+        }}
+        className="p-1 rounded-full hover:bg-gray-200 text-gray-500"
+      >
+        <MoreHorizontal className="h-5 w-5" />
+      </button>
+      
+      {openDropdownId === op.id && (
+        <div className={`absolute right-0 ${isLastItems ? 'bottom-full mb-1' : 'top-full mt-1'} w-44 bg-white rounded-md shadow-lg border border-gray-200 z-50 py-1`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {op.status === 'Em Andamento' && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedOrder(op);
+                setCompleteForm(emptyCompleteForm);
+                setSubmitError(null);
+                setOpenDropdownId(null);
+              }}
+              className="w-full text-left px-4 py-2 text-sm text-green-700 hover:bg-gray-100 flex items-center gap-2 font-medium"
+            >
+              <Check className="w-4 h-4 text-green-600" /> Finalizar OP
+            </button>
+          )}
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              setEditingOrder(op);
+              setFormState({
+                milkLotId: op.loteLeiteId,
+                productId: op.produtoId,
+                litersToUse: String(op.litrosUtilizados),
+                actualQuantityProduced: op.quantidadeProduzida ? String(op.quantidadeProduzida) : '',
+              });
+              setShowCreateModal(true);
+              setOpenDropdownId(null);
+            }}
+            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+          >
+            <Edit2 className="w-4 h-4 text-blue-500" /> Editar
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setItemToDelete(op.id);
+              setDeleteConfirmOpen(true);
+              setOpenDropdownId(null);
+            }}
+            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 flex items-center gap-2"
+          >
+            <Trash2 className="w-4 h-4" /> Excluir
+          </button>
+        </div>
+      )}
+    </div>
   </td>
   </tr>
  );
@@ -361,7 +418,9 @@ export default function Producao() {
  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
  <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white">
  <div className="border-b border-gray-200 p-6">
- <h3 className="text-xl font-bold text-gray-900">Nova ordem de producao</h3>
+ <h3 className="text-xl font-bold text-gray-900">
+   {editingOrder ? 'Editar ordem de producao' : 'Nova ordem de producao'}
+ </h3>
  </div>
  <div className="space-y-4 p-6">
  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -418,6 +477,25 @@ export default function Producao() {
  />
  </div>
 
+ {editingOrder && editingOrder.status === 'Finalizada' ? (
+ <div>
+ <label className="mb-1 block text-sm font-medium text-gray-700">
+ Quantidade produzida (kg) *
+ </label>
+ <input
+ type="number"
+ min="0"
+ step="0.01"
+ value={formState.actualQuantityProduced}
+ onChange={(event) =>
+ setFormState((current) => ({ ...current, actualQuantityProduced: event.target.value }))
+ }
+ placeholder="0"
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+ />
+ </div>
+ ) : null}
+
  {selectedLot || selectedProduct ? (
  <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
  {selectedLot ? (
@@ -446,12 +524,12 @@ export default function Producao() {
  Cancelar
  </button>
  <button
- onClick={() => void handleCreate()}
+ onClick={() => void handleSave()}
  disabled={saving}
  className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
  >
  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
- Criar OP
+ {editingOrder ? 'Salvar' : 'Criar OP'}
  </button>
  </div>
  </div>
@@ -546,6 +624,125 @@ export default function Producao() {
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>
+
+  {viewOrder ? (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-xl">
+        <div className="border-b border-gray-200 p-6 flex justify-between items-center sticky top-0 bg-white z-10">
+          <div>
+            <h3 className="text-xl font-bold text-gray-900">Detalhes da Ordem de Produção</h3>
+            <p className="mt-1 text-sm text-gray-600">{viewOrder.numero}</p>
+          </div>
+          <button
+            onClick={() => setViewOrder(null)}
+            className="text-gray-500 hover:text-gray-700"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="p-6 space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <h4 className="font-semibold text-gray-900 border-b pb-2">Informações Gerais</h4>
+              <div className="space-y-3 text-sm">
+                <InfoRow label="Status" value={<StatusBadge status={viewOrder.status} /> as unknown as string} />
+                <InfoRow label="Data de Início" value={new Date(viewOrder.dataInicio).toLocaleString('pt-BR')} />
+                {viewOrder.dataFinalizacao && (
+                  <InfoRow label="Data de Finalização" value={new Date(viewOrder.dataFinalizacao).toLocaleString('pt-BR')} />
+                )}
+                <InfoRow label="Produto" value={getFinishedProductById(viewOrder.produtoId)?.name || '-'} />
+                <InfoRow 
+                  label="Lote de Leite" 
+                  value={lotes.find((l) => l.id === viewOrder.loteLeiteId)?.codigo || '-'} 
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <h4 className="font-semibold text-gray-900 border-b pb-2">Produção e Rendimento</h4>
+              <div className="space-y-3 text-sm">
+                <InfoRow label="Litros Utilizados" value={`${viewOrder.litrosUtilizados.toLocaleString('pt-BR')} L`} />
+                <InfoRow 
+                  label="Quantidade Produzida" 
+                  value={
+                    viewOrder.quantidadeProduzida != null
+                      ? `${viewOrder.quantidadeProduzida} ${getUnitSymbol(getFinishedProductById(viewOrder.produtoId)?.unitId)}`
+                      : '-'
+                  } 
+                />
+                <InfoRow 
+                  label="Rendimento Real" 
+                  value={viewOrder.rendimentoReal ? viewOrder.rendimentoReal.toFixed(2) : '-'} 
+                />
+              </div>
+            </div>
+          </div>
+
+          {viewOrder.insumos && viewOrder.insumos.length > 0 && (
+            <div className="space-y-4">
+              <h4 className="font-semibold text-gray-900 border-b pb-2">Insumos e Matérias-primas Utilizados</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-medium">Insumo/Matéria-prima</th>
+                      <th className="px-4 py-2 text-right font-medium">Quantidade Utilizada</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {viewOrder.insumos.map((insumo, idx) => {
+                      const item = getSupplyItemById(insumo.insumoId);
+                      return (
+                        <tr key={idx} className="hover:bg-gray-50">
+                          <td className="px-4 py-3">{item?.name || insumo.insumoId}</td>
+                          <td className="px-4 py-3 text-right font-medium">
+                            {insumo.quantidade} {getUnitSymbol(item?.unitId)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {viewOrder.custos && (
+            <div className="space-y-4">
+              <h4 className="font-semibold text-gray-900 border-b pb-2">Custos da Produção</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <span className="block text-xs text-gray-500 mb-1">Leite</span>
+                  <span className="font-medium">R$ {viewOrder.custos.custoLeite?.toFixed(2) || '0.00'}</span>
+                </div>
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <span className="block text-xs text-gray-500 mb-1">Insumos</span>
+                  <span className="font-medium">R$ {viewOrder.custos.custoInsumos?.toFixed(2) || '0.00'}</span>
+                </div>
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <span className="block text-xs text-gray-500 mb-1">Mão de Obra</span>
+                  <span className="font-medium">R$ {viewOrder.custos.custoMaoObra?.toFixed(2) || '0.00'}</span>
+                </div>
+                <div className="rounded-lg bg-blue-50 border border-blue-100 p-3">
+                  <span className="block text-xs text-blue-600 mb-1">Custo Total</span>
+                  <span className="font-bold text-blue-700">R$ {viewOrder.custos.custoTotal?.toFixed(2) || '0.00'}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+        <div className="border-t border-gray-200 p-6 flex justify-end">
+          <button
+            onClick={() => setViewOrder(null)}
+            className="rounded-lg bg-gray-100 px-4 py-2 text-gray-700 hover:bg-gray-200 font-medium"
+          >
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null}
   </div>
  );
 }
@@ -585,7 +782,7 @@ function StatusBadge({ status }: { status: OrdemProducao['status'] }) {
  return <span className={`rounded-full px-2 py-1 text-xs font-medium ${className}`}>{status}</span>;
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
  return (
  <div>
  <span className="text-gray-500">{label}</span>

@@ -1,10 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Patch, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { SupabaseAuthGuard } from '../common/guards/supabase-auth.guard';
 import { CompleteProductionOrderDto } from './dto/complete-production-order.dto';
 import { CreateProductionOrderDto } from './dto/create-production-order.dto';
+import { UpdateProductionOrderDto } from './dto/update-production-order.dto';
 import { ProductionService } from './production.service';
 
 @ApiTags('production')
@@ -34,6 +35,15 @@ export class ProductionController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     return this.productionService.completeOrder(orderId, payload, user);
+  }
+
+  @Patch(':id')
+  updateOrder(
+    @Param('id') orderId: string,
+    @Body() payload: UpdateProductionOrderDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.productionService.updateOrder(orderId, payload, user);
   }
 
   @Delete(':id')

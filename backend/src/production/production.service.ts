@@ -13,6 +13,7 @@ import { DomainRulesService } from '../common/services/domain-rules.service';
 import { SupabaseService } from '../supabase/supabase.service';
 import { CompleteProductionOrderDto } from './dto/complete-production-order.dto';
 import { CreateProductionOrderDto } from './dto/create-production-order.dto';
+import { UpdateProductionOrderDto } from './dto/update-production-order.dto';
 
 @Injectable()
 export class ProductionService {
@@ -289,6 +290,68 @@ export class ProductionService {
       productLot,
       supplyConsumptions,
     };
+  }
+
+  async updateOrder(
+    orderId: string,
+    payload: UpdateProductionOrderDto,
+    user?: AuthenticatedUser,
+  ) {
+    const order = await this.getById('production_orders', orderId);
+    
+    const updateData: any = {
+      updated_by: user?.id ?? null,
+    };
+
+    if (payload.actualQuantityProduced != null) {
+      updateData.actual_quantity_produced = payload.actualQuantityProduced;
+      updateData.actual_yield = Number((Number(order.liters_planned) / payload.actualQuantityProduced).toFixed(3));
+    }
+
+    if (payload.litersToUse != null && order.status === PRODUCTION_ORDER_STATUS.IN_PROGRESS) {
+      updateData.liters_planned = payload.litersToUse;
+      const product = await this.getById('finished_products', String(order.product_id));
+      const expectedYield = this.domainRulesService.calculateExpectedYield(
+        payload.litersToUse,
+        Number(product.theoretical_yield),
+      );
+      updateData.expected_yield = expectedYield;
+    }
+
+    const { data: updatedOrder, error: orderError } = await this.supabaseService.admin
+      .from('production_orders')
+      .update(updateData)
+      .eq('id', orderId)
+      .select('*')
+      .single();
+
+    if (orderError) {
+      throw new BadRequestException(orderError.message);
+    }
+
+    if (payload.actualQuantityProduced != null && order.status === PRODUCTION_ORDER_STATUS.FINISHED) {
+      const { data: productLot } = await this.supabaseService.admin
+        .from('finished_product_lots')
+        .select('id, available_quantity, quantity_produced')
+        .eq('production_order_id', orderId)
+        .maybeSingle();
+
+      if (productLot) {
+        const difference = payload.actualQuantityProduced - Number(productLot.quantity_produced);
+        const newAvailable = Number(productLot.available_quantity) + difference;
+
+        await this.supabaseService.admin
+          .from('finished_product_lots')
+          .update({
+            quantity_produced: payload.actualQuantityProduced,
+            available_quantity: newAvailable >= 0 ? newAvailable : 0,
+            updated_by: user?.id ?? null,
+          })
+          .eq('id', productLot.id);
+      }
+    }
+
+    return { order: updatedOrder };
   }
 
   private async getById(table: string, id: string) {
