@@ -392,6 +392,7 @@ export default function Producao() {
                 productId: op.produtoId,
                 litersToUse: String(op.litrosUtilizados),
                 actualQuantityProduced: op.quantidadeProduzida ? String(op.quantidadeProduzida) : '',
+                supplyConsumptions: [],
               });
               setShowCreateModal(true);
               setOpenDropdownId(null);
