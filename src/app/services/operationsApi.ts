@@ -18,6 +18,7 @@ import {
 } from '../data/mockData';
 import { apiRequest, withFallback } from './api';
 import { supabase } from '../lib/supabase';
+import { loadCadastrosState } from './cadastrosApi';
 
 export interface DashboardStats {
   leiteRecebidoMes: number;
@@ -808,10 +809,57 @@ export async function completeProductionOrder(payload: {
 }
 
 export async function loadSupplyLots() {
-  return withFallback(async () => {
-    const lots = await apiRequest<any[]>('/inventory/supply-lots');
-    return lots.map(mapSupplyLot);
-  }, () => []);
+  const lots = await withFallback(async () => {
+    const response = await apiRequest<any[]>('/inventory/supply-lots');
+    return response.map(mapSupplyLot);
+  }, async () => {
+    const state = await loadCadastrosState();
+    return state.supplyLots.map((lot) => ({
+      id: lot.id,
+      supplyItemId: lot.supplyItemId,
+      supplierId: lot.supplierId,
+      supplierLotNumber: lot.supplierLotNumber,
+      internalLotCode: lot.internalLotCode,
+      entryDate: new Date(lot.entryDate),
+      expirationDate: lot.expirationDate ? new Date(lot.expirationDate) : undefined,
+      receivedQuantity: lot.receivedQuantity,
+      availableQuantity: lot.availableQuantity,
+      unitCost: lot.unitCost,
+      totalValue: lot.totalValue,
+      status: lot.status,
+      supplyItemName: state.supplyItems.find((i) => i.id === lot.supplyItemId)?.name,
+      supplierName: state.suppliers.find((s) => s.id === lot.supplierId)?.name,
+      unitId: state.supplyItems.find((i) => i.id === lot.supplyItemId)?.unitId,
+      minimumStock: state.supplyItems.find((i) => i.id === lot.supplyItemId)?.minimumStock,
+    }));
+  });
+
+  const state = await loadCadastrosState();
+  for (const item of state.supplyItems) {
+    if (item.currentStock > 0 && item.active) {
+      const hasLots = lots.some((l) => l.supplyItemId === item.id);
+      if (!hasLots) {
+        lots.push({
+          id: `virtual-lot-${item.id}`,
+          supplyItemId: item.id,
+          internalLotCode: 'ESTOQUE INICIAL',
+          entryDate: new Date(),
+          receivedQuantity: item.currentStock,
+          availableQuantity: item.currentStock,
+          unitCost: item.defaultCost || 0,
+          totalValue: item.currentStock * (item.defaultCost || 0),
+          status: 'Disponivel',
+          supplyItemName: item.name,
+          unitId: item.unitId,
+          minimumStock: item.minimumStock,
+          supplierId: item.defaultSupplierId,
+          supplierName: state.suppliers.find((s) => s.id === item.defaultSupplierId)?.name,
+        });
+      }
+    }
+  }
+
+  return lots;
 }
 
 export async function loadFinishedProductLots() {
