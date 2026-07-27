@@ -114,7 +114,7 @@ export interface OrdemProducao {
   status: 'Em Andamento' | 'Finalizada' | 'Cancelada';
   quantidadeProduzida?: number;
   rendimentoReal?: number;
-  insumos: { insumoId: string; quantidade: number }[];
+  insumos: { insumoId: string; supplyLotId?: string; quantidade: number }[];
   custos?: CustoProducao;
 }
 

@@ -473,7 +473,11 @@ function mapProductionOrder(row: any): OrdemProducao {
     status: row.status,
     quantidadeProduzida: row.actual_quantity_produced != null ? Number(row.actual_quantity_produced) : undefined,
     rendimentoReal: row.actual_yield != null ? Number(row.actual_yield) : undefined,
-    insumos: [],
+    insumos: (row.production_order_supply_consumptions ?? []).map((c: any) => ({
+      insumoId: c.supply_lots?.supply_item_id ?? c.supply_lot_id,
+      supplyLotId: c.supply_lot_id,
+      quantidade: Number(c.quantity_consumed),
+    })),
   };
 }
 
@@ -784,6 +788,7 @@ export async function updateProductionOrder(orderId: string, payload: {
   productId?: string;
   litersToUse?: number;
   actualQuantityProduced?: number;
+  supplyConsumptions?: Array<{ supplyLotId: string; quantity: number }>;
 }) {
   return apiRequest<{ order: any }>(`/production-orders/${orderId}`, {
     method: 'PATCH',

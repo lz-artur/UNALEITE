@@ -134,6 +134,7 @@ export default function Producao() {
      productId: formState.productId,
      litersToUse,
      actualQuantityProduced: formState.actualQuantityProduced ? Number(formState.actualQuantityProduced) : undefined,
+     supplyConsumptions: payloadSupplyConsumptions,
    });
  } else {
    await createProductionOrder({
@@ -392,7 +393,9 @@ export default function Producao() {
                 productId: op.produtoId,
                 litersToUse: String(op.litrosUtilizados),
                 actualQuantityProduced: op.quantidadeProduzida ? String(op.quantidadeProduzida) : '',
-                supplyConsumptions: [],
+                supplyConsumptions: op.insumos
+                  .filter(i => i.supplyLotId)
+                  .map(i => ({ supplyLotId: i.supplyLotId as string, quantity: String(i.quantidade) })),
               });
               setShowCreateModal(true);
               setOpenDropdownId(null);
