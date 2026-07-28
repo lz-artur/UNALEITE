@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || 'http://localhost:3001/api';
+const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || 'http://localhost:3002/api';
 const API_TOKEN_STORAGE_KEYS = ['una.api.token', 'supabase.auth.token', 'supabase.access_token'];
 
 export class ApiUnavailableError extends Error {

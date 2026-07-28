@@ -839,31 +839,6 @@ export async function loadSupplyLots() {
     }));
   });
 
-  const state = await loadCadastrosState();
-  for (const item of state.supplyItems) {
-    if (item.currentStock > 0 && item.active) {
-      const hasLots = lots.some((l) => l.supplyItemId === item.id);
-      if (!hasLots) {
-        lots.push({
-          id: `virtual-lot-${item.id}`,
-          supplyItemId: item.id,
-          internalLotCode: 'ESTOQUE INICIAL',
-          entryDate: new Date(),
-          receivedQuantity: item.currentStock,
-          availableQuantity: item.currentStock,
-          unitCost: item.defaultCost || 0,
-          totalValue: item.currentStock * (item.defaultCost || 0),
-          status: 'Disponivel',
-          supplyItemName: item.name,
-          unitId: item.unitId,
-          minimumStock: item.minimumStock,
-          supplierId: item.defaultSupplierId,
-          supplierName: state.suppliers.find((s) => s.id === item.defaultSupplierId)?.name,
-        });
-      }
-    }
-  }
-
   return lots;
 }
 

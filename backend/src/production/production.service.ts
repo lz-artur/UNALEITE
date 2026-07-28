@@ -96,14 +96,51 @@ export class ProductionService {
     });
 
     if (payload.supplyConsumptions?.length) {
-      const supplyConsumptionsToInsert = payload.supplyConsumptions.map(c => ({
-        production_order_id: order.id,
-        supply_lot_id: c.supplyLotId,
-        quantity_consumed: c.quantity,
-        created_by: user?.id ?? null,
-        updated_by: user?.id ?? null,
-      }));
-      await this.supabaseService.admin.from('production_order_supply_consumptions').insert(supplyConsumptionsToInsert);
+      for (const consumption of payload.supplyConsumptions) {
+        const supplyLot = await this.getById('supply_lots', consumption.supplyLotId);
+        const nextAvailable = Number(supplyLot.available_quantity) - consumption.quantity;
+
+        if (nextAvailable < 0) {
+          throw new BadRequestException(`Supply lot ${supplyLot.internal_lot_code} would become negative`);
+        }
+
+        const nextStatus =
+          nextAvailable <= 0 ? SUPPLY_LOT_STATUS.USED : SUPPLY_LOT_STATUS.PARTIALLY_USED;
+
+        await this.supabaseService.admin.from('production_order_supply_consumptions').insert({
+          production_order_id: order.id,
+          supply_lot_id: consumption.supplyLotId,
+          quantity_consumed: consumption.quantity,
+          created_by: user?.id ?? null,
+          updated_by: user?.id ?? null,
+        });
+
+        await this.supabaseService.admin
+          .from('supply_lots')
+          .update({
+            available_quantity: nextAvailable,
+            status: nextStatus,
+            updated_by: user?.id ?? null,
+          })
+          .eq('id', consumption.supplyLotId);
+
+        const { data: supplyItem } = await this.supabaseService.admin
+          .from('supply_items')
+          .select('id, current_stock')
+          .eq('id', supplyLot.supply_item_id)
+          .maybeSingle();
+
+        if (supplyItem) {
+          const nextCurrentStock = Number(supplyItem.current_stock) - consumption.quantity;
+          await this.supabaseService.admin
+            .from('supply_items')
+            .update({
+              current_stock: Math.max(nextCurrentStock, 0),
+              updated_by: user?.id ?? null,
+            })
+            .eq('id', supplyLot.supply_item_id);
+        }
+      }
     }
 
     return {
@@ -131,6 +168,7 @@ export class ProductionService {
     const productSpec = await this.getActiveProductSpec(String(order.product_id));
 
     let supplyConsumptions = payload.supplyConsumptions;
+    let deductStockForConsumptions = false;
     
     if (!supplyConsumptions?.length) {
       const { data: existingConsumptions } = await this.supabaseService.admin
@@ -145,26 +183,31 @@ export class ProductionService {
         }));
       } else {
         supplyConsumptions = await this.buildFefoConsumptions(productSpec, Number(order.liters_planned));
+        deductStockForConsumptions = true;
       }
+    } else {
+      deductStockForConsumptions = true;
     }
 
-    for (const consumption of supplyConsumptions) {
-      const supplyLot = await this.getById('supply_lots', consumption.supplyLotId);
-      const availableQuantity = Number(supplyLot.available_quantity);
-      // Desabilitado temporariamente para inserção de dados retroativos
-      // const isExpired =
-      //   supplyLot.expiration_date != null &&
-      //   (supplyLot.expiration_date && String(supplyLot.expiration_date).split('T')[0] < new Date().toISOString().split('T')[0]);
+    if (deductStockForConsumptions) {
+      for (const consumption of supplyConsumptions) {
+        const supplyLot = await this.getById('supply_lots', consumption.supplyLotId);
+        const availableQuantity = Number(supplyLot.available_quantity);
+        // Desabilitado temporariamente para inserção de dados retroativos
+        // const isExpired =
+        //   supplyLot.expiration_date != null &&
+        //   (supplyLot.expiration_date && String(supplyLot.expiration_date).split('T')[0] < new Date().toISOString().split('T')[0]);
 
-      if (
-        ([SUPPLY_LOT_STATUS.BLOCKED, SUPPLY_LOT_STATUS.USED] as string[]).includes(String(supplyLot.status))
-        // || isExpired
-      ) {
-        throw new BadRequestException(`Supply lot ${supplyLot.internal_lot_code} is unavailable`);
-      }
+        if (
+          ([SUPPLY_LOT_STATUS.BLOCKED, SUPPLY_LOT_STATUS.USED] as string[]).includes(String(supplyLot.status))
+          // || isExpired
+        ) {
+          throw new BadRequestException(`Supply lot ${supplyLot.internal_lot_code} is unavailable`);
+        }
 
-      if (availableQuantity < consumption.quantity) {
-        throw new BadRequestException(`Supply lot ${supplyLot.internal_lot_code} has insufficient stock`);
+        if (availableQuantity < consumption.quantity) {
+          throw new BadRequestException(`Supply lot ${supplyLot.internal_lot_code} has insufficient stock`);
+        }
       }
     }
 
@@ -215,54 +258,94 @@ export class ProductionService {
       throw new BadRequestException(milkUpdateError.message);
     }
 
-    await this.supabaseService.admin
-      .from('production_order_supply_consumptions')
-      .delete()
-      .eq('production_order_id', orderId);
+    if (deductStockForConsumptions && supplyConsumptions && supplyConsumptions.length > 0) {
+      // Restore previous consumptions to avoid double deduction
+      const { data: oldConsumptions } = await this.supabaseService.admin
+        .from('production_order_supply_consumptions')
+        .select('supply_lot_id, quantity_consumed')
+        .eq('production_order_id', orderId);
 
-    for (const consumption of supplyConsumptions) {
-      const supplyLot = await this.getById('supply_lots', consumption.supplyLotId);
-      const nextAvailable = Number(supplyLot.available_quantity) - consumption.quantity;
+      if (oldConsumptions && oldConsumptions.length > 0) {
+        for (const sc of oldConsumptions) {
+          const { data: supplyLot } = await this.supabaseService.admin
+            .from('supply_lots')
+            .select('available_quantity, received_quantity, supply_item_id')
+            .eq('id', sc.supply_lot_id)
+            .single();
 
-      if (nextAvailable < 0) {
-        throw new BadRequestException(`Supply lot ${supplyLot.internal_lot_code} would become negative`);
+          if (supplyLot) {
+            const restoredVolume = Number(supplyLot.available_quantity) + Number(sc.quantity_consumed);
+            const newStatus = restoredVolume >= supplyLot.received_quantity ? SUPPLY_LOT_STATUS.AVAILABLE : SUPPLY_LOT_STATUS.PARTIALLY_USED;
+            await this.supabaseService.admin
+              .from('supply_lots')
+              .update({ available_quantity: restoredVolume, status: newStatus })
+              .eq('id', sc.supply_lot_id);
+
+            const { data: supplyItem } = await this.supabaseService.admin
+              .from('supply_items')
+              .select('current_stock')
+              .eq('id', supplyLot.supply_item_id)
+              .single();
+            
+            if (supplyItem) {
+              await this.supabaseService.admin
+                .from('supply_items')
+                .update({ current_stock: Number(supplyItem.current_stock) + Number(sc.quantity_consumed) })
+                .eq('id', supplyLot.supply_item_id);
+            }
+          }
+        }
       }
 
-      const nextStatus =
-        nextAvailable <= 0 ? SUPPLY_LOT_STATUS.USED : SUPPLY_LOT_STATUS.PARTIALLY_USED;
-
-      await this.supabaseService.admin.from('production_order_supply_consumptions').insert({
-        production_order_id: orderId,
-        supply_lot_id: consumption.supplyLotId,
-        quantity_consumed: consumption.quantity,
-        created_by: user?.id ?? null,
-        updated_by: user?.id ?? null,
-      });
-
       await this.supabaseService.admin
-        .from('supply_lots')
-        .update({
-          available_quantity: nextAvailable,
-          status: nextStatus,
+        .from('production_order_supply_consumptions')
+        .delete()
+        .eq('production_order_id', orderId);
+
+      for (const consumption of supplyConsumptions) {
+        const supplyLot = await this.getById('supply_lots', consumption.supplyLotId);
+        const nextAvailable = Number(supplyLot.available_quantity) - consumption.quantity;
+
+        if (nextAvailable < 0) {
+          throw new BadRequestException(`Supply lot ${supplyLot.internal_lot_code} would become negative`);
+        }
+
+        const nextStatus =
+          nextAvailable <= 0 ? SUPPLY_LOT_STATUS.USED : SUPPLY_LOT_STATUS.PARTIALLY_USED;
+
+        await this.supabaseService.admin.from('production_order_supply_consumptions').insert({
+          production_order_id: orderId,
+          supply_lot_id: consumption.supplyLotId,
+          quantity_consumed: consumption.quantity,
+          created_by: user?.id ?? null,
           updated_by: user?.id ?? null,
-        })
-        .eq('id', consumption.supplyLotId);
+        });
 
-      const { data: supplyItem } = await this.supabaseService.admin
-        .from('supply_items')
-        .select('id, current_stock')
-        .eq('id', supplyLot.supply_item_id)
-        .maybeSingle();
-
-      if (supplyItem) {
-        const nextCurrentStock = Number(supplyItem.current_stock) - consumption.quantity;
         await this.supabaseService.admin
-          .from('supply_items')
+          .from('supply_lots')
           .update({
-            current_stock: Math.max(nextCurrentStock, 0),
+            available_quantity: nextAvailable,
+            status: nextStatus,
             updated_by: user?.id ?? null,
           })
-          .eq('id', supplyLot.supply_item_id);
+          .eq('id', consumption.supplyLotId);
+
+        const { data: supplyItem } = await this.supabaseService.admin
+          .from('supply_items')
+          .select('id, current_stock')
+          .eq('id', supplyLot.supply_item_id)
+          .maybeSingle();
+
+        if (supplyItem) {
+          const nextCurrentStock = Number(supplyItem.current_stock) - consumption.quantity;
+          await this.supabaseService.admin
+            .from('supply_items')
+            .update({
+              current_stock: Math.max(nextCurrentStock, 0),
+              updated_by: user?.id ?? null,
+            })
+            .eq('id', supplyLot.supply_item_id);
+        }
       }
     }
 
@@ -348,115 +431,97 @@ export class ProductionService {
     }
 
     if (payload.supplyConsumptions !== undefined) {
-      if (order.status === PRODUCTION_ORDER_STATUS.IN_PROGRESS) {
-        await this.supabaseService.admin
-          .from('production_order_supply_consumptions')
-          .delete()
-          .eq('production_order_id', orderId);
+      const { data: oldConsumptions } = await this.supabaseService.admin
+        .from('production_order_supply_consumptions')
+        .select('supply_lot_id, quantity_consumed')
+        .eq('production_order_id', orderId);
 
-        if (payload.supplyConsumptions.length > 0) {
-          const supplyConsumptionsToInsert = payload.supplyConsumptions.map(c => ({
-            production_order_id: orderId,
-            supply_lot_id: c.supplyLotId,
-            quantity_consumed: c.quantity,
-            created_by: user?.id ?? null,
-            updated_by: user?.id ?? null,
-          }));
-          await this.supabaseService.admin.from('production_order_supply_consumptions').insert(supplyConsumptionsToInsert);
-        }
-      } else if (order.status === PRODUCTION_ORDER_STATUS.FINISHED) {
-        const { data: oldConsumptions } = await this.supabaseService.admin
-          .from('production_order_supply_consumptions')
-          .select('supply_lot_id, quantity_consumed')
-          .eq('production_order_id', orderId);
+      if (oldConsumptions && oldConsumptions.length > 0) {
+        for (const sc of oldConsumptions) {
+          const { data: supplyLot } = await this.supabaseService.admin
+            .from('supply_lots')
+            .select('available_quantity, received_quantity, supply_item_id')
+            .eq('id', sc.supply_lot_id)
+            .single();
 
-        if (oldConsumptions && oldConsumptions.length > 0) {
-          for (const sc of oldConsumptions) {
-            const { data: supplyLot } = await this.supabaseService.admin
+          if (supplyLot) {
+            const restoredVolume = Number(supplyLot.available_quantity) + Number(sc.quantity_consumed);
+            const newStatus = restoredVolume >= supplyLot.received_quantity ? SUPPLY_LOT_STATUS.AVAILABLE : SUPPLY_LOT_STATUS.PARTIALLY_USED;
+            await this.supabaseService.admin
               .from('supply_lots')
-              .select('available_quantity, received_quantity, supply_item_id')
-              .eq('id', sc.supply_lot_id)
+              .update({ available_quantity: restoredVolume, status: newStatus })
+              .eq('id', sc.supply_lot_id);
+
+            const { data: supplyItem } = await this.supabaseService.admin
+              .from('supply_items')
+              .select('current_stock')
+              .eq('id', supplyLot.supply_item_id)
               .single();
-
-            if (supplyLot) {
-              const restoredVolume = Number(supplyLot.available_quantity) + Number(sc.quantity_consumed);
-              const newStatus = restoredVolume >= supplyLot.received_quantity ? SUPPLY_LOT_STATUS.AVAILABLE : SUPPLY_LOT_STATUS.PARTIALLY_USED;
+            
+            if (supplyItem) {
               await this.supabaseService.admin
-                .from('supply_lots')
-                .update({ available_quantity: restoredVolume, status: newStatus })
-                .eq('id', sc.supply_lot_id);
-
-              const { data: supplyItem } = await this.supabaseService.admin
                 .from('supply_items')
-                .select('current_stock')
-                .eq('id', supplyLot.supply_item_id)
-                .single();
-              
-              if (supplyItem) {
-                await this.supabaseService.admin
-                  .from('supply_items')
-                  .update({ current_stock: Number(supplyItem.current_stock) + Number(sc.quantity_consumed) })
-                  .eq('id', supplyLot.supply_item_id);
-              }
+                .update({ current_stock: Number(supplyItem.current_stock) + Number(sc.quantity_consumed) })
+                .eq('id', supplyLot.supply_item_id);
             }
           }
         }
-        
+      }
+      
+      await this.supabaseService.admin
+        .from('production_order_supply_consumptions')
+        .delete()
+        .eq('production_order_id', orderId);
+
+      for (const consumption of payload.supplyConsumptions) {
+        const { data: supplyLot } = await this.supabaseService.admin
+          .from('supply_lots')
+          .select('available_quantity, supply_item_id, internal_lot_code')
+          .eq('id', consumption.supplyLotId)
+          .single();
+
+        if (!supplyLot) {
+          throw new BadRequestException(`Supply lot not found: ${consumption.supplyLotId}`);
+        }
+
+        const nextAvailable = Number(supplyLot.available_quantity) - consumption.quantity;
+        if (nextAvailable < 0) {
+          throw new BadRequestException(`Supply lot ${supplyLot.internal_lot_code} would become negative`);
+        }
+        const nextStatus = nextAvailable <= 0 ? SUPPLY_LOT_STATUS.USED : SUPPLY_LOT_STATUS.PARTIALLY_USED;
+
+        await this.supabaseService.admin.from('production_order_supply_consumptions').insert({
+          production_order_id: orderId,
+          supply_lot_id: consumption.supplyLotId,
+          quantity_consumed: consumption.quantity,
+          created_by: user?.id ?? null,
+          updated_by: user?.id ?? null,
+        });
+
         await this.supabaseService.admin
-          .from('production_order_supply_consumptions')
-          .delete()
-          .eq('production_order_id', orderId);
-
-        for (const consumption of payload.supplyConsumptions) {
-          const { data: supplyLot } = await this.supabaseService.admin
-            .from('supply_lots')
-            .select('available_quantity, supply_item_id, internal_lot_code')
-            .eq('id', consumption.supplyLotId)
-            .single();
-
-          if (!supplyLot) {
-            throw new BadRequestException(`Supply lot not found: ${consumption.supplyLotId}`);
-          }
-
-          const nextAvailable = Number(supplyLot.available_quantity) - consumption.quantity;
-          if (nextAvailable < 0) {
-            throw new BadRequestException(`Supply lot ${supplyLot.internal_lot_code} would become negative`);
-          }
-          const nextStatus = nextAvailable <= 0 ? SUPPLY_LOT_STATUS.USED : SUPPLY_LOT_STATUS.PARTIALLY_USED;
-
-          await this.supabaseService.admin.from('production_order_supply_consumptions').insert({
-            production_order_id: orderId,
-            supply_lot_id: consumption.supplyLotId,
-            quantity_consumed: consumption.quantity,
-            created_by: user?.id ?? null,
+          .from('supply_lots')
+          .update({
+            available_quantity: nextAvailable,
+            status: nextStatus,
             updated_by: user?.id ?? null,
-          });
+          })
+          .eq('id', consumption.supplyLotId);
 
+        const { data: supplyItem } = await this.supabaseService.admin
+          .from('supply_items')
+          .select('current_stock')
+          .eq('id', supplyLot.supply_item_id)
+          .single();
+
+        if (supplyItem) {
+          const nextCurrentStock = Number(supplyItem.current_stock) - consumption.quantity;
           await this.supabaseService.admin
-            .from('supply_lots')
+            .from('supply_items')
             .update({
-              available_quantity: nextAvailable,
-              status: nextStatus,
+              current_stock: Math.max(nextCurrentStock, 0),
               updated_by: user?.id ?? null,
             })
-            .eq('id', consumption.supplyLotId);
-
-          const { data: supplyItem } = await this.supabaseService.admin
-            .from('supply_items')
-            .select('current_stock')
-            .eq('id', supplyLot.supply_item_id)
-            .single();
-
-          if (supplyItem) {
-            const nextCurrentStock = Number(supplyItem.current_stock) - consumption.quantity;
-            await this.supabaseService.admin
-              .from('supply_items')
-              .update({
-                current_stock: Math.max(nextCurrentStock, 0),
-                updated_by: user?.id ?? null,
-              })
-              .eq('id', supplyLot.supply_item_id);
-          }
+            .eq('id', supplyLot.supply_item_id);
         }
       }
     }

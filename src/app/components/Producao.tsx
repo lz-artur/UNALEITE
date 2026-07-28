@@ -536,7 +536,7 @@ export default function Producao() {
  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
  >
  <option value="">Selecione o lote do insumo...</option>
- {supplyLots.filter(l => l.availableQuantity > 0).map(lote => {
+ {supplyLots.filter(l => l.availableQuantity > 0 || l.id === consumption.supplyLotId).map(lote => {
  const item = getSupplyItemById(lote.supplyItemId);
  return (
  <option key={lote.id} value={lote.id}>
