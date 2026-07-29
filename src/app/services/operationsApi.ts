@@ -842,6 +842,27 @@ export async function loadSupplyLots() {
   return lots;
 }
 
+export async function adjustSupplyLotStock(id: string, newAvailableQuantity: number, oldAvailableQuantity: number, oldReceivedQuantity: number) {
+  const difference = newAvailableQuantity - oldAvailableQuantity;
+  const newReceivedQuantity = oldReceivedQuantity + difference;
+  
+  let status = 'Disponivel';
+  if (newAvailableQuantity === 0) {
+    status = 'Totalmente Utilizado';
+  } else if (newAvailableQuantity < newReceivedQuantity) {
+    status = 'Parcialmente Utilizado';
+  }
+
+  return apiRequest<any>(`/cadastros/supplyLots/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      available_quantity: newAvailableQuantity,
+      received_quantity: newReceivedQuantity,
+      status: status,
+    }),
+  });
+}
+
 export async function loadFinishedProductLots() {
   return withFallback(async () => {
     const lots = await apiRequest<any[]>('/inventory/finished-product-lots');

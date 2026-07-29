@@ -142,6 +142,7 @@ function Field({
  placeholder,
  step,
  required,
+ disabled,
 }: {
  label: string;
  value: string | number;
@@ -150,6 +151,7 @@ function Field({
  placeholder?: string;
  step?: string;
  required?: boolean;
+ disabled?: boolean;
 }) {
  return (
  <div>
@@ -162,7 +164,8 @@ function Field({
  onChange={(event) => onChange(event.target.value)}
  placeholder={placeholder}
  step={step}
- className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+ disabled={disabled}
+ className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${disabled ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
  />
  </div>
  );
@@ -1639,9 +1642,9 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  onChange={(value) => updateField('unitId', value)}
  options={units.filter((item) => item.active).map((item) => ({ label: `${item.name} (${item.symbol})`, value: item.id }))}
  />
- <Field label="Estoque mínimo" type="number" step="0.001" value={String(formState.minimumStock || 0)} onChange={(value) => updateField('minimumStock', value)} />
- <Field label="Estoque atual" type="number" step="0.001" value={String(formState.currentStock || 0)} onChange={(value) => updateField('currentStock', value)} />
- <Field label="Custo padrão" type="number" step="0.01" value={String(formState.defaultCost || 0)} onChange={(value) => updateField('defaultCost', value)} />
+ <Field label="Estoque mínimo" type="text" value={formState.minimumStock === 0 ? '' : String(formState.minimumStock || '')} placeholder="0" onChange={(value) => updateField('minimumStock', value)} />
+ <Field label="Estoque atual (Ajuste via Lotes)" type="text" disabled value={formState.currentStock === 0 ? '' : String(formState.currentStock || '')} placeholder="0" onChange={(value) => updateField('currentStock', value)} />
+ <Field label="Custo padrão" type="text" value={formState.defaultCost === 0 ? '' : String(formState.defaultCost || '')} placeholder="0" onChange={(value) => updateField('defaultCost', value)} />
  <SelectField
  label="Fornecedor padrão"
  value={String(formState.defaultSupplierId || '')}
