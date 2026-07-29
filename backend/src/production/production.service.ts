@@ -22,6 +22,49 @@ export class ProductionService {
     private readonly domainRulesService: DomainRulesService,
   ) {}
 
+  private async resolveSupplyLotId(virtualOrRealId: string, quantity: number, user?: AuthenticatedUser): Promise<string> {
+    if (virtualOrRealId.startsWith('virtual-lot-')) {
+      const supplyItemId = virtualOrRealId.replace('virtual-lot-', '');
+      
+      const { data: existingLot } = await this.supabaseService.admin
+        .from('supply_lots')
+        .select('id')
+        .eq('supply_item_id', supplyItemId)
+        .eq('internal_lot_code', 'ESTOQUE INICIAL')
+        .limit(1)
+        .maybeSingle();
+
+      if (existingLot) return existingLot.id as string;
+
+      const { data: supplyItem } = await this.supabaseService.admin
+        .from('supply_items')
+        .select('current_stock, default_supplier_id')
+        .eq('id', supplyItemId)
+        .single();
+
+      const { data: newLot } = await this.supabaseService.admin
+        .from('supply_lots')
+        .insert({
+          supply_item_id: supplyItemId,
+          internal_lot_code: 'ESTOQUE INICIAL',
+          entry_date: new Date().toISOString(),
+          received_quantity: supplyItem?.current_stock ?? quantity,
+          available_quantity: supplyItem?.current_stock ?? quantity,
+          unit_cost: 0,
+          total_value: 0,
+          status: SUPPLY_LOT_STATUS.AVAILABLE,
+          supplier_id: supplyItem?.default_supplier_id ?? null,
+          created_by: user?.id ?? null,
+          updated_by: user?.id ?? null,
+        })
+        .select('id')
+        .single();
+
+      return newLot!.id as string;
+    }
+    return virtualOrRealId;
+  }
+
   async listOrders() {
     const { data, error } = await this.supabaseService.admin
       .from('production_orders')
@@ -97,6 +140,7 @@ export class ProductionService {
 
     if (payload.supplyConsumptions?.length) {
       for (const consumption of payload.supplyConsumptions) {
+        consumption.supplyLotId = await this.resolveSupplyLotId(consumption.supplyLotId, consumption.quantity, user);
         const supplyLot = await this.getById('supply_lots', consumption.supplyLotId);
         const nextAvailable = Number(supplyLot.available_quantity) - consumption.quantity;
 
@@ -191,6 +235,7 @@ export class ProductionService {
 
     if (deductStockForConsumptions) {
       for (const consumption of supplyConsumptions) {
+        consumption.supplyLotId = await this.resolveSupplyLotId(consumption.supplyLotId, consumption.quantity, user);
         const supplyLot = await this.getById('supply_lots', consumption.supplyLotId);
         const availableQuantity = Number(supplyLot.available_quantity);
         // Desabilitado temporariamente para inserção de dados retroativos
@@ -474,6 +519,8 @@ export class ProductionService {
         .eq('production_order_id', orderId);
 
       for (const consumption of payload.supplyConsumptions) {
+        consumption.supplyLotId = await this.resolveSupplyLotId(consumption.supplyLotId, consumption.quantity, user);
+        
         const { data: supplyLot } = await this.supabaseService.admin
           .from('supply_lots')
           .select('available_quantity, supply_item_id, internal_lot_code')
