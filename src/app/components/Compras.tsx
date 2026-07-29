@@ -63,6 +63,9 @@ export default function Compras() {
     accountingSubcategoryId: '',
     bankAccountId: '',
     installments: [] as Array<{ localId: string; dueDate: string; amount: string }>,
+    installmentCount: '1',
+    installmentInterval: '30',
+    firstInstallmentDate: getDefaultDates().dueDate,
   });
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [receiveForm, setReceiveForm] = useState<{
@@ -149,10 +152,65 @@ export default function Compras() {
       accountingSubcategoryId: '',
       bankAccountId: '',
       installments: [],
+      installmentCount: '1',
+      installmentInterval: '30',
+      firstInstallmentDate: getDefaultDates().dueDate,
     });
     setShowCreateModal(true);
     setErrorMessage(null);
   };
+
+  // calculate total items
+  const totalItemsValue = createForm.items.reduce((acc, item) => {
+    return acc + (Number(item.quantity) * Number(item.unitCost) || 0);
+  }, 0);
+
+  const selectedPaymentMethod = paymentMethods.find((pm) => pm.id === createForm.paymentMethodId);
+  const isBoleto = selectedPaymentMethod?.name.toLowerCase().includes('boleto') || false;
+  
+  const selectedPaymentType = paymentTypes.find((pt) => pt.id === createForm.paymentTypeId);
+  const isDividido = selectedPaymentType?.name.toLowerCase().includes('dividido') || selectedPaymentType?.name.toLowerCase().includes('prazo') || false;
+
+  useEffect(() => {
+    if (isDividido && totalItemsValue > 0) {
+      const count = parseInt(createForm.installmentCount) || 1;
+      const amountPerInstallment = totalItemsValue / count;
+      let interval = 30;
+      let baseDateStr = createForm.purchaseDate;
+      
+      if (isBoleto) {
+         interval = parseInt(createForm.installmentInterval) || 30;
+      } else {
+         baseDateStr = createForm.firstInstallmentDate || createForm.purchaseDate;
+      }
+
+      if (!baseDateStr) return;
+
+      const generatedInstallments = [];
+      for (let i = 0; i < count; i++) {
+        const d = new Date(baseDateStr + 'T12:00:00Z');
+        if (isBoleto) {
+          d.setUTCDate(d.getUTCDate() + (interval * (i + 1)));
+        } else {
+          d.setUTCDate(d.getUTCDate() + (interval * i));
+        }
+        
+        generatedInstallments.push({
+           localId: `inst-auto-${i}`,
+           dueDate: d.toISOString().slice(0, 10),
+           amount: Number(amountPerInstallment.toFixed(2)).toString(),
+        });
+      }
+      
+      const sum = generatedInstallments.reduce((acc, curr) => acc + Number(curr.amount), 0);
+      const diff = totalItemsValue - sum;
+      if (generatedInstallments.length > 0 && Math.abs(diff) > 0.001) {
+        generatedInstallments[generatedInstallments.length - 1].amount = (Number(generatedInstallments[generatedInstallments.length - 1].amount) + diff).toFixed(2);
+      }
+
+      setCreateForm(current => ({ ...current, installments: generatedInstallments }));
+    }
+  }, [createForm.installmentCount, createForm.installmentInterval, createForm.firstInstallmentDate, createForm.purchaseDate, isBoleto, isDividido, totalItemsValue]);
 
   const handleCreatePurchase = async () => {
     if (!createForm.supplierId) {
@@ -189,7 +247,6 @@ export default function Compras() {
       const totalItems = normalizedItems.reduce((acc, item) => acc + item.quantity * item.unitCost, 0);
       const totalInstallments = normalizedInstallments.reduce((acc, inst) => acc + inst.amount, 0);
 
-      // Tolerar diferenca de centavos
       if (Math.abs(totalItems - totalInstallments) > 0.1) {
         setErrorMessage('A soma das parcelas deve ser igual ao valor total da compra.');
         return;
@@ -709,105 +766,14 @@ export default function Compras() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 mt-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
-                <FilterSelect
-                  label="Forma de Pagamento"
-                  value={createForm.paymentMethodId}
-                  onChange={(value) => setCreateForm((current) => ({ ...current, paymentMethodId: value }))}
-                  options={[
-                    { label: 'Selecione...', value: '' },
-                    ...paymentMethods.filter(p => p.active).map((p) => ({ label: p.name, value: p.id })),
-                  ]}
-                />
-                <FilterSelect
-                  label="Tipo de Pagamento"
-                  value={createForm.paymentTypeId}
-                  onChange={(value) => setCreateForm((current) => ({ ...current, paymentTypeId: value }))}
-                  options={[
-                    { label: 'Selecione...', value: '' },
-                    ...paymentTypes.filter(p => p.active).map((p) => ({ label: p.name, value: p.id })),
-                  ]}
-                />
-              </div>
-
-              {paymentTypes.find(pt => pt.id === createForm.paymentTypeId)?.name.toLowerCase().includes('dividido') || 
-               paymentTypes.find(pt => pt.id === createForm.paymentTypeId)?.name.toLowerCase().includes('prazo') ? (
-                <div className="bg-orange-50 p-4 rounded-xl border border-orange-200">
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="font-bold text-orange-900">Parcelas</h4>
-                    <button
-                      onClick={() =>
-                        setCreateForm((current) => ({
-                          ...current,
-                          installments: [
-                            ...current.installments,
-                            { localId: `inst-${Date.now()}`, dueDate: '', amount: '' },
-                          ],
-                        }))
-                      }
-                      className="rounded-lg border border-orange-300 bg-white px-3 py-1.5 text-sm text-orange-800 hover:bg-orange-100"
-                    >
-                      + Adicionar Parcela
-                    </button>
-                  </div>
-                  {createForm.installments.map((inst) => (
-                    <div key={inst.localId} className="flex gap-3 mb-2 items-end">
-                      <div className="flex-1">
-                        <FilterField
-                          label="Data Vencimento"
-                          type="date"
-                          value={inst.dueDate}
-                          onChange={(value) => setCreateForm(c => ({
-                            ...c, 
-                            installments: c.installments.map(i => i.localId === inst.localId ? { ...i, dueDate: value } : i)
-                          }))}
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <FilterField
-                          label="Valor"
-                          type="number"
-                          value={inst.amount}
-                          onChange={(value) => setCreateForm(c => ({
-                            ...c, 
-                            installments: c.installments.map(i => i.localId === inst.localId ? { ...i, amount: value } : i)
-                          }))}
-                        />
-                      </div>
-                      <button
-                        onClick={() =>
-                          setCreateForm((current) => ({
-                            ...current,
-                            installments: current.installments.filter(i => i.localId !== inst.localId),
-                          }))
-                        }
-                        className="rounded-lg bg-red-100 px-3 py-2 text-sm text-red-700 hover:bg-red-200 h-[42px] mb-0.5"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                  {createForm.installments.length === 0 && (
-                    <p className="text-sm text-orange-700 mt-2">Nenhuma parcela adicionada. O valor deve bater com o total da compra.</p>
-                  )}
-                </div>
-              ) : null}
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Observacoes</label>
-                <textarea
-                  rows={3}
-                  value={createForm.notes}
-                  onChange={(event) =>
-                    setCreateForm((current) => ({ ...current, notes: event.target.value }))
-                  }
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="space-y-3">
+              <div className="space-y-3 mt-4">
                 <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-gray-900">Itens da compra</h4>
+                  <h4 className="font-bold text-gray-900">
+                    Itens da compra 
+                    <span className="text-gray-500 ml-2 font-normal text-sm">
+                      (Total: R$ {totalItemsValue.toFixed(2).replace('.', ',')})
+                    </span>
+                  </h4>
                   <button
                     onClick={() =>
                       setCreateForm((current) => ({
@@ -900,6 +866,140 @@ export default function Compras() {
                     </div>
                   </div>
                 ))}
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                <FilterSelect
+                  label="Forma de Pagamento"
+                  value={createForm.paymentMethodId}
+                  onChange={(value) => setCreateForm((current) => ({ ...current, paymentMethodId: value }))}
+                  options={[
+                    { label: 'Selecione...', value: '' },
+                    ...paymentMethods.filter(p => p.active).map((p) => ({ label: p.name, value: p.id })),
+                  ]}
+                />
+                <FilterSelect
+                  label="Tipo de Pagamento"
+                  value={createForm.paymentTypeId}
+                  onChange={(value) => setCreateForm((current) => ({ ...current, paymentTypeId: value }))}
+                  options={[
+                    { label: 'Selecione...', value: '' },
+                    ...paymentTypes.filter(p => p.active).map((p) => ({ label: p.name, value: p.id })),
+                  ]}
+                />
+              </div>
+
+              {isDividido && isBoleto ? (
+                <div className="bg-orange-50 p-4 rounded-xl border border-orange-200">
+                  <h4 className="font-bold text-orange-900 mb-3">Parcelas (Boleto)</h4>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 mb-4">
+                    <FilterField
+                      label="Qtd de Parcelas"
+                      type="number"
+                      value={createForm.installmentCount}
+                      onChange={(value) => setCreateForm((c) => ({ ...c, installmentCount: value }))}
+                    />
+                    <FilterSelect
+                      label="Intervalo"
+                      value={createForm.installmentInterval}
+                      onChange={(value) => setCreateForm((c) => ({ ...c, installmentInterval: value }))}
+                      options={[
+                        { label: '15 dias', value: '15' },
+                        { label: '30 dias', value: '30' },
+                      ]}
+                    />
+                  </div>
+                  {createForm.installments.map((inst, index) => (
+                    <div key={inst.localId} className="flex gap-3 mb-2 items-end opacity-80">
+                      <div className="flex-1">
+                        <FilterField
+                          label={`Vencimento (Parcela ${index + 1})`}
+                          type="date"
+                          value={inst.dueDate}
+                          onChange={(value) => setCreateForm(c => ({
+                            ...c, 
+                            installments: c.installments.map(i => i.localId === inst.localId ? { ...i, dueDate: value } : i)
+                          }))}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <FilterField
+                          label="Valor"
+                          type="number"
+                          value={inst.amount}
+                          disabled={true}
+                          onChange={(value) => setCreateForm(c => ({
+                            ...c, 
+                            installments: c.installments.map(i => i.localId === inst.localId ? { ...i, amount: value } : i)
+                          }))}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  {createForm.installments.length === 0 && (
+                    <p className="text-sm text-orange-700 mt-2">Adicione valor nos itens para gerar as parcelas.</p>
+                  )}
+                </div>
+              ) : isDividido ? (
+                <div className="bg-orange-50 p-4 rounded-xl border border-orange-200">
+                  <h4 className="font-bold text-orange-900 mb-3">Parcelas (A prazo)</h4>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 mb-4">
+                    <FilterField
+                      label="Qtd de Parcelas"
+                      type="number"
+                      value={createForm.installmentCount}
+                      onChange={(value) => setCreateForm((c) => ({ ...c, installmentCount: value }))}
+                    />
+                    <FilterField
+                      label="Data de Vencimento (1ª Parcela)"
+                      type="date"
+                      value={createForm.firstInstallmentDate}
+                      onChange={(value) => setCreateForm((c) => ({ ...c, firstInstallmentDate: value }))}
+                    />
+                  </div>
+                  {createForm.installments.map((inst, index) => (
+                    <div key={inst.localId} className="flex gap-3 mb-2 items-end opacity-80">
+                      <div className="flex-1">
+                        <FilterField
+                          label={`Vencimento (Parcela ${index + 1})`}
+                          type="date"
+                          value={inst.dueDate}
+                          onChange={(value) => setCreateForm(c => ({
+                            ...c, 
+                            installments: c.installments.map(i => i.localId === inst.localId ? { ...i, dueDate: value } : i)
+                          }))}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <FilterField
+                          label="Valor"
+                          type="number"
+                          value={inst.amount}
+                          disabled={true}
+                          onChange={(value) => setCreateForm(c => ({
+                            ...c, 
+                            installments: c.installments.map(i => i.localId === inst.localId ? { ...i, amount: value } : i)
+                          }))}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  {createForm.installments.length === 0 && (
+                    <p className="text-sm text-orange-700 mt-2">Adicione valor nos itens para gerar as parcelas.</p>
+                  )}
+                </div>
+              ) : null}
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Observacoes</label>
+                <textarea
+                  rows={3}
+                  value={createForm.notes}
+                  onChange={(event) =>
+                    setCreateForm((current) => ({ ...current, notes: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
             </div>
             <div className="flex justify-end gap-3 border-t border-gray-200 p-6">
@@ -1141,11 +1241,13 @@ function FilterField({
   type,
   value,
   onChange,
+  disabled,
 }: {
   label: string;
   type: string;
   value: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <div>
@@ -1154,7 +1256,8 @@ function FilterField({
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        disabled={disabled}
+        className={`w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${disabled ? 'bg-gray-100 cursor-not-allowed opacity-70' : ''}`}
       />
     </div>
   );

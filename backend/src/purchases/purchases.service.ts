@@ -464,8 +464,7 @@ export class PurchasesService {
 
     if (payload.installments && payload.installments.length > 0) {
       // Usar a mesma lógica para agrupar as parcelas
-      const { v4: uuidv4 } = require('uuid');
-      const installmentGroupId = uuidv4();
+      const installmentGroupId = require('crypto').randomUUID();
       
       const entries = payload.installments.map((installment, index) => ({
         ...commonFields,
@@ -478,7 +477,7 @@ export class PurchasesService {
 
       const { error } = await this.supabaseService.admin.from('financial_entries').insert(entries);
 
-      if (error && !error.message.includes('duplicate')) {
+      if (error) {
         throw new BadRequestException(error.message);
       }
     } else {
@@ -489,7 +488,7 @@ export class PurchasesService {
         due_date: purchase.due_date,
       });
 
-      if (error && !error.message.includes('duplicate')) {
+      if (error) {
         throw new BadRequestException(error.message);
       }
     }

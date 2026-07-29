@@ -266,7 +266,7 @@ export class SalesService {
             .eq('reference_table', 'sales_orders')
             .eq('reference_id', salesOrderId);
 
-          const groupId = `${salesOrderId}-${Date.now()}`;
+          const groupId = require('crypto').randomUUID();
           const newEntries = payload.installmentEntries.map((installment, index) => {
             const { id, created_at, updated_at, computed_status, ...rest } = originalEntry;
             return {
