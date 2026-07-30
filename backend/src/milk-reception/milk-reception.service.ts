@@ -93,7 +93,7 @@ export class MilkReceptionService {
   async updateReception(milkLotId: string, payload: UpdateMilkReceptionDto, user?: AuthenticatedUser) {
     const { data: lotData, error: lotFindError } = await this.supabaseService.admin
       .from('milk_lots')
-      .select('id, milk_reception_id')
+      .select('id, milk_reception_id, volume_liters, available_volume_liters')
       .eq('id', milkLotId)
       .maybeSingle();
 
@@ -144,9 +144,21 @@ export class MilkReceptionService {
     if (payload.producerId) updateLotPayload.producer_id = payload.producerId;
     if (payload.routeId) updateLotPayload.route_id = payload.routeId;
     if (payload.transporterId) updateLotPayload.transporter_id = payload.transporterId;
-    if (payload.volumeLiters !== undefined) updateLotPayload.volume_liters = payload.volumeLiters;
-    // Note: updating available_volume_liters correctly based on the diff could be complex, 
-    // assuming here it's edited only initially before partial usages, or we don't update available_volume_liters implicitly unless logic requires it.
+    if (payload.volumeLiters !== undefined) {
+      updateLotPayload.volume_liters = payload.volumeLiters;
+      
+      const oldVolume = Number(lotData.volume_liters);
+      const newVolume = payload.volumeLiters;
+      const diff = newVolume - oldVolume;
+      
+      // Prevent negative available volume if they try to reduce volume below what was already consumed
+      const currentAvailable = Number(lotData.available_volume_liters);
+      if (currentAvailable + diff < 0) {
+        throw new BadRequestException('Não é possível reduzir o volume total para um valor menor do que o que já foi consumido na produção.');
+      }
+      
+      updateLotPayload.available_volume_liters = currentAvailable + diff;
+    }
     if (payload.temperatura !== undefined) updateLotPayload.temperature = payload.temperatura;
     if (payload.receivedAt) updateLotPayload.received_at = payload.receivedAt;
 
