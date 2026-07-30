@@ -413,14 +413,20 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  selectedSection,
  ]);
 
- const filteredRecords = useMemo(() => {
- const term = searchTerm.trim().toLowerCase();
- if (!term) {
- return records;
- }
+  const filteredRecords = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    let result = records;
 
- return records.filter((record) => JSON.stringify(record).toLowerCase().includes(term));
- }, [records, searchTerm]);
+    if (term) {
+      result = result.filter((record) => JSON.stringify(record).toLowerCase().includes(term));
+    }
+
+    return [...result].sort((a, b) => {
+      const nameA = String((a as any).name || (a as any).internalLotCode || (a as any).code || '').toLowerCase();
+      const nameB = String((b as any).name || (b as any).internalLotCode || (b as any).code || '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+  }, [records, searchTerm]);
 
  const metrics = useMemo(() => {
  const total = records.length;
@@ -1770,7 +1776,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  ),
  );
  }}
- options={supplyItems.filter((entry) => entry.active).map((entry) => ({ label: entry.name, value: entry.id }))}
+        options={supplyItems.filter((entry) => entry.active).sort((a, b) => a.name.localeCompare(b.name)).map((entry) => ({ label: entry.name, value: entry.id }))}
  />
  <Field
  label="Quantidade"
@@ -1816,7 +1822,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  required
  value={String(formState.supplyItemId || '')}
  onChange={(value) => updateField('supplyItemId', value)}
- options={supplyItems.filter((item) => item.active).map((item) => ({ label: item.name, value: item.id }))}
+        options={supplyItems.filter((item) => item.active).sort((a, b) => a.name.localeCompare(b.name)).map((item) => ({ label: item.name, value: item.id }))}
  />
  <SelectField
  label="Fornecedor"
