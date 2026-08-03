@@ -478,6 +478,10 @@ function mapProductionOrder(row: any): OrdemProducao {
       supplyLotId: c.supply_lot_id,
       quantidade: Number(c.quantity_consumed),
     })),
+    produtosAcabadosConsumidos: (row.production_order_finished_product_consumptions ?? []).map((c: any) => ({
+      finishedProductLotId: c.finished_product_lot_id,
+      quantidade: Number(c.quantity_consumed),
+    })),
   };
 }
 
@@ -789,6 +793,7 @@ export async function updateProductionOrder(orderId: string, payload: {
   litersToUse?: number;
   actualQuantityProduced?: number;
   supplyConsumptions?: Array<{ supplyLotId: string; quantity: number }>;
+  finishedProductConsumptions?: Array<{ finishedProductLotId: string; quantity: number }>;
 }) {
   return apiRequest<{ order: any }>(`/production-orders/${orderId}`, {
     method: 'PATCH',
@@ -800,12 +805,14 @@ export async function completeProductionOrder(payload: {
   orderId: string;
   actualQuantityProduced: number;
   supplyConsumptions?: Array<{ supplyLotId: string; quantity: number }>;
+  generatedCoProducts?: Array<{ productId: string; quantity: number }>;
 }) {
   return apiRequest<{ order: any; productLot: any }>(`/production-orders/${payload.orderId}/complete`, {
     method: 'POST',
     body: JSON.stringify({
       actualQuantityProduced: payload.actualQuantityProduced,
       supplyConsumptions: payload.supplyConsumptions,
+      generatedCoProducts: payload.generatedCoProducts,
     }),
   }).then((result) => ({
     order: mapProductionOrder(result.order),

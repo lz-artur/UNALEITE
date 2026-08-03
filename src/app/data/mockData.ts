@@ -115,6 +115,7 @@ export interface OrdemProducao {
   quantidadeProduzida?: number;
   rendimentoReal?: number;
   insumos: { insumoId: string; supplyLotId?: string; quantidade: number }[];
+  produtosAcabadosConsumidos?: { finishedProductLotId: string; quantidade: number }[];
   custos?: CustoProducao;
 }
 

@@ -340,6 +340,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  const [validationErrors, setValidationErrors] = useState<string[]>([]);
  const [linkedIds, setLinkedIds] = useState<string[]>([]);
  const [specItems, setSpecItems] = useState<ProductSpecItemRecord[]>([]);
+ const [specFinishedProductItems, setSpecFinishedProductItems] = useState<any[]>([]);
  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
 
  const currentSection = sections.find((section) => section.key === selectedSection)!;
@@ -472,12 +473,14 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  setValidationErrors([]);
  setLinkedIds([]);
  setSpecItems([]);
+ setSpecFinishedProductItems([]);
  }
 
  function startNew() {
  setValidationErrors([]);
  setLinkedIds([]);
  setSpecItems([]);
+ setSpecFinishedProductItems([]);
  setFormState(getEmptyState(selectedSection));
  setIsFormOpen(true);
  }
@@ -495,9 +498,11 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  } else if (selectedSection === 'productSpecs') {
  const spec = record as ProductSpecRecord;
  setSpecItems(spec.items);
+ setSpecFinishedProductItems(spec.finishedProductItems || []);
  } else {
  setLinkedIds([]);
  setSpecItems([]);
+ setSpecFinishedProductItems([]);
  }
 
  setIsFormOpen(true);
@@ -950,6 +955,10 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  theoreticalYield: Number(formState.theoreticalYield),
  expectedLoss: Number(formState.expectedLoss) || undefined,
  items: specItems.map((item) => ({
+ ...item,
+ quantity: Number(item.quantity),
+ })),
+ finishedProductItems: specFinishedProductItems.map((item) => ({
  ...item,
  quantity: Number(item.quantity),
  })),
@@ -1811,10 +1820,69 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  </div>
  ))}
  </div>
- </div>
- </div>
- );
- case 'supplyLots':
+  </div>
+  <div>
+    <div className="flex items-center justify-between mb-2 mt-4">
+      <p className="text-sm font-medium text-gray-700">Produtos acabados consumidos</p>
+      <button
+        type="button"
+        onClick={() =>
+          setSpecFinishedProductItems((current) => [
+            ...current,
+            {
+              id: generateId('spec-fp-item'),
+              finishedProductId: '',
+              quantity: 0,
+            },
+          ])
+        }
+        className="text-sm text-blue-600 hover:text-blue-800"
+      >
+        + Adicionar item
+      </button>
+    </div>
+    <div className="space-y-3">
+      {specFinishedProductItems.map((item, index) => (
+        <div key={item.id} className="grid grid-cols-1 md:grid-cols-3 gap-3 border border-gray-200 rounded-lg p-3">
+          <SelectField
+            label={`Produto ${index + 1}`}
+            value={item.finishedProductId}
+            onChange={(value) => {
+              setSpecFinishedProductItems((current) =>
+                current.map((entry) =>
+                  entry.id === item.id ? { ...entry, finishedProductId: value } : entry,
+                ),
+              );
+            }}
+            options={finishedProducts.filter((entry) => entry.active).sort((a, b) => a.name.localeCompare(b.name)).map((entry) => ({ label: entry.name, value: entry.id }))}
+          />
+          <Field
+            label="Quantidade"
+            type="number"
+            step="0.001"
+            value={String(item.quantity)}
+            onChange={(value) =>
+              setSpecFinishedProductItems((current) =>
+                current.map((entry) => (entry.id === item.id ? { ...entry, quantity: Number(value) } : entry)),
+              )
+            }
+          />
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={() => setSpecFinishedProductItems((current) => current.filter((entry) => entry.id !== item.id))}
+              className="w-full px-3 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50"
+            >
+              Remover
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+  </div>
+  );
+  case 'supplyLots':
  return (
  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
  <SelectField

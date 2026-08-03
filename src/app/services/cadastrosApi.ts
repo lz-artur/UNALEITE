@@ -214,6 +214,14 @@ function mapProductSpecItem(row: any): ProductSpecItemRecord {
   };
 }
 
+function mapProductSpecFinishedProductItem(row: any) {
+  return {
+    id: row.id,
+    finishedProductId: row.finished_product_id,
+    quantity: row.quantity,
+  };
+}
+
 function mapProductSpec(row: any): ProductSpecRecord {
   return {
     id: row.id,
@@ -225,6 +233,7 @@ function mapProductSpec(row: any): ProductSpecRecord {
     expectedLoss: row.expected_loss ?? undefined,
     productionNotes: row.production_notes ?? '',
     items: Array.isArray(row.product_spec_items) ? row.product_spec_items.map(mapProductSpecItem) : [],
+    finishedProductItems: Array.isArray(row.product_spec_finished_product_items) ? row.product_spec_finished_product_items.map(mapProductSpecFinishedProductItem) : [],
     active: row.active,
   };
 }
@@ -515,6 +524,11 @@ function serializeProductSpec(record: ProductSpecRecord) {
       supply_item_id: item.supplyItemId,
       quantity: item.quantity,
       unit_id: item.unitId,
+    })),
+    product_spec_finished_product_items: (record.finishedProductItems || []).map((item: any) => ({
+      id: item.id,
+      finished_product_id: item.finishedProductId,
+      quantity: item.quantity,
     })),
   };
 }

@@ -116,6 +116,7 @@ export class CadastrosService {
 
     if (entity === 'productSpecs') {
       await this.supabaseService.admin.from('product_spec_items').delete().eq('product_spec_id', id);
+      await this.supabaseService.admin.from('product_spec_finished_product_items').delete().eq('product_spec_id', id);
     }
 
     const { error } = await this.supabaseService.admin
@@ -145,7 +146,7 @@ export class CadastrosService {
 
   private getSelectClause(entity: CadastroEntity) {
     if (entity === 'productSpecs') {
-      return '*, product_spec_items(*)';
+      return '*, product_spec_items(*), product_spec_finished_product_items(*)';
     }
 
     return '*';
@@ -288,8 +289,13 @@ export class CadastrosService {
     const items = Array.isArray(payload.product_spec_items)
       ? (payload.product_spec_items as Array<Record<string, unknown>>)
       : [];
+    const finishedProductItems = Array.isArray(payload.product_spec_finished_product_items)
+      ? (payload.product_spec_finished_product_items as Array<Record<string, unknown>>)
+      : [];
+
     const specPayload = { ...payload };
     delete specPayload.product_spec_items;
+    delete specPayload.product_spec_finished_product_items;
 
     const spec = await this.persistPlain(table, specPayload, id);
 
@@ -298,6 +304,7 @@ export class CadastrosService {
     }
 
     await this.supabaseService.admin.from('product_spec_items').delete().eq('product_spec_id', spec.id);
+    await this.supabaseService.admin.from('product_spec_finished_product_items').delete().eq('product_spec_id', spec.id);
 
     if (items.length) {
       const normalized = items.map((item) => ({
@@ -306,6 +313,19 @@ export class CadastrosService {
       }));
 
       const { error } = await this.supabaseService.admin.from('product_spec_items').insert(normalized);
+
+      if (error) {
+        throw new BadRequestException(error.message);
+      }
+    }
+
+    if (finishedProductItems.length) {
+      const normalized = finishedProductItems.map((item) => ({
+        ...item,
+        product_spec_id: spec.id,
+      }));
+
+      const { error } = await this.supabaseService.admin.from('product_spec_finished_product_items').insert(normalized);
 
       if (error) {
         throw new BadRequestException(error.message);

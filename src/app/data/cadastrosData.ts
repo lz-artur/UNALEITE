@@ -149,6 +149,12 @@ export interface ProductSpecItemRecord {
   unitId: string;
 }
 
+export interface ProductSpecFinishedProductItemRecord {
+  id: string;
+  finishedProductId: string;
+  quantity: number;
+}
+
 export interface ProductSpecRecord {
   id: string;
   productId: string;
@@ -159,6 +165,7 @@ export interface ProductSpecRecord {
   expectedLoss?: number;
   productionNotes: string;
   items: ProductSpecItemRecord[];
+  finishedProductItems?: ProductSpecFinishedProductItemRecord[];
   active: boolean;
 }
 

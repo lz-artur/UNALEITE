@@ -17,6 +17,24 @@ class SupplyConsumptionDto {
   quantity!: number;
 }
 
+class FinishedProductConsumptionDto {
+  @IsString()
+  finishedProductLotId!: string;
+
+  @IsNumber()
+  @Min(0.0001)
+  quantity!: number;
+}
+
+class GeneratedCoProductDto {
+  @IsString()
+  productId!: string;
+
+  @IsNumber()
+  @Min(0.0001)
+  quantity!: number;
+}
+
 export class CompleteProductionOrderDto {
   @IsNumber()
   @Min(0.0001)
@@ -27,4 +45,16 @@ export class CompleteProductionOrderDto {
   @ValidateNested({ each: true })
   @Type(() => SupplyConsumptionDto)
   supplyConsumptions?: SupplyConsumptionDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FinishedProductConsumptionDto)
+  finishedProductConsumptions?: FinishedProductConsumptionDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => GeneratedCoProductDto)
+  generatedCoProducts?: GeneratedCoProductDto[];
 }

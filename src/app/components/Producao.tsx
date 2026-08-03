@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Factory, Loader2, Plus, TrendingDown, TrendingUp, Trash2, MoreHorizontal, Edit2, Check } from 'lucide-react';
-import type { LoteLeite, OrdemProducao } from '../data/mockData';
+import type { EstoqueProduto, LoteLeite, OrdemProducao } from '../data/mockData';
 import { useCadastros } from '../context/CadastrosContext';
 import {
  completeProductionOrder,
@@ -10,6 +10,7 @@ import {
  loadProductionOrders,
  deleteProductionOrder,
  loadSupplyLots,
+ loadFinishedProductLots,
  type SupplyLotInventoryItem,
 } from '../services/operationsApi';
 import {
@@ -29,10 +30,12 @@ const emptyCreateForm = {
  litersToUse: '',
  actualQuantityProduced: '',
  supplyConsumptions: [] as { supplyLotId: string; quantity: string }[],
+ finishedProductConsumptions: [] as { finishedProductLotId: string; quantity: string }[],
 };
 
 const emptyCompleteForm = {
- actualQuantityProduced: '',
+  actualQuantityProduced: '',
+  generatedCoProducts: [] as { id: string; productId: string; quantity: string }[],
 };
 
 function getErrorMessage(error: unknown) {
@@ -49,6 +52,7 @@ export default function Producao() {
  const [ordensProducao, setOrdensProducao] = useState<OrdemProducao[]>([]);
  const [lotes, setLotes] = useState<LoteLeite[]>([]);
  const [supplyLots, setSupplyLots] = useState<SupplyLotInventoryItem[]>([]);
+ const [finishedProductLots, setFinishedProductLots] = useState<EstoqueProduto[]>([]);
  const [formState, setFormState] = useState(emptyCreateForm);
  const [completeForm, setCompleteForm] = useState(emptyCompleteForm);
  const [loading, setLoading] = useState(true);
@@ -69,10 +73,11 @@ export default function Producao() {
  setErrorMessage(null);
 
  try {
- const [orders, nextLotes, fetchedSupplyLots] = await Promise.all([loadProductionOrders(), loadMilkLots(), loadSupplyLots()]);
+ const [orders, nextLotes, fetchedSupplyLots, fetchedFinishedLots] = await Promise.all([loadProductionOrders(), loadMilkLots(), loadSupplyLots(), loadFinishedProductLots()]);
  setOrdensProducao(orders);
  setLotes(nextLotes);
  setSupplyLots(fetchedSupplyLots);
+ setFinishedProductLots(fetchedFinishedLots);
  } catch (error) {
  setErrorMessage(getErrorMessage(error));
  } finally {
@@ -128,6 +133,10 @@ export default function Producao() {
    .filter(c => c.supplyLotId && Number(c.quantity) > 0)
    .map(c => ({ supplyLotId: c.supplyLotId, quantity: Number(c.quantity) }));
 
+ const payloadFinishedProductConsumptions = formState.finishedProductConsumptions
+   .filter(c => c.finishedProductLotId && Number(c.quantity) > 0)
+   .map(c => ({ finishedProductLotId: c.finishedProductLotId, quantity: Number(c.quantity) }));
+
  if (editingOrder) {
    await updateProductionOrder(editingOrder.id, {
      milkLotId: formState.milkLotId,
@@ -135,6 +144,7 @@ export default function Producao() {
      litersToUse,
      actualQuantityProduced: formState.actualQuantityProduced ? Number(formState.actualQuantityProduced) : undefined,
      supplyConsumptions: payloadSupplyConsumptions,
+     finishedProductConsumptions: payloadFinishedProductConsumptions,
    });
  } else {
    await createProductionOrder({
@@ -142,6 +152,7 @@ export default function Producao() {
      productId: formState.productId,
      litersToUse,
      supplyConsumptions: payloadSupplyConsumptions.length ? payloadSupplyConsumptions : undefined,
+     finishedProductConsumptions: payloadFinishedProductConsumptions.length ? payloadFinishedProductConsumptions : undefined,
    });
  }
  setShowCreateModal(false);
@@ -171,10 +182,18 @@ export default function Producao() {
  setSubmitError(null);
 
  try {
- await completeProductionOrder({
- orderId: selectedOrder.id,
- actualQuantityProduced,
- });
+      const formattedCoProducts = completeForm.generatedCoProducts
+        .filter(c => c.productId && c.quantity)
+        .map(c => ({
+          productId: c.productId,
+          quantity: Number(c.quantity)
+        }));
+
+      await completeProductionOrder({
+        orderId: selectedOrder.id,
+        actualQuantityProduced,
+        generatedCoProducts: formattedCoProducts.length > 0 ? formattedCoProducts : undefined,
+      });
  setSelectedOrder(null);
  setCompleteForm(emptyCompleteForm);
  await loadData();
@@ -396,6 +415,9 @@ export default function Producao() {
                 supplyConsumptions: op.insumos
                   .filter(i => i.supplyLotId)
                   .map(i => ({ supplyLotId: i.supplyLotId as string, quantity: String(i.quantidade) })),
+                finishedProductConsumptions: (op.produtosAcabadosConsumidos || [])
+                  .filter(i => i.finishedProductLotId)
+                  .map(i => ({ finishedProductLotId: i.finishedProductLotId, quantity: String(i.quantidade) })),
               });
               setShowCreateModal(true);
               setOpenDropdownId(null);
@@ -580,6 +602,73 @@ export default function Producao() {
  </div>
  </div>
 
+ <div className="border-t border-gray-200 pt-4 mt-4">
+ <div className="flex justify-between items-center mb-2">
+ <h4 className="text-sm font-semibold text-gray-900">Produtos Acabados Planejados (Ex: Creme)</h4>
+ <button
+ type="button"
+ onClick={() => setFormState(prev => ({ ...prev, finishedProductConsumptions: [...prev.finishedProductConsumptions, { finishedProductLotId: '', quantity: '' }] }))}
+ className="text-sm flex items-center text-blue-600 hover:text-blue-700"
+ >
+ <Plus className="h-4 w-4 mr-1" /> Adicionar produto acabado
+ </button>
+ </div>
+ 
+ <div className="space-y-3">
+ {formState.finishedProductConsumptions.map((consumption, index) => (
+ <div key={index} className="flex gap-2 items-start">
+ <div className="flex-1">
+ <select
+ value={consumption.finishedProductLotId}
+ onChange={(e) => {
+ const newCons = [...formState.finishedProductConsumptions];
+ newCons[index].finishedProductLotId = e.target.value;
+ setFormState(prev => ({ ...prev, finishedProductConsumptions: newCons }));
+ }}
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+ >
+ <option value="">Selecione o lote do produto acabado...</option>
+ {finishedProductLots.filter(l => l.disponivel > 0 || l.id === consumption.finishedProductLotId).map(lote => {
+ const item = getFinishedProductById(lote.produtoId);
+ return (
+ <option key={lote.id} value={lote.id}>
+ {item?.name || 'Produto'} - Lote {lote.lote} ({lote.disponivel})
+ </option>
+ );
+ })}
+ </select>
+ </div>
+ <div className="w-24">
+ <input
+ type="number"
+ min="0"
+ step="0.0001"
+ placeholder="Qtd"
+ value={consumption.quantity}
+ onChange={(e) => {
+ const newCons = [...formState.finishedProductConsumptions];
+ newCons[index].quantity = e.target.value;
+ setFormState(prev => ({ ...prev, finishedProductConsumptions: newCons }));
+ }}
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+ />
+ </div>
+ <button
+ type="button"
+ onClick={() => {
+ const newCons = [...formState.finishedProductConsumptions];
+ newCons.splice(index, 1);
+ setFormState(prev => ({ ...prev, finishedProductConsumptions: newCons }));
+ }}
+ className="p-2 text-red-500 hover:bg-red-50 rounded-md"
+ >
+ <Trash2 className="h-4 w-4" />
+ </button>
+ </div>
+ ))}
+ </div>
+ </div>
+
  {selectedLot || selectedProduct ? (
  <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 mt-4">
  {selectedLot ? (
@@ -646,7 +735,7 @@ export default function Producao() {
  step="0.01"
  value={completeForm.actualQuantityProduced}
  onChange={(event) =>
- setCompleteForm({ actualQuantityProduced: event.target.value })
+ setCompleteForm({ ...completeForm, actualQuantityProduced: event.target.value })
  }
  placeholder="0"
  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -654,6 +743,81 @@ export default function Producao() {
  <p className="mt-2 text-xs text-gray-500">
  Se nenhum consumo manual for informado, o backend aplica FEFO automaticamente nos insumos da ficha tecnica.
  </p>
+ </div>
+
+ <div className="mt-6 border-t border-gray-200 pt-4">
+ <div className="mb-2 flex items-center justify-between">
+ <label className="block text-sm font-medium text-gray-700">
+ Coprodutos Gerados (Ex: Creme)
+ </label>
+ <button
+ type="button"
+ onClick={() =>
+ setCompleteForm((prev) => ({
+ ...prev,
+ generatedCoProducts: [
+ ...prev.generatedCoProducts,
+ { id: Math.random().toString(36).substring(7), productId: '', quantity: '' },
+ ],
+ }))
+ }
+ className="text-sm font-medium text-blue-600 hover:text-blue-800"
+ >
+ + Adicionar coproduto
+ </button>
+ </div>
+ <div className="space-y-3">
+ {completeForm.generatedCoProducts.map((coProduct, index) => (
+ <div key={coProduct.id} className="flex gap-3">
+ <div className="flex-1">
+ <select
+ value={coProduct.productId}
+ onChange={(e) => {
+ const newCoProducts = [...completeForm.generatedCoProducts];
+ newCoProducts[index].productId = e.target.value;
+ setCompleteForm((prev) => ({ ...prev, generatedCoProducts: newCoProducts }));
+ }}
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+ >
+ <option value="">Selecione um produto...</option>
+ {finishedProducts
+ .filter((p) => p.active)
+ .sort((a, b) => a.name.localeCompare(b.name))
+ .map((p) => (
+ <option key={p.id} value={p.id}>
+ {p.name}
+ </option>
+ ))}
+ </select>
+ </div>
+ <div className="w-32">
+ <input
+ type="number"
+ step="0.001"
+ min="0"
+ value={coProduct.quantity}
+ onChange={(e) => {
+ const newCoProducts = [...completeForm.generatedCoProducts];
+ newCoProducts[index].quantity = e.target.value;
+ setCompleteForm((prev) => ({ ...prev, generatedCoProducts: newCoProducts }));
+ }}
+ placeholder="Qtd"
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+ />
+ </div>
+ <button
+ type="button"
+ onClick={() => {
+ const newCoProducts = completeForm.generatedCoProducts.filter((_, i) => i !== index);
+ setCompleteForm((prev) => ({ ...prev, generatedCoProducts: newCoProducts }));
+ }}
+ className="text-red-500 hover:text-red-700 text-sm font-medium"
+ >
+ Remover
+ </button>
+ </div>
+ ))}
+ </div>
  </div>
 
  {submitError ? (
