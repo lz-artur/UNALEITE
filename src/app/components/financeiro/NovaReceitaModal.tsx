@@ -4,6 +4,7 @@ import type { ContaFinanceira } from '../../data/mockData';
 import { type FinancialEntryRecord, uploadFinancialAttachment, loadClients, type ClientRecord } from '../../services/operationsApi';
 import { toast } from 'sonner';
 import { useCadastros } from '../../context/CadastrosContext';
+import { addDays, addWeeks, addMonths, addYears } from 'date-fns';
 
 interface Parcela {
   id: string;
@@ -36,6 +37,9 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
   
   const [isParcelado, setIsParcelado] = useState(false);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
+  const [isRecorrente, setIsRecorrente] = useState(false);
+  const [frequencia, setFrequencia] = useState<'Diário' | 'Semanal' | 'Mensal' | 'Anual'>('Mensal');
+  const [quantidadeOcorrencias, setQuantidadeOcorrencias] = useState('2');
   
   const [files, setFiles] = useState<File[]>([]);
   
@@ -55,6 +59,9 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
     setClienteId('');
     setIsParcelado(false);
     setParcelas([{ id: crypto.randomUUID(), dataVencimento: '', valor: '' }]);
+    setIsRecorrente(false);
+    setFrequencia('Mensal');
+    setQuantidadeOcorrencias('2');
     setFiles([]);
   };
 
@@ -73,6 +80,9 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
       setClienteId(initialData.clienteId || '');
       setIsParcelado(false);
       setParcelas([]);
+      setIsRecorrente(false);
+      setFrequencia('Mensal');
+      setQuantidadeOcorrencias('2');
       setFiles([]);
     } else {
       resetForm();
@@ -109,13 +119,18 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
       return;
     }
 
-    if (!isParcelado && (!valor || !dataVencimento)) {
+    if (!isParcelado && !isRecorrente && (!valor || !dataVencimento)) {
       toast.error('Preencha valor e vencimento.');
       return;
     }
 
     if (isParcelado && parcelas.some(p => !p.valor || !p.dataVencimento)) {
       toast.error('Preencha todos os campos das parcelas.');
+      return;
+    }
+
+    if (isRecorrente && (!valor || !dataVencimento || !quantidadeOcorrencias)) {
+      toast.error('Preencha valor, vencimento inicial e quantidade de repetições.');
       return;
     }
 
@@ -161,6 +176,29 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
           installmentNumber: index + 1,
           descricao: `${descricao} (Parcela ${index + 1}/${parcelas.length})`,
         }));
+      } else if (isRecorrente && !initialData) {
+        const groupId = crypto.randomUUID();
+        const qtd = parseInt(quantidadeOcorrencias, 10);
+        const startDate = new Date(dataVencimento + 'T12:00:00');
+        
+        payloads = Array.from({ length: qtd }).map((_, index) => {
+          let currentDate = startDate;
+          if (index > 0) {
+            if (frequencia === 'Mensal') currentDate = addMonths(startDate, index);
+            else if (frequencia === 'Semanal') currentDate = addWeeks(startDate, index);
+            else if (frequencia === 'Diário') currentDate = addDays(startDate, index);
+            else if (frequencia === 'Anual') currentDate = addYears(startDate, index);
+          }
+          
+          return {
+            ...basePayload,
+            valor: parseFloat(valor.replace(',', '.')),
+            dataVencimento: currentDate,
+            installmentGroupId: groupId,
+            installmentNumber: index + 1,
+            descricao: `${descricao} (${index + 1}/${qtd})`,
+          };
+        });
       } else {
         payloads = [{
           ...basePayload,
@@ -220,17 +258,37 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
           </div>
           
           {!initialData && (
-            <div className="flex items-center gap-2 mb-2">
-              <input 
-                type="checkbox" 
-                id="isParcelado" 
-                checked={isParcelado} 
-                onChange={(e) => setIsParcelado(e.target.checked)}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <label htmlFor="isParcelado" className="text-sm font-medium text-gray-700 cursor-pointer">
-                Lançamento parcelado
-              </label>
+            <div className="flex items-center gap-6 mb-2 border-b border-gray-100 pb-2">
+              <div className="flex items-center gap-2">
+                <input 
+                  type="checkbox" 
+                  id="isParcelado" 
+                  checked={isParcelado} 
+                  onChange={(e) => {
+                    setIsParcelado(e.target.checked);
+                    if (e.target.checked) setIsRecorrente(false);
+                  }}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="isParcelado" className="text-sm font-medium text-gray-700 cursor-pointer">
+                  Lançamento parcelado
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="checkbox" 
+                  id="isRecorrente" 
+                  checked={isRecorrente} 
+                  onChange={(e) => {
+                    setIsRecorrente(e.target.checked);
+                    if (e.target.checked) setIsParcelado(false);
+                  }}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="isRecorrente" className="text-sm font-medium text-gray-700 cursor-pointer">
+                  Lançamento recorrente
+                </label>
+              </div>
             </div>
           )}
           
@@ -280,6 +338,61 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
               >
                 <Plus className="w-4 h-4" /> Adicionar parcela
               </button>
+            </div>
+          ) : isRecorrente && !initialData ? (
+            <div className="border border-gray-200 rounded-md p-4 bg-gray-50 flex flex-col gap-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Valor base de cada repetição (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={valor}
+                    onChange={(e) => setValor(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Primeiro Vencimento</label>
+                  <input
+                    type="date"
+                    required
+                    value={dataVencimento}
+                    onChange={(e) => setDataVencimento(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Frequência</label>
+                  <select
+                    value={frequencia}
+                    onChange={(e) => setFrequencia(e.target.value as any)}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="Diário">Diário</option>
+                    <option value="Semanal">Semanal</option>
+                    <option value="Mensal">Mensal</option>
+                    <option value="Anual">Anual</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de repetições (total)</label>
+                  <input
+                    type="number"
+                    min="2"
+                    max="120"
+                    required
+                    value={quantidadeOcorrencias}
+                    onChange={(e) => setQuantidadeOcorrencias(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4">
