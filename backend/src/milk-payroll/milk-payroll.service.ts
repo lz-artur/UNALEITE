@@ -132,20 +132,19 @@ export class MilkPayrollService {
   }
 
   private async loadPayrollRows(filters: ListMilkPayrollDto) {
-    const [pricings, lots, producers] = await Promise.all([
-      this.selectMany('milk_lot_pricing'),
+    const [lots, producers] = await Promise.all([
+      /* this.selectMany('milk_lot_pricing'), */
       this.selectMany('milk_lots'),
       this.selectMany('producers'),
     ]);
 
-    const lotMap = new Map(lots.map((lot) => [String(lot.id), lot]));
     const producerMap = new Map(producers.map((producer) => [String(producer.id), producer]));
-    const filteredRows = (pricings ?? [])
-      .map((pricing) => {
-        const lot = lotMap.get(String(pricing.milk_lot_id));
-        const producer = producerMap.get(String(pricing.producer_id));
+    const filteredRows = (lots ?? [])
+      .map((lot) => {
+        const producer = producerMap.get(String(lot.producer_id));
 
-        if (!lot || !producer) {
+        if (!producer || !lot.total_value) {
+          // If total_value is null, it hasn't been priced or is somehow invalid
           return null;
         }
 
@@ -155,8 +154,8 @@ export class MilkPayrollService {
           receivedAt: String(lot.received_at),
           status: String(lot.status),
           volumeLiters: Number(lot.volume_liters),
-          totalValue: Number(pricing.total_value),
-          finalPrice: Number(pricing.final_price),
+          totalValue: Number(lot.total_value),
+          finalPrice: Number(lot.cost_per_liter),
           producerId: String(producer.id),
           producerCode: String(producer.code ?? ''),
           producerName: String(producer.name ?? ''),

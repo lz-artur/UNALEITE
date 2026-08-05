@@ -34,6 +34,7 @@ const emptyFormState = {
  driverName: '',
  analystName: '',
  observations: '',
+ pricePerLiter: '',
 };
 
 export default function RecepcaoLeite() {
@@ -127,6 +128,7 @@ export default function RecepcaoLeite() {
  driverName: detail.reception?.driverName || '',
  analystName: detail.reception?.analystName || '',
  observations: detail.reception?.observations || '',
+ pricePerLiter: lote.custoLitro ? lote.custoLitro.toString() : '',
  });
  setEditingLoteId(lote.id);
  setShowModal(true);
@@ -138,18 +140,21 @@ export default function RecepcaoLeite() {
  };
 
  const handleSubmit = async () => {
- const volumeLiters = Number(formState.volumeLiters);
- const temperatura = Number(formState.temperatura);
- const nextReceivedAt = formState.receivedAt || new Date().toISOString().slice(0, 16);
+    const volumeLiters = Number(formState.volumeLiters);
+    const temperatura = Number(formState.temperatura);
+    const pricePerLiter = Number(formState.pricePerLiter);
+    const nextReceivedAt = formState.receivedAt || new Date().toISOString().slice(0, 16);
 
- if (
- !formState.producerId ||
- !formState.routeId ||
- !formState.transporterId ||
- volumeLiters <= 0 ||
- Number.isNaN(temperatura)
- ) {
- setFormError('Preencha produtor, rota, transportador, volume e temperatura validos.');
+    if (
+      !formState.producerId ||
+      !formState.routeId ||
+      !formState.transporterId ||
+      volumeLiters <= 0 ||
+      Number.isNaN(temperatura) ||
+      pricePerLiter <= 0 ||
+      Number.isNaN(pricePerLiter)
+    ) {
+      setFormError('Preencha produtor, rota, transportador, volume, temperatura e preço válidos.');
  return;
  }
 
@@ -169,6 +174,7 @@ export default function RecepcaoLeite() {
  driverName: formState.driverName || undefined,
  analystName: formState.analystName || undefined,
  observations: formState.observations || undefined,
+ pricePerLiter,
  });
  setLotes((current) =>
  current.map((lote) => (lote.id === editingLoteId ? updated : lote))
@@ -185,6 +191,7 @@ export default function RecepcaoLeite() {
  driverName: formState.driverName || undefined,
  analystName: formState.analystName || undefined,
  observations: formState.observations || undefined,
+ pricePerLiter,
  });
  setLotes((current) => [created, ...current]);
  }
@@ -283,6 +290,7 @@ export default function RecepcaoLeite() {
  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Rota</th>
  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Volume (L)</th>
  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Temperatura</th>
+ <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Preço (R$)</th>
   <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Data/Hora</th>
   <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th>
   <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Ações</th>
@@ -309,6 +317,9 @@ export default function RecepcaoLeite() {
  </td>
  <td className="px-6 py-4 text-sm text-gray-900">
  {lote.temperatura.toFixed(1)} C
+ </td>
+ <td className="px-6 py-4 text-sm text-gray-900">
+ {lote.custoLitro ? lote.custoLitro.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}
  </td>
  <td className="px-6 py-4 text-sm text-gray-900">
  {format(lote.dataHoraRecebimento, 'dd/MM/yyyy HH:mm')}
@@ -434,6 +445,23 @@ export default function RecepcaoLeite() {
  placeholder="0.0"
  />
  </div>
+ <div>
+ <label className="mb-1 block text-sm font-medium text-gray-700">Preço por Litro (R$) *</label>
+ <input
+ type="number"
+ step="0.01"
+ min="0.01"
+ value={formState.pricePerLiter}
+ onChange={(event) =>
+ setFormState((current) => ({ ...current, pricePerLiter: event.target.value }))
+ }
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+ placeholder="0.00"
+ />
+ </div>
+ </div>
+ 
+ <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
  <div>
  <label className="mb-1 block text-sm font-medium text-gray-700">Data/Hora recebimento</label>
  <input

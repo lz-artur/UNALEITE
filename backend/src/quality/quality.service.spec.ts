@@ -74,12 +74,10 @@ describe('QualityService', () => {
 
       const result = await service.deleteAnalysis('analysis-1');
       expect(result).toEqual({ success: true });
-      expect(deleteMock).toHaveBeenCalledTimes(4); // milk_lot_analyses, milk_lot_pricing, lot_block_events, financial_entries
+      expect(deleteMock).toHaveBeenCalledTimes(3); // milk_lot_analyses, lot_block_events, financial_entries
       expect(updateMock).toHaveBeenCalledWith({
         status: MILK_LOT_STATUS.PENDING_ANALYSIS,
         latest_analysis_id: null,
-        cost_per_liter: null,
-        total_value: null,
       });
     });
 

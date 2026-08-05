@@ -98,6 +98,7 @@ export class QualityService {
       analysis.subanalyses = [];
     }
 
+    /*
     const currentRule = await this.getCurrentPriceRule(milkLot.received_at);
     const pricingCalc = currentRule
       ? this.domainRulesService.calculateMilkPricing(currentRule, mainPayload, milkLot.volume_liters)
@@ -133,6 +134,7 @@ export class QualityService {
 
       pricing = pricingInsert.data;
     }
+    */
 
     const status = evaluation.blocked ? MILK_LOT_STATUS.BLOCKED : MILK_LOT_STATUS.APPROVED;
 
@@ -141,8 +143,7 @@ export class QualityService {
       .update({
         latest_analysis_id: analysis.id,
         status,
-        cost_per_liter: pricingCalc?.priceFinal ?? null,
-        total_value: pricingCalc?.totalValue ?? null,
+        // cost_per_liter and total_value are now filled at reception
         updated_by: user?.id ?? null,
       })
       .eq('id', milkLotId)
@@ -155,14 +156,14 @@ export class QualityService {
 
     if (evaluation.blocked) {
       await this.createBlockEvent(milkLotId, evaluation.reasonNames, user);
-    } else if (pricingCalc) {
-      await this.upsertFinancialEntry(updatedLot, pricingCalc.totalValue, user);
+    } else if (milkLot.total_value) {
+      await this.upsertFinancialEntry(updatedLot, Number(milkLot.total_value), user);
     }
 
     return {
       lot: updatedLot,
       analysis,
-      pricing,
+      pricing: null, // pricing,
       evaluation,
     };
   }
@@ -318,13 +319,16 @@ export class QualityService {
     if (lot) {
       await this.supabaseService.admin
         .from('milk_lots')
-        .update({ status: MILK_LOT_STATUS.PENDING_ANALYSIS, latest_analysis_id: null, cost_per_liter: null, total_value: null })
+        // We only clear status and latest_analysis_id. We keep cost_per_liter and total_value from reception.
+        .update({ status: MILK_LOT_STATUS.PENDING_ANALYSIS, latest_analysis_id: null })
         .eq('id', lot.id);
         
+      /*
       await this.supabaseService.admin
         .from('milk_lot_pricing')
         .delete()
         .eq('milk_lot_id', lot.id);
+      */
 
       await this.supabaseService.admin
         .from('lot_block_events')

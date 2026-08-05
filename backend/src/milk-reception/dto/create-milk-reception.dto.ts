@@ -21,6 +21,10 @@ export class CreateMilkReceptionDto {
   @IsNumber()
   temperatura!: number;
 
+  @IsNumber()
+  @Min(0)
+  pricePerLiter!: number;
+
   @IsDateString()
   receivedAt!: string;
 

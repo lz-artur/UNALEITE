@@ -72,6 +72,8 @@ export class MilkReceptionService {
         volume_liters: payload.volumeLiters,
         available_volume_liters: payload.volumeLiters,
         temperature: payload.temperatura,
+        cost_per_liter: payload.pricePerLiter,
+        total_value: payload.volumeLiters * payload.pricePerLiter,
         received_at: payload.receivedAt,
         status: MILK_LOT_STATUS.PENDING_ANALYSIS,
         created_by: user?.id ?? null,
@@ -93,7 +95,7 @@ export class MilkReceptionService {
   async updateReception(milkLotId: string, payload: UpdateMilkReceptionDto, user?: AuthenticatedUser) {
     const { data: lotData, error: lotFindError } = await this.supabaseService.admin
       .from('milk_lots')
-      .select('id, milk_reception_id, volume_liters, available_volume_liters')
+      .select('id, milk_reception_id, volume_liters, available_volume_liters, cost_per_liter')
       .eq('id', milkLotId)
       .maybeSingle();
 
@@ -160,6 +162,17 @@ export class MilkReceptionService {
       updateLotPayload.available_volume_liters = currentAvailable + diff;
     }
     if (payload.temperatura !== undefined) updateLotPayload.temperature = payload.temperatura;
+    if (payload.pricePerLiter !== undefined) {
+      updateLotPayload.cost_per_liter = payload.pricePerLiter;
+      // Recalculate total value based on the new price and the potentially new volume
+      const finalVolume = payload.volumeLiters !== undefined ? payload.volumeLiters : Number(lotData.volume_liters);
+      updateLotPayload.total_value = finalVolume * payload.pricePerLiter;
+    } else if (payload.volumeLiters !== undefined) {
+      // If volume changed but price didn't, we still need to recalculate total_value if there's an existing price
+      if (lotData.cost_per_liter) {
+        updateLotPayload.total_value = payload.volumeLiters * Number(lotData.cost_per_liter);
+      }
+    }
     if (payload.receivedAt) updateLotPayload.received_at = payload.receivedAt;
 
     const { data: lot, error: lotError } = await this.supabaseService.admin

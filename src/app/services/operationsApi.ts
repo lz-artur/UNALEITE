@@ -698,6 +698,7 @@ export async function createMilkReception(payload: {
   transporterId: string;
   volumeLiters: number;
   temperatura: number;
+  pricePerLiter: number;
   receivedAt: string;
   carPlate?: string;
   driverName?: string;
@@ -716,6 +717,7 @@ export async function updateMilkReception(milkLotId: string, payload: Partial<{
   transporterId: string;
   volumeLiters: number;
   temperatura: number;
+  pricePerLiter: number;
   receivedAt: string;
   carPlate: string;
   driverName: string;
