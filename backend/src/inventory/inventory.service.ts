@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+import { CreateManualExitDto } from './dto/create-manual-exit.dto';
+import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 
 @Injectable()
 export class InventoryService {
@@ -105,5 +107,71 @@ export class InventoryService {
 
     if (deleteError) throw new BadRequestException(deleteError.message);
     return { success: true };
+  }
+
+  async createManualExit(payload: CreateManualExitDto, user?: AuthenticatedUser) {
+    const { data: lot, error: findError } = await this.supabaseService.admin
+      .from('finished_product_lots')
+      .select('id, available_quantity, lot_code')
+      .eq('id', payload.finishedProductLotId)
+      .maybeSingle();
+
+    if (findError) throw new BadRequestException(findError.message);
+    if (!lot) throw new NotFoundException('Lote de produto acabado não encontrado');
+
+    if (payload.quantity > Number(lot.available_quantity)) {
+      throw new BadRequestException(`O lote ${String(lot.lot_code)} não tem quantidade disponível suficiente (Disponível: ${lot.available_quantity})`);
+    }
+
+    const exitDate = payload.exitDate ?? new Date().toISOString();
+
+    const { data: exitRecord, error: exitError } = await this.supabaseService.admin
+      .from('finished_product_manual_exits')
+      .insert({
+        finished_product_lot_id: payload.finishedProductLotId,
+        quantity: payload.quantity,
+        reason: payload.reason,
+        notes: payload.notes ?? null,
+        exit_date: exitDate,
+        created_by: user?.id ?? null,
+        updated_by: user?.id ?? null,
+      })
+      .select('*')
+      .single();
+
+    if (exitError) {
+      throw new BadRequestException(exitError.message);
+    }
+
+    const { error: lotUpdateError } = await this.supabaseService.admin
+      .from('finished_product_lots')
+      .update({
+        available_quantity: Number(lot.available_quantity) - payload.quantity,
+        updated_by: user?.id ?? null,
+      })
+      .eq('id', payload.finishedProductLotId);
+
+    if (lotUpdateError) {
+      throw new BadRequestException(lotUpdateError.message);
+    }
+
+    const { error: movementError } = await this.supabaseService.admin
+      .from('stock_movements')
+      .insert({
+        movement_type: 'saida',
+        lot_type: 'Produto Acabado',
+        lot_id: payload.finishedProductLotId,
+        quantity: payload.quantity,
+        reference_table: 'finished_product_manual_exits',
+        reference_id: exitRecord.id,
+        created_by: user?.id ?? null,
+        updated_by: user?.id ?? null,
+      });
+
+    if (movementError) {
+      throw new BadRequestException(movementError.message);
+    }
+
+    return { success: true, exitRecord };
   }
 }

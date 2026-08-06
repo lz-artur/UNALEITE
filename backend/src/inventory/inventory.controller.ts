@@ -1,7 +1,9 @@
-import { Controller, Delete, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Param, UseGuards, Post, Body } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SupabaseAuthGuard } from '../common/guards/supabase-auth.guard';
 import { InventoryService } from './inventory.service';
+import { CreateManualExitDto } from './dto/create-manual-exit.dto';
+import { CurrentUser, type AuthenticatedUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
@@ -38,5 +40,13 @@ export class InventoryController {
   @Delete('finished-product-lots/:id')
   deleteFinishedProductLot(@Param('id') id: string) {
     return this.inventoryService.deleteFinishedProductLot(id);
+  }
+
+  @Post('manual-exits')
+  createManualExit(
+    @Body() payload: CreateManualExitDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.createManualExit(payload, user);
   }
 }

@@ -1342,3 +1342,17 @@ export async function deletePurchase(id: string) {
   });
 }
 
+export async function createManualProductExit(payload: {
+  finishedProductLotId: string;
+  quantity: number;
+  reason: string;
+  notes?: string;
+  exitDate?: string;
+}) {
+  return apiRequest<{ success: boolean; exitRecord: any }>('/inventory/manual-exits', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+

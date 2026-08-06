@@ -13,6 +13,7 @@ import {
  deleteSupplyLot,
  deleteFinishedProductLot,
  adjustSupplyLotStock,
+ createManualProductExit,
  type MilkLotDetail,
  type SupplyLotInventoryItem,
 } from '../services/operationsApi';
@@ -54,6 +55,12 @@ export default function LotesEstoqueDetalhado() {
  const [editingLotId, setEditingLotId] = useState<string | null>(null);
  const [editLotQuantity, setEditLotQuantity] = useState<string>('');
  const [isEditingLot, setIsEditingLot] = useState(false);
+ const [exitModalOpen, setExitModalOpen] = useState(false);
+ const [exitLotId, setExitLotId] = useState<string | null>(null);
+ const [exitQuantity, setExitQuantity] = useState('');
+ const [exitReason, setExitReason] = useState('Doação');
+ const [exitNotes, setExitNotes] = useState('');
+ const [isExiting, setIsExiting] = useState(false);
  const {
  producers,
  supplyItems,
@@ -169,6 +176,34 @@ export default function LotesEstoqueDetalhado() {
       setErrorMessage(getErrorMessage(error));
     } finally {
       setIsEditingLot(false);
+    }
+  };
+
+  const handleExitSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!exitLotId || !exitQuantity) return;
+
+    setIsExiting(true);
+    setErrorMessage(null);
+
+    try {
+      await createManualProductExit({
+        finishedProductLotId: exitLotId,
+        quantity: Number(exitQuantity),
+        reason: exitReason,
+        notes: exitNotes,
+      });
+
+      setExitModalOpen(false);
+      setExitLotId(null);
+      setExitQuantity('');
+      setExitReason('Doação');
+      setExitNotes('');
+      await loadData();
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsExiting(false);
     }
   };
 
@@ -592,7 +627,18 @@ export default function LotesEstoqueDetalhado() {
  {daysToExpire < 7 ? ` (${daysToExpire}d)` : ''}
  </span>
  </td>
- <td className="px-6 py-4 text-right">
+ <td className="px-6 py-4 text-right flex justify-end gap-2">
+    <button
+      onClick={() => {
+        setExitLotId(stock.id);
+        setExitQuantity(String(stock.disponivel));
+        setExitModalOpen(true);
+      }}
+      className="text-orange-600 hover:text-orange-900 font-medium text-sm"
+      title="Registrar saída manual"
+    >
+      Saída
+    </button>
     <button
       onClick={() => {
         setItemToDelete(stock.id);
@@ -843,6 +889,83 @@ export default function LotesEstoqueDetalhado() {
                 >
                   {isEditingLot ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   Salvar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {exitModalOpen && exitLotId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900">Registrar Saída Manual</h3>
+              <button
+                onClick={() => setExitModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleExitSubmit} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Quantidade</label>
+                <input
+                  type="number"
+                  required
+                  step="0.0001"
+                  min="0.0001"
+                  value={exitQuantity}
+                  onChange={(e) => setExitQuantity(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Motivo</label>
+                <select
+                  required
+                  value={exitReason}
+                  onChange={(e) => setExitReason(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="Doação">Doação</option>
+                  <option value="Vencimento">Vencimento</option>
+                  <option value="Degustação">Degustação</option>
+                  <option value="Descarte">Descarte</option>
+                  <option value="Outros">Outros</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Observações (opcional)</label>
+                <textarea
+                  value={exitNotes}
+                  onChange={(e) => setExitNotes(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  rows={3}
+                  placeholder="Ex: Produto doado para instituição X"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setExitModalOpen(false)}
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isExiting}
+                  className="flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-50"
+                >
+                  {isExiting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Registrar Saída
                 </button>
               </div>
             </form>
