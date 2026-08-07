@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Toaster } from 'sonner';
 import AuthScreen from './components/AuthScreen';
 import CadastrosBase from './components/CadastrosBase';
@@ -37,7 +37,7 @@ function AccessDenied({ onGoHome }: { onGoHome: () => void }) {
         onClick={onGoHome}
         className="rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
       >
-        Voltar ao Dashboard
+        Tentar novamente
       </button>
     </div>
   );
@@ -49,10 +49,43 @@ function getPageKey(currentPage: string): string {
   return currentPage;
 }
 
+// Ordem preferencial de redirecionamento caso o dashboard esteja bloqueado
+const ORDERED_PAGES = [
+  'dashboard',
+  'recepcao',
+  'analise',
+  'lotes',
+  'producao',
+  'custos',
+  'comercial',
+  'compras',
+  'contas-receber',
+  'contas-pagar',
+  'folha-leite',
+  'dre',
+  'cadastros',
+];
+
 // ─── Main App Content (inside PermissionsProvider) ──────────
 function AppInner() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const { canViewPage, isAdmin, loading: permLoading } = usePermissions();
+
+  // Auto-redirect if the user lands on a page they can't access
+  useEffect(() => {
+    if (permLoading) return;
+
+    const isGestaoBlocked = currentPage === 'gestao-usuarios' && !isAdmin;
+    const isNormalPageBlocked = currentPage !== 'gestao-usuarios' && !canViewPage(getPageKey(currentPage));
+
+    if (isGestaoBlocked || isNormalPageBlocked) {
+      // Find the first page they have access to
+      const firstAllowed = ORDERED_PAGES.find(key => canViewPage(key));
+      if (firstAllowed && firstAllowed !== currentPage) {
+        setCurrentPage(firstAllowed);
+      }
+    }
+  }, [permLoading, currentPage, isAdmin, canViewPage]);
 
   const renderPage = () => {
     const pageKey = getPageKey(currentPage);
