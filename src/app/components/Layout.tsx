@@ -15,8 +15,10 @@ import {
   X,
   ChevronDown,
   ChevronUp,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { usePermissions } from '../context/PermissionsContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -69,7 +71,19 @@ const menuItems = [
       { id: 'cadastros-accountingSubcategories', label: 'Subcategorias' },
     ],
   },
+  // Admin-only menu item — filtered below by permissions
+  { id: 'gestao-usuarios', label: 'Gestão de Usuários', icon: ShieldCheck, adminOnly: true },
 ];
+
+/**
+ * Map a menu item id to the page_key used for permission checks.
+ * Financeiro sub-items map to their own keys; cadastros sub-items map to 'cadastros'.
+ */
+function getPageKeyForItem(id: string): string {
+  if (id.startsWith('cadastros')) return 'cadastros';
+  if (id === 'financeiro') return 'contas-receber'; // parent entry
+  return id;
+}
 
 export default function Layout({ children, currentPage, onNavigate }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -78,6 +92,16 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
     cadastros: currentPage.startsWith('cadastros'),
   });
   const { user, signOut } = useAuth();
+  const { isAdmin, canViewPage } = usePermissions();
+
+  // Filter menu items based on permissions
+  const visibleMenuItems = menuItems.filter((item) => {
+    // Admin-only items
+    if ('adminOnly' in item && item.adminOnly) return isAdmin;
+    // Check permission
+    const pageKey = getPageKeyForItem(item.id);
+    return canViewPage(pageKey);
+  });
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -102,7 +126,15 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
           </div>
           <div className="flex items-center gap-4">
             <div className="hidden text-right md:block">
-              <p className="text-sm font-medium text-gray-900">{user?.email?.split('@')[0] || 'Usuario'}</p>
+              <div className="flex items-center gap-2 justify-end">
+                <p className="text-sm font-medium text-gray-900">{user?.email?.split('@')[0] || 'Usuario'}</p>
+                {isAdmin && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">
+                    <ShieldCheck className="h-3 w-3" />
+                    Admin
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-gray-500">{user?.email || 'Sem e-mail'}</p>
             </div>
             <button
@@ -122,10 +154,11 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
         }`}
       >
         <nav className="h-full space-y-1 overflow-y-auto p-4">
-          {menuItems.map((item) => {
+          {visibleMenuItems.map((item) => {
             const Icon = item.icon;
-            const hasSubItems = item.subItems && item.subItems.length > 0;
-            const isActiveParent = currentPage === item.id || (hasSubItems && item.subItems!.some(sub => sub.id === currentPage));
+            const hasSubItems = 'subItems' in item && item.subItems && item.subItems.length > 0;
+            const subItems = hasSubItems ? (item as any).subItems as { id: string; label: string }[] : [];
+            const isActiveParent = currentPage === item.id || (hasSubItems && subItems.some((sub: any) => sub.id === currentPage));
             const isExpanded = expandedMenus[item.id] || false;
 
             return (
@@ -153,7 +186,7 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
                 
                 {hasSubItems && isExpanded && (
                   <div className="mt-1 space-y-1 pl-4">
-                    {item.subItems!.map((sub) => {
+                    {subItems.map((sub: any) => {
                       const isSubActive = currentPage === sub.id;
                       return (
                         <button

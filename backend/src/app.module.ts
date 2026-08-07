@@ -15,6 +15,7 @@ import { QualityModule } from './quality/quality.module';
 import { ReportsModule } from './reports/reports.module';
 import { SalesModule } from './sales/sales.module';
 import { SupabaseModule } from './supabase/supabase.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { SupabaseModule } from './supabase/supabase.module';
     FinanceModule,
     DashboardModule,
     ReportsModule,
+    UsersModule,
   ],
   controllers: [AppController],
 })

@@ -3,27 +3,18 @@ import { Lock, Milk, UserRound, History, ShieldCheck, TrendingUp } from 'lucide-
 import { useAuth } from '../context/AuthContext';
 
 export default function AuthScreen() {
-  const { signIn, signUp } = useAuth();
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     setSubmitting(true);
     setError(null);
-    setMessage(null);
 
     try {
-      if (mode === 'signin') {
-        await signIn(email, password);
-      } else {
-        const signUpMessage = await signUp(email, password);
-        setMessage(signUpMessage ?? 'Conta criada com sucesso. Você já pode entrar.');
-        setMode('signin');
-      }
+      await signIn(email, password);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao autenticar');
     } finally {
@@ -90,15 +81,13 @@ export default function AuthScreen() {
           <div className="w-full max-w-md mx-auto">
             <div className="space-y-2 mb-8">
               <p className="text-sm font-semibold uppercase tracking-[0.22em] text-blue-700">
-                {mode === 'signin' ? 'Acesso ao sistema' : 'Criar acesso'}
+                Acesso ao sistema
               </p>
               <h2 className="text-3xl font-black text-slate-900">
-                {mode === 'signin' ? 'Entrar na operação' : 'Cadastrar usuário'}
+                Entrar na operação
               </h2>
               <p className="text-slate-500 leading-7">
-                {mode === 'signin'
-                  ? 'Digite seu e-mail e senha para acessar a plataforma.'
-                  : 'Preencha os campos abaixo para registrar sua nova conta de acesso.'}
+                Digite seu e-mail e senha para acessar a plataforma.
               </p>
             </div>
 
@@ -137,37 +126,18 @@ export default function AuthScreen() {
                 </div>
               ) : null}
 
-              {message ? (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                  {message}
-                </div>
-              ) : null}
-
               <button
                 type="button"
                 onClick={() => void handleSubmit()}
                 disabled={submitting || !email || !password}
                 className="w-full rounded-2xl bg-slate-900 text-white py-3.5 font-semibold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
               >
-                {submitting ? 'Processando...' : mode === 'signin' ? 'Entrar' : 'Criar conta'}
+                {submitting ? 'Processando...' : 'Entrar'}
               </button>
             </div>
 
-            <div className="mt-6 pt-6 border-t border-slate-200 flex items-center justify-between gap-4 text-sm">
-              <span className="text-slate-500">
-                {mode === 'signin' ? 'Ainda não tem uma conta?' : 'Já possui cadastro?'}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setMode((current) => (current === 'signin' ? 'signup' : 'signin'));
-                  setError(null);
-                  setMessage(null);
-                }}
-                className="font-semibold text-blue-700 hover:text-blue-800"
-              >
-                {mode === 'signin' ? 'Cadastre-se' : 'Entrar'}
-              </button>
+            <div className="mt-6 pt-6 border-t border-slate-200 text-center text-sm text-slate-400">
+              Acesso restrito. Solicite suas credenciais ao administrador.
             </div>
           </div>
         </section>
