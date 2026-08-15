@@ -70,20 +70,52 @@ export class ClientsService {
     return data;
   }
 
+  async generateNextClientCode(): Promise<string> {
+    const { data: clients } = await this.supabaseService.admin
+      .from('clients')
+      .select('code');
+
+    const maxCode = (clients || []).reduce((max, client) => {
+      const match = client.code?.match(/\d+/);
+      return match ? Math.max(max, parseInt(match[0], 10)) : max;
+    }, 0);
+
+    return `CLI-${String(maxCode + 1).padStart(4, '0')}`;
+  }
+
   async createClient(payload: CreateClientDto, user?: AuthenticatedUser) {
     await this.ensureUniqueDocument(payload.document);
 
-    const { data, error } = await this.supabaseService.admin
-      .from('clients')
-      .insert(this.normalizePayload(payload, user, true))
-      .select('*')
-      .single();
+    let attempts = 0;
+    while (attempts < 3) {
+      try {
+        if (!payload.code || payload.code === 'Gerado automaticamente') {
+          payload.code = await this.generateNextClientCode();
+        }
 
-    if (error) {
-      throw new BadRequestException(error.message);
+        const { data, error } = await this.supabaseService.admin
+          .from('clients')
+          .insert(this.normalizePayload(payload, user, true))
+          .select('*')
+          .single();
+
+        if (error) {
+          if (error.code === '23505' && error.message.includes('code')) {
+            payload.code = undefined; 
+            attempts++;
+            continue;
+          }
+          throw new BadRequestException(error.message);
+        }
+
+        return data;
+      } catch (e) {
+        if (attempts >= 2) throw e;
+        attempts++;
+      }
     }
-
-    return data;
+    
+    throw new BadRequestException('Não foi possível gerar um código único para o cliente.');
   }
 
   async updateClient(id: string, payload: UpdateClientDto, user?: AuthenticatedUser) {

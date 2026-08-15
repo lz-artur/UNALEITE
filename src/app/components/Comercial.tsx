@@ -181,8 +181,9 @@ export default function Comercial() {
 
   const openCreateClient = () => {
     setEditingClient(null);
+
     setClientForm({
-      code: '',
+      code: 'Gerado automaticamente',
       name: '',
       tradeName: '',
       document: '',
@@ -738,7 +739,7 @@ export default function Comercial() {
           saving={saving}
         >
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <InputField label="Codigo" type="text" value={clientForm.code} onChange={(value) => setClientForm((current) => ({ ...current, code: value }))} />
+            <InputField label="Codigo" type="text" value={clientForm.code} disabled={true} onChange={(value) => setClientForm((current) => ({ ...current, code: value }))} />
             <InputField label="CNPJ/CPF" type="text" value={clientForm.document} onChange={(value) => setClientForm((current) => ({ ...current, document: value }))} />
             <InputField label="Razao social / nome" type="text" value={clientForm.name} onChange={(value) => setClientForm((current) => ({ ...current, name: value }))} />
             <InputField label="Nome fantasia" type="text" value={clientForm.tradeName} onChange={(value) => setClientForm((current) => ({ ...current, tradeName: value }))} />
@@ -1315,11 +1316,13 @@ function InputField({
   type,
   value,
   onChange,
+  disabled,
 }: {
   label: string;
   type: string;
   value: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <div>
@@ -1328,7 +1331,10 @@ function InputField({
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        disabled={disabled}
+        className={`w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+          disabled ? 'bg-gray-100 text-gray-500' : ''
+        }`}
       />
     </div>
   );
