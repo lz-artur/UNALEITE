@@ -45,6 +45,8 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
   
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const { costCenters, accountingCategories, accountingSubcategories } = useCadastros();
+
   const resetForm = () => {
     setDescricao('');
     setValor('');
@@ -70,10 +72,26 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
       setDescricao(initialData.descricao);
       setValor(initialData.valor.toString());
       setDataVencimento(new Date(initialData.dataVencimento).toISOString().split('T')[0]);
-      setCategoria(initialData.accountingCategoryId || initialData.categoria);
+      let catId = initialData.accountingCategoryId;
+      if (!catId && initialData.categoria) {
+        catId = accountingCategories.find(c => c.name === initialData.categoria)?.id || initialData.categoria;
+      }
+      setCategoria(catId || '');
+
       setStatus((initialData.status === 'Pago' || initialData.statusCalculado === 'Pago') ? 'Pago' : 'Aberto');
-      setCentroCusto(initialData.costCenterId || initialData.centroCusto || '');
-      setSubcategoriaContabil(initialData.accountingSubcategoryId || initialData.subcategoriaContabil || '');
+
+      let ccId = initialData.costCenterId;
+      if (!ccId && initialData.centroCusto) {
+        ccId = costCenters.find(c => c.name === initialData.centroCusto)?.id || initialData.centroCusto || '';
+      }
+      setCentroCusto(ccId || '');
+
+      let subcatId = initialData.accountingSubcategoryId;
+      if (!subcatId && initialData.subcategoriaContabil) {
+        subcatId = accountingSubcategories.find(s => s.name === initialData.subcategoriaContabil)?.id || initialData.subcategoriaContabil || '';
+      }
+      setSubcategoriaContabil(subcatId || '');
+
       setFormaPagamento(initialData.formaPagamento || '');
       setTipoPagamento(initialData.tipoPagamento || '');
       setTipoCusto(initialData.tipoCusto || '');
@@ -217,8 +235,6 @@ export default function NovaReceitaModal({ isOpen, onClose, onSave, initialData 
       setIsSubmitting(false);
     }
   };
-
-  const { costCenters, accountingCategories, accountingSubcategories } = useCadastros();
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
