@@ -28,6 +28,7 @@ export interface DashboardStats {
   opsAbertas: number;
   producaoFinalizada: number;
   custoMedioKg: number;
+  ticketMedioCustoKg: number;
   folhaLeite: number;
   contasPagar: number;
   contasReceber: number;
@@ -651,6 +652,7 @@ export async function loadDashboardStats(): Promise<DashboardStats> {
       opsAbertas: summary.openOrders,
       producaoFinalizada: summary.finishedOrders,
       custoMedioKg: summary.averageCostPerLiter,
+      ticketMedioCustoKg: summary.averageCostPerKg || 0,
       folhaLeite: summary.milkPayroll,
       contasPagar: summary.accountsPayable,
       contasReceber: summary.accountsReceivable,

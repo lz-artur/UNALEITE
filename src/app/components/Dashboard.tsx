@@ -38,6 +38,7 @@ const emptyStats: DashboardStats = {
   opsAbertas: 0,
   producaoFinalizada: 0,
   custoMedioKg: 0,
+  ticketMedioCustoKg: 0,
   folhaLeite: 0,
   contasPagar: 0,
   contasReceber: 0,
@@ -187,7 +188,7 @@ export default function Dashboard() {
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <StatCard
               title="Producao finalizada"
               value={stats.producaoFinalizada}
@@ -201,6 +202,13 @@ export default function Dashboard() {
               icon={<DollarSign className="h-6 w-6" />}
               trend="Base de precificacao"
               color="orange"
+            />
+            <StatCard
+              title="Ticket medio custo do kg"
+              value={`R$ ${stats.ticketMedioCustoKg.toFixed(2)}`}
+              icon={<DollarSign className="h-6 w-6" />}
+              trend="Custo do leite / Kg produzido"
+              color="yellow"
             />
             <StatCard
               title="Folha do leite"
