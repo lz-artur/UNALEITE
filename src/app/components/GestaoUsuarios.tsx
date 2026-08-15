@@ -16,12 +16,14 @@ import {
   Trash2,
   Search,
   Loader2,
+  Key,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   fetchUsers,
   fetchUserById,
   updateUser,
+  updateUserPassword,
   createUser,
   updateUserPermissions,
   type AppUser,
@@ -100,6 +102,13 @@ export default function GestaoUsuarios() {
   const [editActive, setEditActive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showPermModal, setShowPermModal] = useState(false);
+
+  // Password Reset states
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordUser, setPasswordUser] = useState<AppUser | null>(null);
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [resettingPassword, setResettingPassword] = useState(false);
 
   // Create user modal
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -194,6 +203,37 @@ export default function GestaoUsuarios() {
       console.error(err);
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!passwordUser) return;
+    if (!resetNewPassword || !resetConfirmPassword) {
+      toast.error('Preencha os dois campos de senha');
+      return;
+    }
+    if (resetNewPassword !== resetConfirmPassword) {
+      toast.error('As senhas não coincidem');
+      return;
+    }
+    if (resetNewPassword.length < 6) {
+      toast.error('A senha deve ter pelo menos 6 caracteres');
+      return;
+    }
+
+    setResettingPassword(true);
+    try {
+      await updateUserPassword(passwordUser.id, resetNewPassword);
+      toast.success('Senha atualizada com sucesso!');
+      setShowPasswordModal(false);
+      setPasswordUser(null);
+      setResetNewPassword('');
+      setResetConfirmPassword('');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao atualizar senha');
+      console.error(err);
+    } finally {
+      setResettingPassword(false);
     }
   };
 
@@ -352,13 +392,27 @@ export default function GestaoUsuarios() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <button
-                        onClick={() => void handleOpenPermissions(u.id)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition-all hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        Editar Permissões
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => {
+                            setPasswordUser(u);
+                            setShowPasswordModal(true);
+                            setResetNewPassword('');
+                            setResetConfirmPassword('');
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition-all hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700"
+                        >
+                          <Key className="h-3.5 w-3.5" />
+                          Senha
+                        </button>
+                        <button
+                          onClick={() => void handleOpenPermissions(u.id)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition-all hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Editar
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -667,6 +721,89 @@ export default function GestaoUsuarios() {
                   <UserPlus className="h-4 w-4" />
                 )}
                 Criar Usuário
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Reset Password Modal ─────────────────────────────────── */}
+      {showPasswordModal && passwordUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-sm rounded-2xl bg-white shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Recuperar Senha</h2>
+                <p className="text-sm text-gray-500">
+                  {passwordUser.display_name ?? passwordUser.email}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowPasswordModal(false);
+                  setPasswordUser(null);
+                  setResetNewPassword('');
+                  setResetConfirmPassword('');
+                }}
+                className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="space-y-4 px-6 py-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Nova Senha
+                </label>
+                <input
+                  type="password"
+                  value={resetNewPassword}
+                  onChange={(e) => setResetNewPassword(e.target.value)}
+                  placeholder="Mínimo 6 caracteres"
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition-colors focus:border-violet-400 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Confirmação de Senha
+                </label>
+                <input
+                  type="password"
+                  value={resetConfirmPassword}
+                  onChange={(e) => setResetConfirmPassword(e.target.value)}
+                  placeholder="Confirme a nova senha"
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition-colors focus:border-violet-400 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 border-t border-gray-100 px-6 py-4">
+              <button
+                onClick={() => {
+                  setShowPasswordModal(false);
+                  setPasswordUser(null);
+                  setResetNewPassword('');
+                  setResetConfirmPassword('');
+                }}
+                className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => void handleResetPassword()}
+                disabled={resettingPassword || !resetNewPassword || !resetConfirmPassword}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:shadow-lg hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {resettingPassword ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Key className="h-4 w-4" />
+                )}
+                Salvar Senha
               </button>
             </div>
           </div>

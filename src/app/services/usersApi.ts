@@ -47,6 +47,13 @@ export function updateUser(
   });
 }
 
+export function updateUserPassword(id: string, password: string): Promise<{ success: boolean }> {
+  return apiRequest<{ success: boolean }>(`/users/${id}/password`, {
+    method: 'PATCH',
+    body: JSON.stringify({ password }),
+  });
+}
+
 export function createUser(payload: {
   email: string;
   password: string;

@@ -296,4 +296,32 @@ export class UsersService {
 
     return (data ?? []) as UserPermission[];
   }
+
+  /**
+   * Update a user's password (admin only).
+   */
+  async updatePassword(id: string, newPassword: string): Promise<{ success: boolean }> {
+    const sb = this.supabaseService.admin;
+
+    // Get auth_user_id from app_users
+    const { data: user, error: fetchError } = await sb
+      .from('app_users')
+      .select('auth_user_id')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !user) {
+      throw new NotFoundException(`User ${id} not found`);
+    }
+
+    const { error } = await sb.auth.admin.updateUserById(user.auth_user_id, {
+      password: newPassword,
+    });
+
+    if (error) {
+      throw new BadRequestException(`Failed to update password: ${error.message}`);
+    }
+
+    return { success: true };
+  }
 }

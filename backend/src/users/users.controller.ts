@@ -62,6 +62,18 @@ export class UsersController {
   }
 
   /**
+   * Update user password. Admin only.
+   */
+  @Patch(':id/password')
+  @UseGuards(AdminGuard)
+  updatePassword(
+    @Param('id') id: string,
+    @Body() payload: { password: string },
+  ) {
+    return this.usersService.updatePassword(id, payload.password);
+  }
+
+  /**
    * Create a new user. Admin only.
    */
   @Post()
