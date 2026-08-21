@@ -339,16 +339,35 @@ export default function Comercial() {
       setSelectedOrder(detail);
       const nextItems = detail.items.reduce<Record<string, Array<{ localId: string; finishedProductLotId: string; quantity: string }>>>(
         (accumulator, item) => {
-          const candidateLot = finishedLots.find(
+          if (item.pendingQuantity <= 0) return accumulator;
+          
+          let remaining = item.pendingQuantity;
+          const assignedLots = [];
+          
+          const itemAvailableLots = finishedLots.filter(
             (lot) => lot.productId === item.productId && lot.disponivel > 0,
           );
-          accumulator[item.id] = [
-            {
-              localId: `lot-${Date.now()}`,
-              finishedProductLotId: candidateLot?.id ?? '',
+
+          for (const lot of itemAvailableLots) {
+            if (remaining <= 0) break;
+            const take = Math.min(lot.disponivel, remaining);
+            assignedLots.push({
+              localId: `lot-${Date.now()}-${assignedLots.length}`,
+              finishedProductLotId: lot.id,
+              quantity: take.toString(),
+            });
+            remaining -= take;
+          }
+
+          if (assignedLots.length === 0) {
+            assignedLots.push({
+              localId: `lot-${Date.now()}-0`,
+              finishedProductLotId: '',
               quantity: '',
-            },
-          ];
+            });
+          }
+
+          accumulator[item.id] = assignedLots;
           return accumulator;
         },
         {},
@@ -470,6 +489,39 @@ export default function Comercial() {
 
   const availableLotsByProduct = (productId: string) =>
     finishedLots.filter((lot) => lot.productId === productId && lot.disponivel > 0);
+
+  const totalFulfillmentValue = useMemo(() => {
+    if (!selectedOrder || !showFulfillModal) return 0;
+    return selectedOrder.items.reduce((sum, item) => {
+      const itemLots = fulfillForm.items[item.id] || [];
+      const itemFulfilledQty = itemLots.reduce((qSum, lot) => qSum + Number(lot.quantity || 0), 0);
+      return sum + (itemFulfilledQty * item.unitPrice);
+    }, 0);
+  }, [selectedOrder, fulfillForm.items, showFulfillModal]);
+
+  const hasFulfillmentErrors = useMemo(() => {
+    if (!selectedOrder || !showFulfillModal) return false;
+    for (const item of selectedOrder.items) {
+      if (item.pendingQuantity <= 0) continue;
+      const itemLots = fulfillForm.items[item.id] || [];
+      const itemFulfilledQty = itemLots.reduce((qSum, lot) => qSum + Number(lot.quantity || 0), 0);
+      
+      if (itemFulfilledQty > item.pendingQuantity) return true;
+      
+      for (const lot of itemLots) {
+        if (!lot.finishedProductLotId) continue;
+        const availableLot = finishedLots.find(l => l.id === lot.finishedProductLotId);
+        if (availableLot && Number(lot.quantity || 0) > availableLot.disponivel) return true;
+      }
+    }
+    
+    if (fulfillForm.isParcelado) {
+      const installmentsTotal = fulfillForm.parcelas.reduce((sum, p) => sum + Number(p.amount.replace(',', '.') || 0), 0);
+      if (Math.abs(installmentsTotal - totalFulfillmentValue) > 0.01) return true;
+    }
+    
+    return false;
+  }, [selectedOrder, fulfillForm, finishedLots, showFulfillModal, totalFulfillmentValue]);
 
   return (
     <div className="space-y-6">
@@ -914,9 +966,18 @@ export default function Comercial() {
           onConfirm={() => void handleFulfillOrder()}
           confirmLabel="Confirmar atendimento"
           saving={saving}
+          disabled={hasFulfillmentErrors}
           maxWidth="max-w-5xl"
         >
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="mb-6 rounded-lg bg-gray-50 p-4 border border-gray-200">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="font-bold text-gray-900">Dados Financeiros</h3>
+              <div className="text-sm font-medium text-blue-700 bg-blue-50 px-3 py-1 rounded-full">
+                Total sendo atendido: R$ {totalFulfillmentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <InputField
               label="Data do atendimento"
               type="date"
@@ -959,8 +1020,13 @@ export default function Comercial() {
             </label>
           </div>
           {fulfillForm.isParcelado && (
-            <div className="mt-4 border border-gray-200 rounded-md p-3 bg-gray-50 flex flex-col gap-3">
-              <h3 className="text-sm font-medium text-gray-700">Parcelas</h3>
+            <div className="mt-4 border border-gray-200 rounded-md p-3 bg-white flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-gray-700">Parcelas</h3>
+                {Math.abs(fulfillForm.parcelas.reduce((sum, p) => sum + Number(p.amount.replace(',', '.') || 0), 0) - totalFulfillmentValue) > 0.01 && (
+                  <span className="text-xs font-medium text-red-600">A soma das parcelas deve ser igual ao total atendido</span>
+                )}
+              </div>
               {fulfillForm.parcelas.map((parcela, index) => (
                 <div key={parcela.id} className="flex items-end gap-3">
                   <div className="flex-1">
@@ -1011,23 +1077,38 @@ export default function Comercial() {
               </button>
             </div>
           )}
-          <div className="mt-4 space-y-4">
+          </div>
+
+          <h3 className="mb-3 font-bold text-gray-900">Itens a Atender</h3>
+          <div className="space-y-4">
             {selectedOrder.items
               .filter((item) => item.pendingQuantity > 0)
               .map((item) => {
-                const lotOptions = availableLotsByProduct(item.productId);
+                const baseLotOptions = availableLotsByProduct(item.productId);
                 const itemLots = fulfillForm.items[item.id] || [];
+                const fulfilledQty = itemLots.reduce((sum, lot) => sum + Number(lot.quantity || 0), 0);
+                const isOverfulfilled = fulfilledQty > item.pendingQuantity;
+
                 return (
-                  <div key={item.id} className="rounded-lg border border-gray-200 p-4">
-                    <div className="mb-3 flex items-start justify-between">
+                  <div key={item.id} className="rounded-lg border border-gray-200 p-4 bg-white">
+                    <div className="mb-3 flex items-start justify-between border-b border-gray-100 pb-3">
                       <div>
-                        <h4 className="font-bold text-gray-900">{item.productName}</h4>
-                        <p className="text-sm text-gray-600">
-                          Pendente: {item.pendingQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
-                        </p>
+                        <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                          {item.productName}
+                          <StatusBadge status={item.status} />
+                        </h4>
+                        <div className="mt-1 flex items-center gap-2 text-sm">
+                          <span className={`font-medium ${isOverfulfilled ? 'text-red-600' : 'text-gray-700'}`}>
+                            Atendido: {fulfilledQty.toLocaleString('pt-BR')} / {item.pendingQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
+                          </span>
+                          {isOverfulfilled && (
+                            <span className="text-xs text-red-600 font-medium bg-red-50 px-2 py-0.5 rounded">
+                              Quantidade excede o pendente
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <StatusBadge status={item.status} />
                         <button
                           onClick={() => setFulfillForm((current) => ({
                             ...current,
@@ -1039,64 +1120,81 @@ export default function Comercial() {
                               ],
                             },
                           }))}
-                          className="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                          className="flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100"
                         >
-                          + Adicionar Lote
+                          <Plus className="h-4 w-4" /> Adicionar Lote
                         </button>
                       </div>
                     </div>
-                    {itemLots.map((lotValue, index) => (
-                      <div key={lotValue.localId} className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto]">
-                        <SelectField
-                          label="Lote acabado"
-                          value={lotValue.finishedProductLotId}
-                          onChange={(value) =>
-                            setFulfillForm((current) => ({
-                              ...current,
-                              items: {
-                                ...current.items,
-                                [item.id]: current.items[item.id].map((l, i) => i === index ? { ...l, finishedProductLotId: value } : l),
-                              },
-                            }))
-                          }
-                          options={[
-                            { label: lotOptions.length ? 'Selecione...' : 'Sem lotes disponiveis', value: '' },
-                            ...lotOptions.map((lot) => ({
-                              label: `${lot.lote} - saldo ${lot.disponivel.toLocaleString('pt-BR')}`,
-                              value: lot.id,
-                            })),
-                          ]}
-                        />
-                        <InputField
-                          label="Quantidade atendida"
-                          type="number"
-                          value={lotValue.quantity}
-                          onChange={(value) =>
-                            setFulfillForm((current) => ({
-                              ...current,
-                              items: {
-                                ...current.items,
-                                [item.id]: current.items[item.id].map((l, i) => i === index ? { ...l, quantity: value } : l),
-                              },
-                            }))
-                          }
-                        />
-                        <div className="flex items-end">
-                          <button
-                            onClick={() => setFulfillForm((current) => ({
-                              ...current,
-                              items: {
-                                ...current.items,
-                                [item.id]: current.items[item.id].filter((_, i) => i !== index),
-                              },
-                            }))}
-                            className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-700 hover:bg-red-50"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                    {itemLots.map((lotValue, index) => {
+                      // Filter out lots already selected in OTHER lines of this same item
+                      const selectedLotIds = itemLots.filter((_, i) => i !== index).map(l => l.finishedProductLotId).filter(Boolean);
+                      const lotOptions = baseLotOptions.filter(lot => !selectedLotIds.includes(lot.id) || lot.id === lotValue.finishedProductLotId);
+                      
+                      const selectedLotData = baseLotOptions.find(l => l.id === lotValue.finishedProductLotId);
+                      const isOverLotDisponivel = selectedLotData && Number(lotValue.quantity || 0) > selectedLotData.disponivel;
+
+                      return (
+                        <div key={lotValue.localId} className="mt-3">
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto]">
+                            <SelectField
+                              label="Lote acabado"
+                              value={lotValue.finishedProductLotId}
+                              onChange={(value) =>
+                                setFulfillForm((current) => ({
+                                  ...current,
+                                  items: {
+                                    ...current.items,
+                                    [item.id]: current.items[item.id].map((l, i) => i === index ? { ...l, finishedProductLotId: value } : l),
+                                  },
+                                }))
+                              }
+                              options={[
+                                { label: lotOptions.length ? 'Selecione...' : 'Sem lotes disponiveis', value: '' },
+                                ...lotOptions.map((lot) => ({
+                                  label: `${lot.lote} - saldo ${lot.disponivel.toLocaleString('pt-BR')}`,
+                                  value: lot.id,
+                                })),
+                              ]}
+                            />
+                            <div>
+                              <InputField
+                                label="Quantidade atendida"
+                                type="number"
+                                value={lotValue.quantity}
+                                onChange={(value) =>
+                                  setFulfillForm((current) => ({
+                                    ...current,
+                                    items: {
+                                      ...current.items,
+                                      [item.id]: current.items[item.id].map((l, i) => i === index ? { ...l, quantity: value } : l),
+                                    },
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="flex items-end">
+                              <button
+                                onClick={() => setFulfillForm((current) => ({
+                                  ...current,
+                                  items: {
+                                    ...current.items,
+                                    [item.id]: current.items[item.id].filter((_, i) => i !== index),
+                                  },
+                                }))}
+                                className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-700 hover:bg-red-50"
+                                title="Remover lote"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                          {isOverLotDisponivel && (
+                            <p className="mt-1 text-xs text-red-600 font-medium">A quantidade excede o saldo disponível do lote selecionado.</p>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -1247,6 +1345,7 @@ function ModalShell({
   onConfirm,
   confirmLabel,
   saving,
+  disabled = false,
   maxWidth = 'max-w-3xl',
 }: {
   title: string;
@@ -1255,6 +1354,7 @@ function ModalShell({
   onConfirm: () => void;
   confirmLabel: string;
   saving: boolean;
+  disabled?: boolean;
   maxWidth?: string;
 }) {
   return (
@@ -1273,8 +1373,8 @@ function ModalShell({
           </button>
           <button
             onClick={onConfirm}
-            disabled={saving}
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60"
+            disabled={saving || disabled}
+            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {confirmLabel}
