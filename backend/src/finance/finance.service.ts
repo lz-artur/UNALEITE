@@ -171,12 +171,44 @@ export class FinanceService {
   }
 
   async updateEntry(id: string, payload: Record<string, any>, user?: AuthenticatedUser) {
+    // Explicitly pick only known database columns and filter out undefined values
+    const updateFields: Record<string, any> = {};
+    const fieldMap: Record<string, string> = {
+      entry_type: 'entry_type',
+      description: 'description',
+      amount: 'amount',
+      due_date: 'due_date',
+      payment_date: 'payment_date',
+      status: 'status',
+      category: 'category',
+      supplier_id: 'supplier_id',
+      client_id: 'client_id',
+      producer_id: 'producer_id',
+      cost_center: 'cost_center',
+      cost_center_id: 'cost_center_id',
+      accounting_category_id: 'accounting_category_id',
+      accounting_subcategory: 'accounting_subcategory',
+      accounting_subcategory_id: 'accounting_subcategory_id',
+      payment_method: 'payment_method',
+      payment_type: 'payment_type',
+      attachment_url: 'attachment_url',
+      attachment_urls: 'attachment_urls',
+      installment_group_id: 'installment_group_id',
+      installment_number: 'installment_number',
+      cost_type: 'cost_type',
+    };
+
+    for (const [key, dbColumn] of Object.entries(fieldMap)) {
+      if (payload[key] !== undefined) {
+        updateFields[dbColumn] = payload[key];
+      }
+    }
+
+    updateFields.updated_by = user?.id ?? null;
+
     const { data, error } = await this.supabaseService.admin
       .from('financial_entries')
-      .update({
-        ...payload,
-        updated_by: user?.id ?? null,
-      })
+      .update(updateFields)
       .eq('id', id)
       .select('*')
       .single();

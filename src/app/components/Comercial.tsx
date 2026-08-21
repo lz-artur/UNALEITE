@@ -354,9 +354,9 @@ export default function Comercial() {
             assignedLots.push({
               localId: `lot-${Date.now()}-${assignedLots.length}`,
               finishedProductLotId: lot.id,
-              quantity: take.toString(),
+              quantity: Number(take.toFixed(4)).toString(),
             });
-            remaining -= take;
+            remaining = Number((remaining - take).toFixed(4));
           }
 
           if (assignedLots.length === 0) {
@@ -506,7 +506,9 @@ export default function Comercial() {
       const itemLots = fulfillForm.items[item.id] || [];
       const itemFulfilledQty = itemLots.reduce((qSum, lot) => qSum + Number(lot.quantity || 0), 0);
       
-      if (itemFulfilledQty > item.pendingQuantity) return true;
+      // Add a small tolerance for floating point errors
+      if (itemFulfilledQty > item.pendingQuantity + 0.001) return true;
+
       
       for (const lot of itemLots) {
         if (!lot.finishedProductLotId) continue;
@@ -1087,7 +1089,9 @@ export default function Comercial() {
                 const baseLotOptions = availableLotsByProduct(item.productId);
                 const itemLots = fulfillForm.items[item.id] || [];
                 const fulfilledQty = itemLots.reduce((sum, lot) => sum + Number(lot.quantity || 0), 0);
-                const isOverfulfilled = fulfilledQty > item.pendingQuantity;
+                // Add a small tolerance for floating point errors
+                const isOverfulfilled = fulfilledQty > item.pendingQuantity + 0.001;
+
 
                 return (
                   <div key={item.id} className="rounded-lg border border-gray-200 p-4 bg-white">
