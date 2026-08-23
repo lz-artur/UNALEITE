@@ -61,6 +61,7 @@ export default function Compras() {
     costCenterId: '',
     accountingCategoryId: '',
     accountingSubcategoryId: '',
+    costType: '',
     bankAccountId: '',
     installments: [] as Array<{ localId: string; dueDate: string; amount: string }>,
     installmentCount: '1',
@@ -764,6 +765,16 @@ export default function Compras() {
                     ...accountingSubcategories.filter(s => s.active && s.categoryId === createForm.accountingCategoryId).map((s) => ({ label: s.name, value: s.id })),
                   ]}
                 />
+                <FilterSelect
+                  label="Tipo de custo"
+                  value={createForm.costType}
+                  onChange={(value) => setCreateForm((current) => ({ ...current, costType: value }))}
+                  options={[
+                    { label: 'Selecione...', value: '' },
+                    { label: 'Fixo', value: 'Fixo' },
+                    { label: 'Variável', value: 'Variável' },
+                  ]}
+                />
               </div>
 
               <div className="space-y-3 mt-4">
@@ -801,18 +812,39 @@ export default function Compras() {
                       value={item.supplyItemId}
                       onChange={(value) => {
                         const supplyItem = getSupplyItemById(value);
-                        setCreateForm((current) => ({
-                          ...current,
-                          items: current.items.map((entry) =>
-                            entry.localId === item.localId
-                              ? {
-                                  ...entry,
-                                  supplyItemId: value,
-                                  unitCost: supplyItem?.defaultCost?.toString() ?? entry.unitCost,
-                                }
-                              : entry,
-                          ),
-                        }));
+                        setCreateForm((current) => {
+                          const isFirstItem = current.items[0]?.localId === item.localId;
+                          const needsFinancialFill = isFirstItem || (!current.costCenterId && !current.accountingCategoryId);
+                          
+                          let newCostCenterId = current.costCenterId;
+                          let newAccountingCategoryId = current.accountingCategoryId;
+                          let newAccountingSubcategoryId = current.accountingSubcategoryId;
+                          let newCostType = current.costType;
+
+                          if (needsFinancialFill && supplyItem) {
+                            newCostCenterId = supplyItem.costCenterId || current.costCenterId;
+                            newAccountingCategoryId = supplyItem.accountingCategoryId || current.accountingCategoryId;
+                            newAccountingSubcategoryId = supplyItem.accountingSubcategoryId || current.accountingSubcategoryId;
+                            newCostType = supplyItem.costType || current.costType;
+                          }
+
+                          return {
+                            ...current,
+                            costCenterId: newCostCenterId,
+                            accountingCategoryId: newAccountingCategoryId,
+                            accountingSubcategoryId: newAccountingSubcategoryId,
+                            costType: newCostType,
+                            items: current.items.map((entry) =>
+                              entry.localId === item.localId
+                                ? {
+                                    ...entry,
+                                    supplyItemId: value,
+                                    unitCost: supplyItem?.defaultCost?.toString() ?? entry.unitCost,
+                                  }
+                                : entry,
+                            ),
+                          };
+                        });
                       }}
                       options={[
                         { label: 'Selecione...', value: '' },

@@ -1657,6 +1657,33 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  onChange={(value) => updateField('unitId', value)}
  options={units.filter((item) => item.active).map((item) => ({ label: `${item.name} (${item.symbol})`, value: item.id }))}
  />
+ <SelectField
+ label="Categoria Financeira"
+ value={String(formState.accountingCategoryId || '')}
+ onChange={(value) => updateField('accountingCategoryId', value)}
+ options={accountingCategories.filter((item) => item.active).map((item) => ({ label: `${item.name} (${item.entryType})`, value: item.id }))}
+ />
+ <SelectField
+ label="Subcategoria Financeira"
+ value={String(formState.accountingSubcategoryId || '')}
+ onChange={(value) => updateField('accountingSubcategoryId', value)}
+ options={accountingSubcategories.filter((item) => item.active && item.categoryId === formState.accountingCategoryId).map((item) => ({ label: item.name, value: item.id }))}
+ />
+ <SelectField
+ label="Centro de Custo"
+ value={String(formState.costCenterId || '')}
+ onChange={(value) => updateField('costCenterId', value)}
+ options={costCenters.filter((item) => item.active).map((item) => ({ label: item.name, value: item.id }))}
+ />
+ <SelectField
+ label="Tipo de Custo"
+ value={String(formState.costType || '')}
+ onChange={(value) => updateField('costType', value)}
+ options={[
+ { label: 'Fixo', value: 'Fixo' },
+ { label: 'Variável', value: 'Variável' }
+ ]}
+ />
  <Field label="Estoque mínimo" type="text" value={formState.minimumStock === 0 ? '' : String(formState.minimumStock || '')} placeholder="0" onChange={(value) => updateField('minimumStock', value)} />
  <Field label="Estoque atual (Ajuste via Lotes)" type="text" disabled value={formState.currentStock === 0 ? '' : String(formState.currentStock || '')} placeholder="0" onChange={(value) => updateField('currentStock', value)} />
  <Field label="Custo padrão" type="text" value={formState.defaultCost === 0 ? '' : String(formState.defaultCost || '')} placeholder="0" onChange={(value) => updateField('defaultCost', value)} />
@@ -1720,6 +1747,33 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  value={String(formState.unitId || '')}
  onChange={(value) => updateField('unitId', value)}
  options={units.filter((item) => item.active).map((item) => ({ label: `${item.name} (${item.symbol})`, value: item.id }))}
+ />
+ <SelectField
+ label="Categoria Financeira"
+ value={String(formState.accountingCategoryId || '')}
+ onChange={(value) => updateField('accountingCategoryId', value)}
+ options={accountingCategories.filter((item) => item.active).map((item) => ({ label: `${item.name} (${item.entryType})`, value: item.id }))}
+ />
+ <SelectField
+ label="Subcategoria Financeira"
+ value={String(formState.accountingSubcategoryId || '')}
+ onChange={(value) => updateField('accountingSubcategoryId', value)}
+ options={accountingSubcategories.filter((item) => item.active && item.categoryId === formState.accountingCategoryId).map((item) => ({ label: item.name, value: item.id }))}
+ />
+ <SelectField
+ label="Centro de Custo"
+ value={String(formState.costCenterId || '')}
+ onChange={(value) => updateField('costCenterId', value)}
+ options={costCenters.filter((item) => item.active).map((item) => ({ label: item.name, value: item.id }))}
+ />
+ <SelectField
+ label="Tipo de Custo"
+ value={String(formState.costType || '')}
+ onChange={(value) => updateField('costType', value)}
+ options={[
+ { label: 'Fixo', value: 'Fixo' },
+ { label: 'Variável', value: 'Variável' }
+ ]}
  />
  <Field label="Peso padrão" type="number" step="0.001" value={String(formState.standardWeight || 0)} onChange={(value) => updateField('standardWeight', value)} />
  <Field label="Prazo de validade (dias)" type="number" required value={String(formState.shelfLifeDays || 0)} onChange={(value) => updateField('shelfLifeDays', value)} />
