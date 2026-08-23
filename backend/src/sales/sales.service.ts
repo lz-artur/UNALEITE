@@ -282,9 +282,18 @@ export class SalesService {
             };
           });
 
-          await this.supabaseService.admin
+          const { data: insertedEntries, error: insertError } = await this.supabaseService.admin
             .from('financial_entries')
-            .insert(newEntries);
+            .insert(newEntries)
+            .select('id, amount');
+
+          if (insertError) {
+            throw new BadRequestException(insertError.message);
+          }
+
+          if (insertedEntries && insertedEntries.length > 0) {
+            await this.generateRateio(insertedEntries, salesOrderId, Number(originalEntry.amount), user);
+          }
         }
       } else {
         await this.supabaseService.admin
@@ -498,7 +507,7 @@ export class SalesService {
   ) {
     const description = `Venda ${String(salesOrder.order_number)} - ${String(client.name)}`;
 
-    const { error } = await this.supabaseService.admin.from('financial_entries').insert({
+    const { data: insertedEntry, error } = await this.supabaseService.admin.from('financial_entries').insert({
       entry_type: 'Receber',
       description,
       amount,
@@ -510,10 +519,63 @@ export class SalesService {
       reference_id: salesOrder.id,
       created_by: user?.id ?? null,
       updated_by: user?.id ?? null,
-    });
+    }).select('id, amount').single();
 
     if (error && !error.message.includes('duplicate')) {
       throw new BadRequestException(error.message);
+    }
+
+    if (insertedEntry && amount > 0) {
+      await this.generateRateio([insertedEntry], String(salesOrder.id), amount, user);
+    }
+  }
+
+  private async generateRateio(entries: any[], salesOrderId: string, totalAmount: number, user?: AuthenticatedUser) {
+    const bundle = await this.loadSalesBundle();
+    const orderItems = bundle.salesOrderItems.filter(item => String(item.sales_order_id) === salesOrderId);
+    const products = bundle.finishedProducts;
+
+    if (entries.length > 0 && totalAmount > 0 && orderItems.length > 0) {
+      const rateioItemsToInsert: any[] = [];
+
+      for (const entry of entries) {
+        let remainingAmount = Number(entry.amount);
+
+        orderItems.forEach((item, index) => {
+          const product = products.find((p) => String(p.id) === String(item.product_id));
+          const itemTotal = Number(item.total_value) || (Number(item.ordered_quantity) * Number(item.unit_price));
+          const proportion = itemTotal / totalAmount;
+          
+          let rateioAmount = Number((Number(entry.amount) * proportion).toFixed(4));
+          
+          if (index === orderItems.length - 1) {
+            rateioAmount = remainingAmount;
+          } else {
+            remainingAmount -= rateioAmount;
+          }
+
+          rateioItemsToInsert.push({
+            financial_entry_id: entry.id,
+            amount: rateioAmount,
+            cost_center_id: product?.cost_center_id ?? null,
+            accounting_category_id: product?.accounting_category_id ?? null,
+            accounting_subcategory_id: product?.accounting_subcategory_id ?? null,
+            cost_type: product?.cost_type ?? null,
+            created_by: user?.id ?? null,
+            updated_by: user?.id ?? null,
+          });
+        });
+      }
+
+      if (rateioItemsToInsert.length > 0) {
+        const { error: itemsError } = await this.supabaseService.admin
+          .from('financial_entry_items')
+          .insert(rateioItemsToInsert);
+
+        if (itemsError) {
+          console.error(`Erro ao inserir itens de rateio de venda: ${itemsError.message}`);
+        }
+      }
     }
   }
 

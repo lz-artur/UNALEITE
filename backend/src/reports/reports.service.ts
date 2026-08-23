@@ -168,8 +168,9 @@ export class ReportsService {
 
   async getDreReport(filters: ListReportsDto = {}) {
     const basis = filters.basis || 'accrual';
-    const [entries, categories] = await Promise.all([
+    const [entries, entryItems, categories] = await Promise.all([
       this.selectMany('financial_entries'),
+      this.selectMany('financial_entry_items'),
       this.selectMany('accounting_categories')
     ]);
 
@@ -194,24 +195,47 @@ export class ReportsService {
     let totalExpense = 0;
 
     for (const row of rows) {
-      let category = String(row.category || 'Sem Categoria');
-      
-      // Handle the case where we have the relational ID
-      if (row.accounting_category_id && dreCategoryMap.has(row.accounting_category_id)) {
-        category = dreCategoryMap.get(row.accounting_category_id)!;
-      } else if (!dreCategoryNames.has(category)) {
-        // Skip if not in DRE
-        continue;
-      }
+      const items = entryItems.filter((item: any) => String(item.financial_entry_id) === String(row.id));
 
-      const amount = Number(row.amount || 0);
+      if (items.length > 0) {
+        for (const item of items) {
+          let category = String(row.category || 'Sem Categoria');
+          if (item.accounting_category_id && dreCategoryMap.has(item.accounting_category_id)) {
+            category = dreCategoryMap.get(item.accounting_category_id)!;
+          } else if (row.accounting_category_id && dreCategoryMap.has(row.accounting_category_id)) {
+            category = dreCategoryMap.get(row.accounting_category_id)!;
+          } else if (!dreCategoryNames.has(category)) {
+            continue;
+          }
 
-      if (row.entry_type === 'Receber') {
-        totalRevenue += amount;
-        revenueCategories.set(category, (revenueCategories.get(category) || 0) + amount);
-      } else if (row.entry_type === 'Pagar') {
-        totalExpense += amount;
-        expenseCategories.set(category, (expenseCategories.get(category) || 0) + amount);
+          const amount = Number(item.amount || 0);
+
+          if (row.entry_type === 'Receber') {
+            totalRevenue += amount;
+            revenueCategories.set(category, (revenueCategories.get(category) || 0) + amount);
+          } else if (row.entry_type === 'Pagar') {
+            totalExpense += amount;
+            expenseCategories.set(category, (expenseCategories.get(category) || 0) + amount);
+          }
+        }
+      } else {
+        let category = String(row.category || 'Sem Categoria');
+        
+        if (row.accounting_category_id && dreCategoryMap.has(row.accounting_category_id)) {
+          category = dreCategoryMap.get(row.accounting_category_id)!;
+        } else if (!dreCategoryNames.has(category)) {
+          continue;
+        }
+
+        const amount = Number(row.amount || 0);
+
+        if (row.entry_type === 'Receber') {
+          totalRevenue += amount;
+          revenueCategories.set(category, (revenueCategories.get(category) || 0) + amount);
+        } else if (row.entry_type === 'Pagar') {
+          totalExpense += amount;
+          expenseCategories.set(category, (expenseCategories.get(category) || 0) + amount);
+        }
       }
     }
 
@@ -253,8 +277,9 @@ export class ReportsService {
       curr.setMonth(curr.getMonth() + 1);
     }
 
-    const [entries, categories] = await Promise.all([
+    const [entries, entryItems, categories] = await Promise.all([
       this.selectMany('financial_entries'),
+      this.selectMany('financial_entry_items'),
       this.selectMany('accounting_categories')
     ]);
 
@@ -287,47 +312,99 @@ export class ReportsService {
       
       const dueD = new Date(String(row.due_date));
       const isPaid = String(row.status) === 'Pago';
-      const amount = Number(row.amount || 0);
       const isReceita = row.entry_type === 'Receber';
       const isDespesa = row.entry_type === 'Pagar';
 
-      let category = String(row.category || 'Sem Categoria');
-      if (row.accounting_category_id && dreCategoryMap.has(row.accounting_category_id)) {
-        category = dreCategoryMap.get(row.accounting_category_id)!;
-      } else if (!dreCategoryNames.has(category)) {
-        continue;
-      }
+      const items = entryItems.filter((item: any) => String(item.financial_entry_id) === String(row.id));
 
-      // Check if it's before our start date (for initial balance)
-      if (dueD < new Date(startObj.getFullYear(), startObj.getMonth(), 1)) {
-        if (isPaid) {
-          if (isReceita) initialBalance += amount;
-          if (isDespesa) initialBalance -= amount;
-        }
-        continue;
-      }
-
-      // Check if it belongs to our period
-      const yyyy = dueD.getFullYear();
-      const mm = String(dueD.getMonth() + 1).padStart(2, '0');
-      const monthKey = `${yyyy}-${mm}`;
-
-      if (months.includes(monthKey)) {
-        if (isReceita) {
-          if (!revenueCategories.has(category)) revenueCategories.set(category, initMonthMap());
-          revenueCategories.get(category)![monthKey].previsto += amount;
-          totals.revenues[monthKey].previsto += amount;
-          if (isPaid) {
-            revenueCategories.get(category)![monthKey].realizado += amount;
-            totals.revenues[monthKey].realizado += amount;
+      if (items.length > 0) {
+        for (const item of items) {
+          let category = String(row.category || 'Sem Categoria');
+          if (item.accounting_category_id && dreCategoryMap.has(item.accounting_category_id)) {
+            category = dreCategoryMap.get(item.accounting_category_id)!;
+          } else if (row.accounting_category_id && dreCategoryMap.has(row.accounting_category_id)) {
+            category = dreCategoryMap.get(row.accounting_category_id)!;
+          } else if (!dreCategoryNames.has(category)) {
+            continue;
           }
-        } else if (isDespesa) {
-          if (!expenseCategories.has(category)) expenseCategories.set(category, initMonthMap());
-          expenseCategories.get(category)![monthKey].previsto += amount;
-          totals.expenses[monthKey].previsto += amount;
+
+          const amount = Number(item.amount || 0);
+
+          // Check if it's before our start date (for initial balance)
+          if (dueD < new Date(startObj.getFullYear(), startObj.getMonth(), 1)) {
+            if (isPaid) {
+              if (isReceita) initialBalance += amount;
+              if (isDespesa) initialBalance -= amount;
+            }
+            continue;
+          }
+
+          // Check if it belongs to our period
+          const yyyy = dueD.getFullYear();
+          const mm = String(dueD.getMonth() + 1).padStart(2, '0');
+          const monthKey = `${yyyy}-${mm}`;
+
+          if (months.includes(monthKey)) {
+            if (isReceita) {
+              if (!revenueCategories.has(category)) revenueCategories.set(category, initMonthMap());
+              revenueCategories.get(category)![monthKey].previsto += amount;
+              totals.revenues[monthKey].previsto += amount;
+              if (isPaid) {
+                revenueCategories.get(category)![monthKey].realizado += amount;
+                totals.revenues[monthKey].realizado += amount;
+              }
+            } else if (isDespesa) {
+              if (!expenseCategories.has(category)) expenseCategories.set(category, initMonthMap());
+              expenseCategories.get(category)![monthKey].previsto += amount;
+              totals.expenses[monthKey].previsto += amount;
+              if (isPaid) {
+                expenseCategories.get(category)![monthKey].realizado += amount;
+                totals.expenses[monthKey].realizado += amount;
+              }
+            }
+          }
+        }
+      } else {
+        let category = String(row.category || 'Sem Categoria');
+        if (row.accounting_category_id && dreCategoryMap.has(row.accounting_category_id)) {
+          category = dreCategoryMap.get(row.accounting_category_id)!;
+        } else if (!dreCategoryNames.has(category)) {
+          continue;
+        }
+
+        const amount = Number(row.amount || 0);
+
+        // Check if it's before our start date (for initial balance)
+        if (dueD < new Date(startObj.getFullYear(), startObj.getMonth(), 1)) {
           if (isPaid) {
-            expenseCategories.get(category)![monthKey].realizado += amount;
-            totals.expenses[monthKey].realizado += amount;
+            if (isReceita) initialBalance += amount;
+            if (isDespesa) initialBalance -= amount;
+          }
+          continue;
+        }
+
+        // Check if it belongs to our period
+        const yyyy = dueD.getFullYear();
+        const mm = String(dueD.getMonth() + 1).padStart(2, '0');
+        const monthKey = `${yyyy}-${mm}`;
+
+        if (months.includes(monthKey)) {
+          if (isReceita) {
+            if (!revenueCategories.has(category)) revenueCategories.set(category, initMonthMap());
+            revenueCategories.get(category)![monthKey].previsto += amount;
+            totals.revenues[monthKey].previsto += amount;
+            if (isPaid) {
+              revenueCategories.get(category)![monthKey].realizado += amount;
+              totals.revenues[monthKey].realizado += amount;
+            }
+          } else if (isDespesa) {
+            if (!expenseCategories.has(category)) expenseCategories.set(category, initMonthMap());
+            expenseCategories.get(category)![monthKey].previsto += amount;
+            totals.expenses[monthKey].previsto += amount;
+            if (isPaid) {
+              expenseCategories.get(category)![monthKey].realizado += amount;
+              totals.expenses[monthKey].realizado += amount;
+            }
           }
         }
       }

@@ -100,7 +100,7 @@ export class PurchasesService {
       throw new BadRequestException(itemsError.message);
     }
 
-    await this.upsertFinancialEntry(purchase, supplier, totalAmount, payload, user);
+    await this.upsertFinancialEntry(purchase, supplier, totalAmount, payload, supplyItems, user);
 
     return this.getPurchase(String(purchase.id));
   }
@@ -444,6 +444,7 @@ export class PurchasesService {
     supplier: Record<string, unknown>,
     amount: number,
     payload: CreatePurchaseDto,
+    supplyItems: Record<string, any>[],
     user?: AuthenticatedUser,
   ) {
     const description = `Compra ${String(purchase.purchase_number)} - ${String(supplier.name)}`;
@@ -462,6 +463,8 @@ export class PurchasesService {
       updated_by: user?.id ?? null,
     };
 
+    let insertedEntries: any[] = [];
+
     if (payload.installments && payload.installments.length > 0) {
       // Usar a mesma lógica para agrupar as parcelas
       const installmentGroupId = require('crypto').randomUUID();
@@ -475,21 +478,67 @@ export class PurchasesService {
         installment_number: index + 1,
       }));
 
-      const { error } = await this.supabaseService.admin.from('financial_entries').insert(entries);
+      const { data, error } = await this.supabaseService.admin.from('financial_entries').insert(entries).select('id, amount');
 
       if (error) {
         throw new BadRequestException(error.message);
       }
+      insertedEntries = data || [];
     } else {
-      const { error } = await this.supabaseService.admin.from('financial_entries').insert({
+      const { data, error } = await this.supabaseService.admin.from('financial_entries').insert({
         ...commonFields,
         description,
         amount,
         due_date: purchase.due_date,
-      });
+      }).select('id, amount');
 
       if (error) {
         throw new BadRequestException(error.message);
+      }
+      insertedEntries = data || [];
+    }
+
+    if (insertedEntries.length > 0 && amount > 0) {
+      const rateioItemsToInsert: any[] = [];
+
+      for (const entry of insertedEntries) {
+        let remainingAmount = Number(entry.amount);
+
+        payload.items.forEach((item, index) => {
+          const supplyItem = supplyItems.find((s) => String(s.id) === item.supplyItemId);
+          const itemTotal = Number(item.quantity) * Number(item.unitCost);
+          const proportion = itemTotal / amount;
+          
+          let rateioAmount = Number((Number(entry.amount) * proportion).toFixed(4));
+          
+          // Ajuste de arredondamento no último item
+          if (index === payload.items.length - 1) {
+            rateioAmount = remainingAmount;
+          } else {
+            remainingAmount -= rateioAmount;
+          }
+
+          rateioItemsToInsert.push({
+            financial_entry_id: entry.id,
+            amount: rateioAmount,
+            cost_center_id: supplyItem?.cost_center_id ?? null,
+            accounting_category_id: supplyItem?.accounting_category_id ?? null,
+            accounting_subcategory_id: supplyItem?.accounting_subcategory_id ?? null,
+            cost_type: supplyItem?.cost_type ?? null,
+            created_by: user?.id ?? null,
+            updated_by: user?.id ?? null,
+          });
+        });
+      }
+
+      if (rateioItemsToInsert.length > 0) {
+        const { error: itemsError } = await this.supabaseService.admin
+          .from('financial_entry_items')
+          .insert(rateioItemsToInsert);
+
+        if (itemsError) {
+          throw new BadRequestException(`Erro ao inserir itens de rateio financeiro: ${itemsError.message}`);
+        }
       }
     }
   }
