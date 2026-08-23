@@ -685,7 +685,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  active: true,
  };
  case 'accountingCategories':
- return { id: '', name: '', entryType: 'Pagar', showInDre: false, active: true };
+ return { id: '', name: '', entryType: 'Pagar', showInDre: false, isStock: false, active: true };
  case 'accountingSubcategories':
  return { id: '', categoryId: '', name: '', active: true };
  case 'paymentMethods':
@@ -1354,7 +1354,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  );
  case 'accountingCategories':
  return (
- <TableShell headers={['Categoria', 'Tipo', 'Exibir no DRE', 'Status', 'Ações']}>
+ <TableShell headers={['Categoria', 'Tipo', 'Exibir no DRE', 'Exibir no Estoque', 'Status', 'Ações']}>
  {filteredRecords.map((record) => {
  const item = record as AccountingCategoryRecord;
  return (
@@ -1366,6 +1366,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  </span>
  </Td>
  <Td>{item.showInDre ? 'Sim' : 'Não'}</Td>
+ <Td>{item.isStock ? 'Sim' : 'Não'}</Td>
  <Td><ActiveBadge active={item.active} /></Td>
  <Td>{renderActions(item)}</Td>
  </tr>
@@ -1649,7 +1650,6 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
  <Field label="Código" required value={String(formState.code || '')} onChange={(value) => updateField('code', value)} />
  <Field label="Nome do insumo" required value={String(formState.name || '')} onChange={(value) => updateField('name', value)} />
- <Field label="Categoria" required value={String(formState.category || '')} onChange={(value) => updateField('category', value)} />
  <SelectField
  label="Unidade"
  required
@@ -1658,13 +1658,20 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  options={units.filter((item) => item.active).map((item) => ({ label: `${item.name} (${item.symbol})`, value: item.id }))}
  />
  <SelectField
- label="Categoria Financeira"
+ label="Categoria"
+ required
  value={String(formState.accountingCategoryId || '')}
- onChange={(value) => updateField('accountingCategoryId', value)}
- options={accountingCategories.filter((item) => item.active).map((item) => ({ label: `${item.name} (${item.entryType})`, value: item.id }))}
+ onChange={(value) => {
+   updateField('accountingCategoryId', value);
+   const selectedCat = accountingCategories.find(c => c.id === value);
+   if (selectedCat) {
+     updateField('category', selectedCat.name);
+   }
+ }}
+ options={accountingCategories.filter((item) => item.active && item.isStock).map((item) => ({ label: item.name, value: item.id }))}
  />
  <SelectField
- label="Subcategoria Financeira"
+ label="Subcategoria"
  value={String(formState.accountingSubcategoryId || '')}
  onChange={(value) => updateField('accountingSubcategoryId', value)}
  options={accountingSubcategories.filter((item) => item.active && item.categoryId === formState.accountingCategoryId).map((item) => ({ label: item.name, value: item.id }))}
@@ -1740,7 +1747,6 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
  <Field label="Código" required value={String(formState.code || '')} onChange={(value) => updateField('code', value)} />
  <Field label="Nome do produto" required value={String(formState.name || '')} onChange={(value) => updateField('name', value)} />
- <Field label="Categoria" required value={String(formState.category || '')} onChange={(value) => updateField('category', value)} />
  <SelectField
  label="Unidade"
  required
@@ -1749,13 +1755,20 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  options={units.filter((item) => item.active).map((item) => ({ label: `${item.name} (${item.symbol})`, value: item.id }))}
  />
  <SelectField
- label="Categoria Financeira"
+ label="Categoria"
+ required
  value={String(formState.accountingCategoryId || '')}
- onChange={(value) => updateField('accountingCategoryId', value)}
- options={accountingCategories.filter((item) => item.active).map((item) => ({ label: `${item.name} (${item.entryType})`, value: item.id }))}
+ onChange={(value) => {
+   updateField('accountingCategoryId', value);
+   const selectedCat = accountingCategories.find(c => c.id === value);
+   if (selectedCat) {
+     updateField('category', selectedCat.name);
+   }
+ }}
+ options={accountingCategories.filter((item) => item.active && item.isStock).map((item) => ({ label: item.name, value: item.id }))}
  />
  <SelectField
- label="Subcategoria Financeira"
+ label="Subcategoria"
  value={String(formState.accountingSubcategoryId || '')}
  onChange={(value) => updateField('accountingSubcategoryId', value)}
  options={accountingSubcategories.filter((item) => item.active && item.categoryId === formState.accountingCategoryId).map((item) => ({ label: item.name, value: item.id }))}
@@ -2096,6 +2109,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  ]}
  />
  <ToggleSelect label="Exibir no DRE?" value={Boolean(formState.showInDre)} onChange={(value) => updateField('showInDre', value)} />
+ <ToggleSelect label="Exibir no Estoque?" value={Boolean(formState.isStock)} onChange={(value) => updateField('isStock', value)} />
  <ToggleSelect label="Ativo" value={Boolean(formState.active)} onChange={(value) => updateField('active', value)} />
  </div>
  );

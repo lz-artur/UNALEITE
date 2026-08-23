@@ -301,6 +301,7 @@ function mapAccountingCategory(row: any): AccountingCategoryRecord {
     name: row.name,
     entryType: row.entry_type,
     showInDre: row.show_in_dre,
+    isStock: row.is_stock,
     active: row.active,
   };
 }
@@ -596,6 +597,7 @@ function serializeAccountingCategory(record: AccountingCategoryRecord) {
     name: record.name,
     entry_type: record.entryType,
     show_in_dre: record.showInDre,
+    is_stock: record.isStock,
     active: record.active,
   };
 }

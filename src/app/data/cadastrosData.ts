@@ -223,6 +223,7 @@ export interface AccountingCategoryRecord {
   name: string;
   entryType: 'Receber' | 'Pagar';
   showInDre: boolean;
+  isStock: boolean;
   active: boolean;
 }
 
