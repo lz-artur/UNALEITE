@@ -125,6 +125,10 @@ export interface SupplyItemRecord {
   tracksLot: boolean;
   defaultCost: number;
   currentStock: number;
+  costCenterId?: string;
+  accountingCategoryId?: string;
+  accountingSubcategoryId?: string;
+  costType?: string;
   active: boolean;
 }
 
@@ -139,6 +143,10 @@ export interface FinishedProductRecord {
   storageTemperature?: number;
   theoreticalYield: number;
   productionLine: string;
+  costCenterId?: string;
+  accountingCategoryId?: string;
+  accountingSubcategoryId?: string;
+  costType?: string;
   active: boolean;
 }
 

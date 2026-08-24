@@ -185,6 +185,10 @@ function mapSupplyItem(row: any): SupplyItemRecord {
     tracksLot: row.tracks_lot,
     defaultCost: row.default_cost,
     currentStock: row.current_stock,
+    costCenterId: row.cost_center_id ?? undefined,
+    accountingCategoryId: row.accounting_category_id ?? undefined,
+    accountingSubcategoryId: row.accounting_subcategory_id ?? undefined,
+    costType: row.cost_type ?? undefined,
     active: row.active,
   };
 }
@@ -201,6 +205,10 @@ function mapFinishedProduct(row: any): FinishedProductRecord {
     storageTemperature: row.storage_temperature ?? undefined,
     theoreticalYield: row.theoretical_yield,
     productionLine: row.production_line ?? '',
+    costCenterId: row.cost_center_id ?? undefined,
+    accountingCategoryId: row.accounting_category_id ?? undefined,
+    accountingSubcategoryId: row.accounting_subcategory_id ?? undefined,
+    costType: row.cost_type ?? undefined,
     active: row.active,
   };
 }
@@ -489,6 +497,10 @@ function serializeSupplyItem(record: SupplyItemRecord) {
     tracks_lot: record.tracksLot,
     default_cost: record.defaultCost,
     current_stock: record.currentStock,
+    cost_center_id: record.costCenterId ?? null,
+    accounting_category_id: record.accountingCategoryId ?? null,
+    accounting_subcategory_id: record.accountingSubcategoryId ?? null,
+    cost_type: record.costType ?? null,
     active: record.active,
   };
 }
@@ -505,6 +517,10 @@ function serializeFinishedProduct(record: FinishedProductRecord) {
     storage_temperature: record.storageTemperature ?? null,
     theoretical_yield: record.theoreticalYield,
     production_line: record.productionLine,
+    cost_center_id: record.costCenterId ?? null,
+    accounting_category_id: record.accountingCategoryId ?? null,
+    accounting_subcategory_id: record.accountingSubcategoryId ?? null,
+    cost_type: record.costType ?? null,
     active: record.active,
   };
 }
