@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { format } from 'date-fns';
-import { Loader2, Plus, ShoppingBag, Users, Trash2 } from 'lucide-react';
+import { Loader2, Plus, ShoppingBag, Users, Trash2, Calendar, CalendarDays, FileText, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -1208,55 +1208,122 @@ export default function Comercial() {
 
       {showDetailModal && selectedOrder ? (
         <ModalShell
-          title={`Detalhes do pedido ${selectedOrder.number}`}
+          title={`Detalhes do Pedido`}
           onClose={() => setShowDetailModal(false)}
-          maxWidth="max-w-4xl"
+          maxWidth="max-w-5xl"
         >
-            <div className="rounded-xl border border-gray-200 bg-white p-6">
-              <div className="mb-4 flex items-start justify-between">
-                <div>
-                  <h3 className="font-bold text-gray-900">{selectedOrder.number}</h3>
-                  <p className="text-sm text-gray-600">
-                    {selectedOrder.clientName} - {selectedOrder.clientDocument || 'Sem documento'}
-                  </p>
+          <div className="space-y-6 pb-2">
+            {/* Header and Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2 bg-white rounded-xl border border-gray-100 p-5 shadow-sm flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
+                    <User className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-lg">{selectedOrder.clientName}</h3>
+                    <p className="text-sm text-gray-500 font-medium">Doc: {selectedOrder.clientDocument || 'Não informado'}</p>
+                  </div>
                 </div>
-                <StatusBadge status={selectedOrder.status} />
+                <div className="text-right">
+                  <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Status do Pedido</p>
+                  <StatusBadge status={selectedOrder.status} />
+                  <p className="text-xs text-gray-400 mt-2 font-mono">{selectedOrder.number}</p>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl p-5 shadow-md text-white flex flex-col justify-center">
+                <p className="text-blue-100 text-sm font-medium mb-1">Valor Total</p>
+                <h2 className="text-3xl font-bold tracking-tight">R$ {selectedOrder.totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h2>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm flex items-center space-x-3">
+                 <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><Calendar className="h-5 w-5"/></div>
+                 <div>
+                   <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Data do Pedido</p>
+                   <p className="text-sm font-medium text-gray-900 mt-0.5">{new Date(selectedOrder.orderDate).toLocaleDateString('pt-BR')}</p>
+                 </div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm flex items-center space-x-3">
+                 <div className="p-2 bg-orange-50 text-orange-600 rounded-lg"><CalendarDays className="h-5 w-5"/></div>
+                 <div>
+                   <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Vencimento</p>
+                   <p className="text-sm font-medium text-gray-900 mt-0.5">{new Date(selectedOrder.dueDate).toLocaleDateString('pt-BR')}</p>
+                 </div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm flex items-start space-x-3">
+                 <div className="p-2 bg-gray-50 text-gray-600 rounded-lg shrink-0"><FileText className="h-5 w-5"/></div>
+                 <div className="overflow-hidden">
+                   <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Observações</p>
+                   <p className="text-sm text-gray-800 line-clamp-2 mt-0.5" title={selectedOrder.notes || 'Sem observações'}>{selectedOrder.notes || 'Nenhuma observação informada.'}</p>
+                 </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+              <div className="bg-gray-50/80 px-6 py-4 border-b border-gray-200">
+                <h4 className="font-semibold text-gray-800">Itens do Pedido</h4>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-white border-b border-gray-100">
                     <tr>
                       <TableHead>Produto</TableHead>
-                      <TableHead>Pedido</TableHead>
-                      <TableHead>Atendido</TableHead>
-                      <TableHead>Pendente</TableHead>
-                      <TableHead>Preco</TableHead>
-                      <TableHead>Lotes expedidos</TableHead>
+                      <TableHead>Quantidades</TableHead>
+                      <TableHead>Valores</TableHead>
+                      <TableHead>Lotes Expedidos</TableHead>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200">
+                  <tbody className="divide-y divide-gray-50">
                     {selectedOrder.items.map((item) => (
-                      <tr key={item.id}>
-                        <TableCell highlight>{item.productName}</TableCell>
+                      <tr key={item.id} className="hover:bg-blue-50/30 transition-colors">
                         <TableCell>
-                          {item.orderedQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
+                          <div className="font-semibold text-gray-900">{item.productName}</div>
+                          <div className="text-xs text-gray-500 mt-1 flex items-center space-x-2">
+                             <span className={item.status === 'Atendido' ? 'text-emerald-600 font-medium' : item.status === 'Parcialmente Atendido' ? 'text-amber-600 font-medium' : 'text-blue-600 font-medium'}>{item.status}</span>
+                          </div>
                         </TableCell>
                         <TableCell>
-                          {item.fulfilledQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
+                          <div className="flex flex-col space-y-1.5 text-sm">
+                            <div className="flex justify-between w-36">
+                              <span className="text-gray-500">Pedido:</span>
+                              <span className="font-medium text-gray-900">{item.orderedQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}</span>
+                            </div>
+                            <div className="flex justify-between w-36">
+                              <span className="text-gray-500">Atendido:</span>
+                              <span className="font-medium text-emerald-600">{item.fulfilledQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}</span>
+                            </div>
+                            {item.pendingQuantity > 0 && (
+                              <div className="flex justify-between w-36 pt-1 mt-1 border-t border-gray-100">
+                                <span className="text-gray-500">Pendente:</span>
+                                <span className="font-semibold text-amber-600">{item.pendingQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}</span>
+                              </div>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
-                          {item.pendingQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
+                           <div className="text-sm">
+                             <div className="text-gray-500 font-medium">R$ {item.unitPrice.toFixed(2)} <span className="text-xs font-normal">/ un</span></div>
+                             <div className="font-bold text-gray-900 mt-1.5 text-base">R$ {item.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                           </div>
                         </TableCell>
-                        <TableCell>R$ {item.unitPrice.toFixed(2)}</TableCell>
-                        <TableCell className="text-sm text-gray-600">
-                          {item.fulfillments.length > 0
-                            ? item.fulfillments
-                                .map(
-                                  (fulfillment) =>
-                                    `${fulfillment.lotCode} (${fulfillment.quantity.toLocaleString('pt-BR')})`,
-                                )
-                                .join(', ')
-                            : 'Nenhum atendimento ainda'}
+                        <TableCell>
+                          {item.fulfillments.length > 0 ? (
+                            <div className="flex flex-wrap gap-2 max-w-sm">
+                              {item.fulfillments.map((fulfillment) => (
+                                <div key={fulfillment.id} className="inline-flex items-center rounded-md bg-blue-50 px-2 py-1.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10 shadow-sm" title={`Atendido em: ${new Date(fulfillment.fulfilledAt).toLocaleString('pt-BR')}`}>
+                                  {fulfillment.lotCode}
+                                  <span className="ml-1.5 border-l border-blue-200 pl-1.5 opacity-90 font-bold">
+                                    {fulfillment.quantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-sm text-gray-400 italic bg-gray-50 px-3 py-1.5 rounded-md border border-gray-100 inline-block">Sem expedimentos</span>
+                          )}
                         </TableCell>
                       </tr>
                     ))}
@@ -1264,6 +1331,7 @@ export default function Comercial() {
                 </table>
               </div>
             </div>
+          </div>
         </ModalShell>
       ) : null}
 

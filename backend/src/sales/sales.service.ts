@@ -120,134 +120,18 @@ export class SalesService {
       throw new BadRequestException('O pedido de venda não pode ser atendido');
     }
 
-    const salesOrderItems = bundle.salesOrderItems.filter(
-      (entry) => String(entry.sales_order_id) === salesOrderId,
-    );
-    const lots = await this.getFinishedProductLots(
-      payload.items.map((item) => item.finishedProductLotId),
-    );
-    const itemProgress = new Map<string, number>();
     const fulfilledAt = payload.fulfilledAt ?? new Date().toISOString();
 
-    for (const itemPayload of payload.items) {
-      const salesOrderItem = salesOrderItems.find(
-        (entry) => String(entry.id) === itemPayload.salesOrderItemId,
-      );
+    const { error: rpcError } = await this.supabaseService.admin.rpc('fulfill_sales_order_items', {
+      p_sales_order_id: salesOrderId,
+      p_user_id: user?.id ?? null,
+      p_fulfilled_at: fulfilledAt,
+      p_items: payload.items,
+    });
 
-      if (!salesOrderItem) {
-        throw new BadRequestException(`Item do pedido de venda ${itemPayload.salesOrderItemId} não encontrado`);
-      }
-
-      const lot = lots.find((entry) => String(entry.id) === itemPayload.finishedProductLotId);
-
-      if (!lot) {
-        throw new BadRequestException(`Lote de produto acabado ${itemPayload.finishedProductLotId} não encontrado`);
-      }
-
-      if (String(lot.product_id) !== String(salesOrderItem.product_id)) {
-        throw new BadRequestException('O lote do produto acabado não corresponde ao item do pedido');
-      }
-
-      // Desabilitado temporariamente para inserção de dados retroativos
-      // if (lot.expiration_date) {
-      //   const expDateStr = String(lot.expiration_date).split('T')[0];
-      //   const todayStr = new Date().toISOString().split('T')[0];
-      //   if (expDateStr < todayStr) {
-      //     throw new BadRequestException(`O lote ${String(lot.lot_code)} está vencido`);
-      //   }
-      // }
-
-      if (itemPayload.quantity > Number(lot.available_quantity)) {
-        throw new BadRequestException(`O lote ${String(lot.lot_code)} não tem quantidade disponível suficiente`);
-      }
-
-      const alreadyPlanned = itemProgress.get(itemPayload.salesOrderItemId) ?? 0;
-      const pendingQuantity =
-        Number(salesOrderItem.ordered_quantity) - Number(salesOrderItem.fulfilled_quantity) - alreadyPlanned;
-
-      if (itemPayload.quantity > pendingQuantity) {
-        throw new BadRequestException(
-          `A quantidade atendida do item ${itemPayload.salesOrderItemId} excede a quantidade pendente`,
-        );
-      }
-
-      itemProgress.set(itemPayload.salesOrderItemId, alreadyPlanned + itemPayload.quantity);
-
-      const { error: fulfillmentError } = await this.supabaseService.admin
-        .from('sales_order_fulfillments')
-        .insert({
-          sales_order_id: salesOrder.id,
-          sales_order_item_id: salesOrderItem.id,
-          finished_product_lot_id: lot.id,
-          quantity: itemPayload.quantity,
-          fulfilled_at: fulfilledAt,
-          created_by: user?.id ?? null,
-          updated_by: user?.id ?? null,
-        });
-
-      if (fulfillmentError) {
-        throw new BadRequestException(fulfillmentError.message);
-      }
-
-      const { error: lotUpdateError } = await this.supabaseService.admin
-        .from('finished_product_lots')
-        .update({
-          available_quantity: Number(lot.available_quantity) - itemPayload.quantity,
-          updated_by: user?.id ?? null,
-        })
-        .eq('id', lot.id);
-
-      if (lotUpdateError) {
-        throw new BadRequestException(lotUpdateError.message);
-      }
-
-      const { error: movementError } = await this.supabaseService.admin
-        .from('stock_movements')
-        .insert({
-          movement_type: 'saida',
-          lot_type: 'Produto Acabado',
-          lot_id: lot.id,
-          quantity: itemPayload.quantity,
-          reference_table: 'sales_orders',
-          reference_id: salesOrder.id,
-          created_by: user?.id ?? null,
-          updated_by: user?.id ?? null,
-        });
-
-      if (movementError) {
-        throw new BadRequestException(movementError.message);
-      }
+    if (rpcError) {
+      throw new BadRequestException(rpcError.message);
     }
-
-    for (const [salesOrderItemId, extraFulfilledQuantity] of itemProgress.entries()) {
-      const salesOrderItem = salesOrderItems.find((entry) => String(entry.id) === salesOrderItemId);
-
-      if (!salesOrderItem) {
-        continue;
-      }
-
-      const nextFulfilledQuantity =
-        Number(salesOrderItem.fulfilled_quantity) + Number(extraFulfilledQuantity);
-      const nextStatus =
-        nextFulfilledQuantity >= Number(salesOrderItem.ordered_quantity)
-          ? SALES_ORDER_STATUS.FULFILLED
-          : SALES_ORDER_STATUS.PARTIALLY_FULFILLED;
-
-      const { error: updateItemError } = await this.supabaseService.admin
-        .from('sales_order_items')
-        .update({
-          fulfilled_quantity: nextFulfilledQuantity,
-          status: nextStatus,
-          updated_by: user?.id ?? null,
-        })
-        .eq('id', salesOrderItem.id);
-
-      if (updateItemError) {
-        throw new BadRequestException(updateItemError.message);
-      }
-    }
-
-    await this.refreshSalesOrderStatus(salesOrderId, user);
 
     if (payload.paymentMethod || payload.installments || payload.bankAccountId || payload.installmentEntries?.length) {
       if (payload.installmentEntries?.length) {
