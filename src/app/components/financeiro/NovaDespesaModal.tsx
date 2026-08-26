@@ -31,7 +31,9 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
   const [formaPagamento, setFormaPagamento] = useState('');
   const [tipoPagamento, setTipoPagamento] = useState('');
   const [tipoCusto, setTipoCusto] = useState<'Fixo' | 'Variável' | ''>('');
-  const [fornecedorId, setFornecedorId] = useState('');
+  
+  const [tipoCredor, setTipoCredor] = useState<'Fornecedor' | 'Produtor'>('Fornecedor');
+  const [credorId, setCredorId] = useState('');
   
   const [isParcelado, setIsParcelado] = useState(false);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
@@ -43,7 +45,7 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
   
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { costCenters, accountingCategories, accountingSubcategories, suppliers } = useCadastros();
+  const { costCenters, accountingCategories, accountingSubcategories, suppliers, producers } = useCadastros();
 
   const resetForm = () => {
     setDescricao('');
@@ -56,7 +58,8 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
     setFormaPagamento('');
     setTipoPagamento('');
     setTipoCusto('');
-    setFornecedorId('');
+    setTipoCredor('Fornecedor');
+    setCredorId('');
     setIsParcelado(false);
     setParcelas([{ id: crypto.randomUUID(), dataVencimento: '', valor: '' }]);
     setIsRecorrente(false);
@@ -93,7 +96,15 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
       setFormaPagamento(initialData.formaPagamento || '');
       setTipoPagamento(initialData.tipoPagamento || '');
       setTipoCusto(initialData.tipoCusto || '');
-      setFornecedorId(initialData.fornecedorId || '');
+      
+      if (initialData.produtorId) {
+        setTipoCredor('Produtor');
+        setCredorId(initialData.produtorId);
+      } else {
+        setTipoCredor('Fornecedor');
+        setCredorId(initialData.fornecedorId || '');
+      }
+      
       setIsParcelado(false);
       setParcelas([]);
       setIsRecorrente(false);
@@ -170,7 +181,8 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
         formaPagamento,
         tipoPagamento,
         tipoCusto: tipoCusto || undefined,
-        fornecedorId: fornecedorId || undefined,
+        fornecedorId: tipoCredor === 'Fornecedor' && credorId ? credorId : null as unknown as string,
+        produtorId: tipoCredor === 'Produtor' && credorId ? credorId : null as unknown as string,
         anexosUrls: allAnexos.length > 0 ? allAnexos : undefined,
       };
 
@@ -251,18 +263,36 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Fornecedor</label>
-            <select
-              value={fornecedorId}
-              onChange={(e) => setFornecedorId(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
-            >
-              <option value="">Selecione...</option>
-              {suppliers.filter(s => s.active).map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Credor</label>
+              <select
+                value={tipoCredor}
+                onChange={(e) => {
+                  setTipoCredor(e.target.value as 'Fornecedor' | 'Produtor');
+                  setCredorId('');
+                }}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+              >
+                <option value="Fornecedor">Fornecedor</option>
+                <option value="Produtor">Produtor</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{tipoCredor}</label>
+              <select
+                value={credorId}
+                onChange={(e) => setCredorId(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+              >
+                <option value="">Selecione...</option>
+                {tipoCredor === 'Fornecedor' 
+                  ? suppliers.filter(s => s.active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)
+                  : producers.filter(p => p.active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)
+                }
+              </select>
+            </div>
           </div>
           
           {!initialData && (

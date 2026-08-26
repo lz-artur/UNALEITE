@@ -3,13 +3,13 @@ import { IsArray, IsNumber, IsOptional, IsString, ValidateNested } from 'class-v
 
 export class ReturnSalesOrderItemDto {
   @IsString()
-  productId: string;
+  productId!: string;
 
   @IsString()
-  lotId: string;
+  lotId!: string;
 
   @IsNumber()
-  returnedQuantity: number;
+  returnedQuantity!: number;
 
   @IsString()
   @IsOptional()
@@ -18,13 +18,13 @@ export class ReturnSalesOrderItemDto {
 
 export class ReturnSalesOrderDto {
   @IsString()
-  returnDate: string;
+  returnDate!: string;
 
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ReturnSalesOrderItemDto)
-  items: ReturnSalesOrderItemDto[];
+  items!: ReturnSalesOrderItemDto[];
 
   @IsNumber()
-  discountAmount: number;
+  discountAmount!: number;
 }
