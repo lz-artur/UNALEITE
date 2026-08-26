@@ -10,6 +10,7 @@ import { SupabaseService } from '../supabase/supabase.service';
 import { CreateSalesOrderDto } from './dto/create-sales-order.dto';
 import { FulfillSalesOrderDto } from './dto/fulfill-sales-order.dto';
 import { ListSalesOrdersDto } from './dto/list-sales-orders.dto';
+import { ReturnSalesOrderDto } from './dto/return-sales-order.dto';
 
 @Injectable()
 export class SalesService {
@@ -196,8 +197,135 @@ export class SalesService {
     return this.getSalesOrder(salesOrderId);
   }
 
+  async returnSalesOrder(
+    salesOrderId: string,
+    payload: ReturnSalesOrderDto,
+    user?: AuthenticatedUser,
+  ) {
+    const bundle = await this.loadSalesBundle();
+    const salesOrder = bundle.salesOrders.find((entry) => String(entry.id) === salesOrderId);
+
+    if (!salesOrder) {
+      throw new NotFoundException('Pedido de venda não encontrado');
+    }
+
+    let totalDiscount = Number(payload.discountAmount) || 0;
+
+    // Registrar o retorno por item
+    for (const item of payload.items) {
+      const fulfillment = bundle.fulfillments.find(
+        (f) => String(f.finished_product_lot_id) === item.lotId && String(f.sales_order_id) === salesOrderId && String(f.sales_order_item_id) === item.productId
+      );
+      
+      const salesOrderItem = bundle.salesOrderItems.find(entry => String(entry.id) === item.productId);
+
+      if (!fulfillment || !salesOrderItem) {
+        throw new BadRequestException(`Atendimento não encontrado para o lote ${item.lotId}`);
+      }
+
+      const lot = bundle.finishedProductLots.find(l => String(l.id) === item.lotId);
+      if (!lot) {
+        throw new BadRequestException(`Lote não encontrado`);
+      }
+
+      // Query already returned quantities for this exact fulfillment (this order, this item, this lot)
+      const { data: pastReturns } = await this.supabaseService.admin
+        .from('sales_returns')
+        .select('returned_quantity')
+        .eq('sales_order_id', salesOrderId)
+        .eq('product_id', salesOrderItem.product_id)
+        .eq('finished_product_lot_id', item.lotId);
+
+      const alreadyReturned = (pastReturns || []).reduce((sum, r) => sum + Number(r.returned_quantity), 0);
+      const originalQuantity = Number(fulfillment.quantity);
+      
+      if (item.returnedQuantity > (originalQuantity - alreadyReturned)) {
+        throw new BadRequestException(`Quantidade devolvida excede a quantidade atendida e não devolvida do lote.`);
+      }
+
+      // Update finished_product_lots returned_quantity
+      const currentReturnedQuantity = Number(lot.returned_quantity || 0);
+      await this.supabaseService.admin
+        .from('finished_product_lots')
+        .update({ returned_quantity: currentReturnedQuantity + item.returnedQuantity })
+        .eq('id', item.lotId);
+
+      // Insert return history
+      await this.supabaseService.admin
+        .from('sales_returns')
+        .insert({
+          sales_order_id: salesOrderId,
+          product_id: salesOrderItem.product_id,
+          finished_product_lot_id: item.lotId,
+          original_quantity: originalQuantity,
+          returned_quantity: item.returnedQuantity,
+          return_date: payload.returnDate,
+          reason: item.reason || null,
+          discount_amount: totalDiscount,
+          original_sale_value: Number(salesOrder.total_amount),
+          new_sale_value: Number(salesOrder.total_amount) - totalDiscount,
+          created_by: user?.id ?? null,
+          updated_by: user?.id ?? null,
+        });
+    }
+
+    // Mark sales order as having return
+    await this.supabaseService.admin
+      .from('sales_orders')
+      .update({ has_return: true })
+      .eq('id', salesOrderId);
+
+    // Apply financial discount
+    if (totalDiscount > 0) {
+      const { data: openEntries } = await this.supabaseService.admin
+        .from('financial_entries')
+        .select('*')
+        .eq('reference_table', 'sales_orders')
+        .eq('reference_id', salesOrderId)
+        .eq('status', 'Aberto');
+
+      if (openEntries && openEntries.length > 0) {
+        const totalOpenAmount = openEntries.reduce((sum, e) => sum + Number(e.amount), 0);
+        
+        if (totalDiscount > totalOpenAmount) {
+          totalDiscount = totalOpenAmount; // Max limit to avoid negative entries
+        }
+
+        for (const entry of openEntries) {
+          const entryAmount = Number(entry.amount);
+          const proportionalDiscount = Number((totalDiscount * (entryAmount / totalOpenAmount)).toFixed(4));
+          const newAmount = entryAmount - proportionalDiscount;
+          
+          await this.supabaseService.admin
+            .from('financial_entries')
+            .update({ amount: newAmount, updated_by: user?.id ?? null })
+            .eq('id', entry.id);
+
+          // Update financial_entry_items (rateio) if needed, proportionally as well
+          const { data: rateioItems } = await this.supabaseService.admin
+            .from('financial_entry_items')
+            .select('*')
+            .eq('financial_entry_id', entry.id);
+            
+          if (rateioItems && rateioItems.length > 0) {
+             for (const rateio of rateioItems) {
+               const rateioAmount = Number(rateio.amount);
+               const propRateioDiscount = Number((proportionalDiscount * (rateioAmount / entryAmount)).toFixed(4));
+               await this.supabaseService.admin
+                 .from('financial_entry_items')
+                 .update({ amount: rateioAmount - propRateioDiscount })
+                 .eq('id', rateio.id);
+             }
+          }
+        }
+      }
+    }
+
+    return this.getSalesOrder(salesOrderId);
+  }
+
   private async loadSalesBundle() {
-    const [salesOrders, salesOrderItems, fulfillments, clients, finishedProducts, finishedProductLots] =
+    const [salesOrders, salesOrderItems, fulfillments, clients, finishedProducts, finishedProductLots, salesReturns] =
       await Promise.all([
         this.selectMany('sales_orders'),
         this.selectMany('sales_order_items'),
@@ -205,6 +333,7 @@ export class SalesService {
         this.selectMany('clients'),
         this.selectMany('finished_products'),
         this.selectMany('finished_product_lots'),
+        this.selectMany('sales_returns'),
       ]);
 
     return {
@@ -214,6 +343,7 @@ export class SalesService {
       clients,
       finishedProducts,
       finishedProductLots,
+      salesReturns,
     };
   }
 
@@ -226,6 +356,7 @@ export class SalesService {
       clients: Array<Record<string, unknown>>;
       finishedProducts: Array<Record<string, unknown>>;
       finishedProductLots: Array<Record<string, unknown>>;
+      salesReturns?: Array<Record<string, unknown>>;
     },
   ) {
     const client = payload.clients.find(
@@ -237,18 +368,27 @@ export class SalesService {
         const product = payload.finishedProducts.find(
           (item) => String(item.id) === String(entry.product_id),
         );
-        const fulfillments = payload.fulfillments
+          const fulfillments = payload.fulfillments
           .filter((fulfillment) => String(fulfillment.sales_order_item_id) === String(entry.id))
           .map((fulfillment) => {
             const lot = payload.finishedProductLots.find(
               (lotEntry) => String(lotEntry.id) === String(fulfillment.finished_product_lot_id),
             );
 
+            const pastReturns = payload.salesReturns?.filter(
+              (r) => String(r.sales_order_id) === String(salesOrder.id) &&
+                     String(r.product_id) === String(entry.product_id) &&
+                     String(r.finished_product_lot_id) === String(fulfillment.finished_product_lot_id)
+            ) || [];
+            
+            const alreadyReturned = pastReturns.reduce((sum, r) => sum + Number(r.returned_quantity), 0);
+
             return {
               id: String(fulfillment.id),
               finishedProductLotId: String(fulfillment.finished_product_lot_id),
               lotCode: String(lot?.lot_code ?? '-'),
               quantity: Number(fulfillment.quantity),
+              returnedQuantity: alreadyReturned,
               fulfilledAt: String(fulfillment.fulfilled_at),
             };
           });
@@ -280,6 +420,7 @@ export class SalesService {
       status: String(salesOrder.status),
       totalAmount: Number(salesOrder.total_amount ?? 0),
       notes: salesOrder.notes ? String(salesOrder.notes) : '',
+      hasReturn: Boolean(salesOrder.has_return),
       items,
     };
   }

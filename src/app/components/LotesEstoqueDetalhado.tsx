@@ -594,6 +594,7 @@ export default function LotesEstoqueDetalhado() {
  <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Lote</th>
  <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Produzido</th>
  <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Disponivel</th>
+ <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Devolvidos</th>
  <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Validade</th>
  <th className="px-6 py-3 text-right text-xs font-medium uppercase text-gray-500">Ações</th>
  </tr>
@@ -612,6 +613,9 @@ export default function LotesEstoqueDetalhado() {
  </td>
  <td className="px-6 py-4 font-medium text-green-600">
  {stock.disponivel} {getUnitSymbol(product?.unitId)}
+ </td>
+ <td className="px-6 py-4 font-medium text-red-600">
+ {stock.devolvido || 0} {getUnitSymbol(product?.unitId)}
  </td>
  <td className="px-6 py-4">
  <span

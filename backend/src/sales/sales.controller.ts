@@ -6,6 +6,7 @@ import { SupabaseAuthGuard } from '../common/guards/supabase-auth.guard';
 import { CreateSalesOrderDto } from './dto/create-sales-order.dto';
 import { FulfillSalesOrderDto } from './dto/fulfill-sales-order.dto';
 import { ListSalesOrdersDto } from './dto/list-sales-orders.dto';
+import { ReturnSalesOrderDto } from './dto/return-sales-order.dto';
 import { SalesService } from './sales.service';
 
 @ApiTags('sales-orders')
@@ -40,6 +41,15 @@ export class SalesController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     return this.salesService.fulfillSalesOrder(id, payload, user);
+  }
+
+  @Post(':id/return')
+  returnSalesOrder(
+    @Param('id') id: string,
+    @Body() payload: ReturnSalesOrderDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.salesService.returnSalesOrder(id, payload, user);
   }
 
   @Delete(':id')

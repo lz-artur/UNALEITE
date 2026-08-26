@@ -146,6 +146,7 @@ export interface SalesOrderItemFulfillmentRecord {
   finishedProductLotId: string;
   lotCode: string;
   quantity: number;
+  returnedQuantity?: number;
   fulfilledAt: Date;
 }
 
@@ -175,6 +176,7 @@ export interface SalesOrderRecord {
   status: string;
   totalAmount: number;
   notes?: string;
+  hasReturn?: boolean;
   items: SalesOrderItemRecord[];
 }
 
@@ -496,6 +498,7 @@ function mapFinishedProductLot(row: any): EstoqueProduto {
     dataValidade: new Date(row.expiration_date),
     lote: row.lot_code,
     disponivel: Number(row.available_quantity),
+    devolvido: Number(row.returned_quantity) || 0,
   };
 }
 
@@ -589,6 +592,7 @@ function mapSalesOrder(row: any): SalesOrderRecord {
     status: row.status,
     totalAmount: Number(row.totalAmount),
     notes: row.notes ?? undefined,
+    hasReturn: row.hasReturn,
     items: (row.items ?? []).map((item: any) => ({
       id: item.id,
       productId: item.productId,
@@ -605,6 +609,7 @@ function mapSalesOrder(row: any): SalesOrderRecord {
         finishedProductLotId: fulfillment.finishedProductLotId,
         lotCode: fulfillment.lotCode,
         quantity: Number(fulfillment.quantity),
+        returnedQuantity: Number(fulfillment.returnedQuantity || 0),
         fulfilledAt: new Date(fulfillment.fulfilledAt),
       })),
     })),
@@ -1311,6 +1316,28 @@ export async function fulfillSalesOrder(payload: {
       installmentEntries: payload.installmentEntries,
       bankAccountId: payload.bankAccountId,
       items: payload.items,
+    }),
+  });
+  return mapSalesOrder(salesOrder);
+}
+
+export async function returnSalesOrder(payload: {
+  salesOrderId: string;
+  returnDate: string;
+  items: Array<{
+    productId: string;
+    lotId: string;
+    returnedQuantity: number;
+    reason?: string;
+  }>;
+  discountAmount: number;
+}) {
+  const salesOrder = await apiRequest<any>(`/sales-orders/${payload.salesOrderId}/return`, {
+    method: 'POST',
+    body: JSON.stringify({
+      returnDate: payload.returnDate,
+      items: payload.items,
+      discountAmount: payload.discountAmount,
     }),
   });
   return mapSalesOrder(salesOrder);

@@ -9,6 +9,17 @@
     </head>
 
     <body>
+<div id="error-log" style="color: red; padding: 20px; font-family: monospace; white-space: pre-wrap; z-index: 999999; position: absolute; background: white;"></div> 
+<script> 
+  window.addEventListener("error", function(e) { 
+    document.getElementById("error-log").innerText += e.message + "\n" + (e.error ? e.error.stack : ""); 
+  }); 
+  const oldError = console.error; 
+  console.error = function() { 
+    document.getElementById("error-log").innerText += Array.from(arguments).join(" ") + "\n"; 
+    oldError.apply(console, arguments); 
+  }; 
+</script>
       <div id="root"></div>
       <script type="module" src="/src/main.tsx"></script>
     </body>

@@ -12,6 +12,7 @@ import {
   createBatchFinancialEntries,
   unsettleFinancialEntry,
   uploadFinancialAttachment,
+  returnSalesOrder,
 } from './operationsApi';
 import { supabase } from '../lib/supabase';
 
@@ -126,5 +127,257 @@ describe('operationsApi - Deletion endpoints', () => {
       expect(getPublicUrlMock).toHaveBeenCalled();
       expect(url).toBe('https://fake-url.com/file.png');
     });
+  });
+
+  // ─── NEW: returnSalesOrder ──────────────────────────────────────────────
+
+  describe('returnSalesOrder', () => {
+    it('calls POST /sales-orders/:id/return with correct payload', async () => {
+      const mockResponse = {
+        id: 'order-1',
+        number: 'VEN-2026-1',
+        clientId: 'c1',
+        clientName: 'Cliente',
+        orderDate: '2026-01-01',
+        dueDate: '2026-02-01',
+        status: 'Atendido',
+        totalAmount: 500,
+        hasReturn: true,
+        items: [],
+      };
+
+      (api.apiRequest as any).mockResolvedValue(mockResponse);
+
+      const payload = {
+        salesOrderId: 'order-1',
+        returnDate: '2026-08-25',
+        items: [
+          {
+            productId: 'item-1',
+            lotId: 'lot-1',
+            returnedQuantity: 3,
+            reason: 'Produto danificado',
+          },
+        ],
+        discountAmount: 50,
+      };
+
+      const result = await returnSalesOrder(payload);
+
+      expect(api.apiRequest).toHaveBeenCalledWith('/sales-orders/order-1/return', {
+        method: 'POST',
+        body: JSON.stringify({
+          returnDate: '2026-08-25',
+          items: [
+            {
+              productId: 'item-1',
+              lotId: 'lot-1',
+              returnedQuantity: 3,
+              reason: 'Produto danificado',
+            },
+          ],
+          discountAmount: 50,
+        }),
+      });
+
+      // Verify it returns a mapped sales order
+      expect(result).toBeDefined();
+      expect(result.hasReturn).toBe(true);
+    });
+
+    it('sends discountAmount=0 when no discount', async () => {
+      (api.apiRequest as any).mockResolvedValue({
+        id: 'order-1',
+        number: 'VEN-2026-1',
+        clientId: 'c1',
+        clientName: 'Cliente',
+        orderDate: '2026-01-01',
+        dueDate: '2026-02-01',
+        status: 'Atendido',
+        totalAmount: 500,
+        hasReturn: true,
+        items: [],
+      });
+
+      await returnSalesOrder({
+        salesOrderId: 'order-1',
+        returnDate: '2026-08-25',
+        items: [{ productId: 'item-1', lotId: 'lot-1', returnedQuantity: 1 }],
+        discountAmount: 0,
+      });
+
+      const callArgs = (api.apiRequest as any).mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.discountAmount).toBe(0);
+    });
+
+    it('sends multiple items in a single return', async () => {
+      (api.apiRequest as any).mockResolvedValue({
+        id: 'order-1',
+        number: 'VEN-2026-1',
+        clientId: 'c1',
+        clientName: 'Cliente',
+        orderDate: '2026-01-01',
+        dueDate: '2026-02-01',
+        status: 'Atendido',
+        totalAmount: 1000,
+        hasReturn: true,
+        items: [],
+      });
+
+      await returnSalesOrder({
+        salesOrderId: 'order-1',
+        returnDate: '2026-08-25',
+        items: [
+          { productId: 'item-1', lotId: 'lot-1', returnedQuantity: 5 },
+          { productId: 'item-2', lotId: 'lot-2', returnedQuantity: 3, reason: 'Validade' },
+        ],
+        discountAmount: 100,
+      });
+
+      const callArgs = (api.apiRequest as any).mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.items).toHaveLength(2);
+      expect(body.items[1].reason).toBe('Validade');
+    });
+  });
+});
+
+// ─── Mapper tests ─────────────────────────────────────────────────────────
+
+describe('operationsApi - mapSalesOrder mapping', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('maps hasReturn field from API response', async () => {
+    const mockApiResponse = {
+      id: 'order-1',
+      number: 'VEN-2026-1',
+      clientId: 'c1',
+      clientName: 'Cliente',
+      orderDate: '2026-01-01',
+      dueDate: '2026-02-01',
+      status: 'Atendido',
+      totalAmount: 500,
+      hasReturn: true,
+      items: [
+        {
+          id: 'item-1',
+          productId: 'prod-1',
+          productName: 'Queijo',
+          orderedQuantity: 10,
+          fulfilledQuantity: 10,
+          pendingQuantity: 0,
+          unitPrice: 50,
+          totalValue: 500,
+          status: 'Atendido',
+          fulfillments: [
+            {
+              id: 'ful-1',
+              finishedProductLotId: 'lot-1',
+              lotCode: 'LOTE-001',
+              quantity: 10,
+              returnedQuantity: 3,
+              fulfilledAt: '2026-01-15T10:00:00Z',
+            },
+          ],
+        },
+      ],
+    };
+
+    (api.apiRequest as any).mockResolvedValue(mockApiResponse);
+
+    // Use returnSalesOrder which also calls mapSalesOrder
+    const result = await returnSalesOrder({
+      salesOrderId: 'order-1',
+      returnDate: '2026-08-25',
+      items: [{ productId: 'item-1', lotId: 'lot-1', returnedQuantity: 3 }],
+      discountAmount: 0,
+    });
+
+    expect(result.hasReturn).toBe(true);
+    expect(result.items[0].fulfillments[0].returnedQuantity).toBe(3);
+  });
+
+  it('defaults returnedQuantity to 0 when absent', async () => {
+    const mockApiResponse = {
+      id: 'order-2',
+      number: 'VEN-2026-2',
+      clientId: 'c2',
+      clientName: 'Cliente 2',
+      orderDate: '2026-02-01',
+      dueDate: '2026-03-01',
+      status: 'Aberto',
+      totalAmount: 200,
+      items: [
+        {
+          id: 'item-2',
+          productId: 'prod-2',
+          productName: 'Manteiga',
+          orderedQuantity: 5,
+          fulfilledQuantity: 5,
+          pendingQuantity: 0,
+          unitPrice: 40,
+          totalValue: 200,
+          status: 'Atendido',
+          fulfillments: [
+            {
+              id: 'ful-2',
+              finishedProductLotId: 'lot-2',
+              lotCode: 'LOTE-002',
+              quantity: 5,
+              // returnedQuantity NOT present
+              fulfilledAt: '2026-02-10T10:00:00Z',
+            },
+          ],
+        },
+      ],
+    };
+
+    (api.apiRequest as any).mockResolvedValue(mockApiResponse);
+
+    const result = await returnSalesOrder({
+      salesOrderId: 'order-2',
+      returnDate: '2026-08-25',
+      items: [{ productId: 'item-2', lotId: 'lot-2', returnedQuantity: 1 }],
+      discountAmount: 0,
+    });
+
+    expect(result.items[0].fulfillments[0].returnedQuantity).toBe(0);
+  });
+});
+
+// ─── Interface type checks (compile-time verification) ────────────────────
+
+describe('operationsApi - SalesOrderRecord interface', () => {
+  it('SalesOrderRecord has hasReturn field', async () => {
+    const record: import('./operationsApi').SalesOrderRecord = {
+      id: '1',
+      number: 'VEN-1',
+      clientId: 'c1',
+      clientName: 'Test',
+      orderDate: new Date(),
+      dueDate: new Date(),
+      status: 'Aberto',
+      totalAmount: 100,
+      hasReturn: true,
+      items: [],
+    };
+
+    expect(record.hasReturn).toBe(true);
+  });
+
+  it('SalesOrderItemFulfillmentRecord has returnedQuantity field', async () => {
+    const record: import('./operationsApi').SalesOrderItemFulfillmentRecord = {
+      id: '1',
+      finishedProductLotId: 'lot-1',
+      lotCode: 'LOTE-001',
+      quantity: 10,
+      returnedQuantity: 3,
+      fulfilledAt: new Date(),
+    };
+
+    expect(record.returnedQuantity).toBe(3);
   });
 });

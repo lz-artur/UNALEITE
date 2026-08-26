@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { format } from 'date-fns';
-import { Loader2, Plus, ShoppingBag, Users, Trash2, Calendar, CalendarDays, FileText, User } from 'lucide-react';
+import { Loader2, Plus, ShoppingBag, Users, Trash2, Calendar, CalendarDays, FileText, User, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -13,6 +13,7 @@ import {
   loadSalesOrders,
   updateClient,
   deleteSalesOrder,
+  returnSalesOrder,
   type ClientRecord,
   type SalesOrderFilters,
   type SalesOrderRecord,
@@ -61,6 +62,7 @@ export default function Comercial() {
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showFulfillModal, setShowFulfillModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showReturnModal, setShowReturnModal] = useState(false);
   const [editingClient, setEditingClient] = useState<ClientRecord | null>(null);
   const [orderFilters, setOrderFilters] = useState<SalesOrderFilters>({});
   const [clientSearch, setClientSearch] = useState('');
@@ -105,6 +107,15 @@ export default function Comercial() {
     parcelas: [{ id: crypto.randomUUID(), dueDate: '', amount: '' }],
     bankAccountId: '',
     items: {},
+  });
+  const [returnForm, setReturnForm] = useState<{
+    returnDate: string;
+    items: Array<{ productId: string; lotId: string; returnedQuantity: string; reason: string; unitPrice: number }>;
+    discountAmount: string;
+  }>({
+    returnDate: getToday(),
+    items: [],
+    discountAmount: '',
   });
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
@@ -463,6 +474,84 @@ export default function Comercial() {
     }
   };
 
+  const openReturnModal = () => {
+    if (!selectedOrder) return;
+    
+    // Create return items for every fulfillment
+    const items = selectedOrder.items.flatMap(item => 
+      item.fulfillments.map(f => ({
+        productId: item.productId,
+        lotId: f.finishedProductLotId,
+        returnedQuantity: '', // empty initially
+        reason: '',
+        unitPrice: item.unitPrice,
+        maxQuantity: f.quantity - (f.returnedQuantity || 0)
+      })).filter(entry => entry.maxQuantity > 0)
+    );
+
+    setReturnForm({
+      returnDate: getToday(),
+      items,
+      discountAmount: '',
+    });
+    setShowReturnModal(true);
+  };
+
+  const calculateSuggestedDiscount = (items: typeof returnForm.items) => {
+    return items.reduce((sum, item) => sum + (Number(item.returnedQuantity) || 0) * item.unitPrice, 0);
+  };
+
+  const handleReturnOrder = async () => {
+    if (!selectedOrder) return;
+
+    const itemsToReturn = returnForm.items
+      .filter(item => Number(item.returnedQuantity) > 0)
+      .map(item => ({
+        productId: item.productId,
+        lotId: item.lotId,
+        returnedQuantity: Number(item.returnedQuantity),
+        reason: item.reason,
+      }));
+
+    if (itemsToReturn.length === 0) {
+      setErrorMessage('Informe a quantidade a devolver para ao menos um lote.');
+      return;
+    }
+
+    setSaving(true);
+    setErrorMessage(null);
+
+    try {
+      const updatedOrder = await returnSalesOrder({
+        salesOrderId: selectedOrder.id,
+        returnDate: new Date(returnForm.returnDate).toISOString(),
+        items: itemsToReturn,
+        discountAmount: Number(returnForm.discountAmount) || 0,
+      });
+
+      setSalesOrders((current) =>
+        current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)),
+      );
+      setSelectedOrder(updatedOrder);
+      setShowReturnModal(false);
+      
+      const refreshedLots = await loadFinishedProductLots();
+      setFinishedLots(
+        refreshedLots.map((lot) => ({
+          id: lot.id,
+          productId: lot.produtoId,
+          lote: lot.lote,
+          disponivel: lot.disponivel,
+        })),
+      );
+      toast.success('Devolução registrada com sucesso!');
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (!itemToDelete) return;
     setIsDeleting(true);
@@ -665,6 +754,7 @@ export default function Comercial() {
                         <TableCell>{format(order.dueDate, 'dd/MM/yyyy')}</TableCell>
                         <TableCell>
                           <StatusBadge status={order.status} />
+                          {order.hasReturn && <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">Devolução</span>}
                         </TableCell>
                         <TableCell className="font-medium text-blue-700">
                           R$ {order.totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
@@ -680,18 +770,6 @@ export default function Comercial() {
                             >
                               Detalhes
                             </button>
-                            {order.status !== 'Atendido' && order.status !== 'Cancelado' ? (
-                              <button
-                                onClick={() => void openFulfillModal(order.id)}
-                                disabled={loadingDetail}
-                                className="flex items-center gap-2 rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700 disabled:opacity-60"
-                              >
-                                {loadingDetail && selectedOrder?.id === order.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : null}
-                                Atender
-                              </button>
-                            ) : null}
                           </div>
                         </TableCell>
                         <TableCell className="w-12">
@@ -1211,6 +1289,29 @@ export default function Comercial() {
           title={`Detalhes do Pedido`}
           onClose={() => setShowDetailModal(false)}
           maxWidth="max-w-5xl"
+          hideCancel={true}
+          extraFooterActions={
+            <div className="flex items-center gap-3 w-full justify-end">
+              {(selectedOrder.status === 'Atendido' || selectedOrder.status === 'Parcialmente Atendido') && (
+                <button
+                  onClick={() => { setShowDetailModal(false); openReturnModal(); }}
+                  className="rounded-lg bg-orange-500 hover:bg-orange-600 px-4 py-2 text-white transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
+                >
+                  Devolver
+                </button>
+              )}
+              {selectedOrder.status !== 'Atendido' && selectedOrder.status !== 'Cancelado' && (
+                <button
+                  onClick={() => { setShowDetailModal(false); void openFulfillModal(selectedOrder.id); }}
+                  disabled={loadingDetail}
+                  className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-white hover:bg-green-700 transition-colors disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                >
+                  {loadingDetail ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Atender
+                </button>
+              )}
+            </div>
+          }
         >
           <div className="space-y-6 pb-2">
             {/* Header and Summary Cards */}
@@ -1226,13 +1327,18 @@ export default function Comercial() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Status do Pedido</p>
-                  <StatusBadge status={selectedOrder.status} />
+                  <div className="flex flex-col items-end gap-2 mb-1">
+                    <p className="text-xs text-gray-500 uppercase font-bold tracking-wider">Status do Pedido</p>
+                    <div className="flex gap-2 items-center">
+                      <StatusBadge status={selectedOrder.status} />
+                      {selectedOrder.hasReturn && <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">Devolução parcial/total</span>}
+                    </div>
+                  </div>
                   <p className="text-xs text-gray-400 mt-2 font-mono">{selectedOrder.number}</p>
                 </div>
               </div>
 
-              <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl p-5 shadow-md text-white flex flex-col justify-center">
+              <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl p-5 shadow-md text-white flex flex-col justify-center relative">
                 <p className="text-blue-100 text-sm font-medium mb-1">Valor Total</p>
                 <h2 className="text-3xl font-bold tracking-tight">R$ {selectedOrder.totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h2>
               </div>
@@ -1318,6 +1424,11 @@ export default function Comercial() {
                                   <span className="ml-1.5 border-l border-blue-200 pl-1.5 opacity-90 font-bold">
                                     {fulfillment.quantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
                                   </span>
+                                  {fulfillment.returnedQuantity ? (
+                                    <span className="ml-1.5 border-l border-blue-200 pl-1.5 text-red-600 font-bold" title="Quantidade devolvida">
+                                      - {fulfillment.returnedQuantity.toLocaleString('pt-BR')}
+                                    </span>
+                                  ) : null}
                                 </div>
                               ))}
                             </div>
@@ -1329,6 +1440,93 @@ export default function Comercial() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        </ModalShell>
+      ) : null}
+
+      {showReturnModal && selectedOrder ? (
+        <ModalShell
+          title={`Devolução do Pedido ${selectedOrder.number}`}
+          onClose={() => setShowReturnModal(false)}
+          onConfirm={() => void handleReturnOrder()}
+          confirmLabel="Registrar devolução"
+          saving={saving}
+          maxWidth="max-w-4xl"
+        >
+          <div className="space-y-4">
+            <InputField
+              label="Data da devolução"
+              type="date"
+              value={returnForm.returnDate}
+              onChange={(value) => setReturnForm((current) => ({ ...current, returnDate: value }))}
+            />
+
+            <div className="rounded-xl border border-gray-200 bg-white">
+              <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+                <h4 className="font-semibold text-gray-800">Lotes para Devolução</h4>
+              </div>
+              <div className="p-4 space-y-4">
+                {returnForm.items.length === 0 ? (
+                  <EmptyState message="Não há lotes passíveis de devolução." />
+                ) : (
+                  returnForm.items.map((item, index) => {
+                    const product = selectedOrder.items.find(i => i.productId === item.productId);
+                    return (
+                      <div key={`${item.productId}-${item.lotId}`} className="flex flex-col md:flex-row gap-4 border border-gray-100 rounded-lg p-3 bg-white items-start md:items-center">
+                        <div className="flex-1">
+                          <p className="font-medium text-sm text-gray-900">{product?.productName}</p>
+                          <p className="text-xs text-gray-500">Lote ID: {item.lotId.split('-')[0]}</p>
+                          <p className="text-xs font-medium text-blue-600 mt-1">Disponível para devolução: {item.maxQuantity.toLocaleString('pt-BR')} {getUnitSymbol(product?.unitId)}</p>
+                        </div>
+                        <div className="w-full md:w-32">
+                          <InputField
+                            label="Devolver Qtd"
+                            type="number"
+                            value={item.returnedQuantity}
+                            onChange={(value) => {
+                              const newQuantity = Math.min(Number(value), item.maxQuantity);
+                              setReturnForm(current => {
+                                const newItems = [...current.items];
+                                newItems[index].returnedQuantity = newQuantity.toString();
+                                const newSuggestedDiscount = calculateSuggestedDiscount(newItems);
+                                return { ...current, items: newItems, discountAmount: newSuggestedDiscount.toString() };
+                              });
+                            }}
+                          />
+                        </div>
+                        <div className="w-full md:w-48">
+                          <InputField
+                            label="Motivo"
+                            type="text"
+                            value={item.reason}
+                            onChange={(value) => setReturnForm(current => {
+                              const newItems = [...current.items];
+                              newItems[index].reason = value;
+                              return { ...current, items: newItems };
+                            })}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div>
+                <h4 className="font-bold text-blue-900">Abatimento Financeiro</h4>
+                <p className="text-sm text-blue-700 mt-1">O valor será abatido proporcionalmente das parcelas em aberto deste pedido.</p>
+              </div>
+              <div className="w-full md:w-48 bg-white rounded p-2 border border-blue-200">
+                <InputField
+                  label="Valor a abater (R$)"
+                  type="number"
+                  value={returnForm.discountAmount}
+                  onChange={(value) => setReturnForm(current => ({ ...current, discountAmount: value }))}
+                />
               </div>
             </div>
           </div>
@@ -1416,41 +1614,61 @@ function ModalShell({
   onClose,
   onConfirm,
   confirmLabel,
-  saving,
+  saving = false,
   disabled = false,
   maxWidth = 'max-w-3xl',
+  confirmColor = 'blue',
+  hideCancel = false,
+  extraFooterActions,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
-  onConfirm: () => void;
-  confirmLabel: string;
-  saving: boolean;
+  onConfirm?: () => void;
+  confirmLabel?: string;
+  saving?: boolean;
   disabled?: boolean;
   maxWidth?: string;
+  confirmColor?: 'blue' | 'orange' | 'red';
+  hideCancel?: boolean;
+  extraFooterActions?: ReactNode;
 }) {
+  const colorClasses = {
+    blue: 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500',
+    orange: 'bg-orange-500 hover:bg-orange-600 focus:ring-orange-500',
+    red: 'bg-red-600 hover:bg-red-700 focus:ring-red-500',
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className={`max-h-[90vh] w-full overflow-y-auto rounded-xl bg-white ${maxWidth}`}>
-        <div className="border-b border-gray-200 p-6">
+      <div className={`max-h-[90vh] w-full flex flex-col overflow-hidden rounded-xl bg-white ${maxWidth}`}>
+        <div className="border-b border-gray-200 p-6 shrink-0 flex items-center justify-between">
           <h3 className="text-xl font-bold text-gray-900">{title}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1 -mr-1 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-200">
+            <X className="w-5 h-5" />
+          </button>
         </div>
-        <div className="p-6">{children}</div>
-        <div className="flex justify-end gap-3 border-t border-gray-200 p-6">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={saving || disabled}
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {confirmLabel}
-          </button>
+        <div className="p-6 overflow-y-auto">{children}</div>
+        <div className="flex justify-end gap-3 border-t border-gray-200 p-6 shrink-0">
+          {extraFooterActions}
+          {!hideCancel && (
+            <button
+              onClick={onClose}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-200"
+            >
+              Cancelar
+            </button>
+          )}
+          {onConfirm && confirmLabel && (
+            <button
+              onClick={onConfirm}
+              disabled={saving || disabled}
+              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed ${colorClasses[confirmColor]}`}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {confirmLabel}
+            </button>
+          )}
         </div>
       </div>
     </div>

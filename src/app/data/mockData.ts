@@ -138,6 +138,7 @@ export interface EstoqueProduto {
   dataValidade: Date;
   lote: string;
   disponivel: number;
+  devolvido?: number;
 }
 
 export interface Cliente {
