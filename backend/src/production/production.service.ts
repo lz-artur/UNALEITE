@@ -14,6 +14,7 @@ import { SupabaseService } from '../supabase/supabase.service';
 import { CompleteProductionOrderDto } from './dto/complete-production-order.dto';
 import { CreateProductionOrderDto } from './dto/create-production-order.dto';
 import { UpdateProductionOrderDto } from './dto/update-production-order.dto';
+import { AdjustProductionOrderDto } from './dto/adjust-production-order.dto';
 
 @Injectable()
 export class ProductionService {
@@ -828,6 +829,105 @@ export class ProductionService {
     }
 
     return { order: updatedOrder };
+  }
+
+  async adjustOrder(
+    orderId: string,
+    payload: AdjustProductionOrderDto,
+    user?: AuthenticatedUser,
+  ) {
+    const order = await this.getById('production_orders', orderId);
+
+    if (order.status !== PRODUCTION_ORDER_STATUS.FINISHED) {
+      throw new BadRequestException('Somente Ordens de Produção finalizadas podem ser ajustadas.');
+    }
+
+    // Process each adjustment (main product and/or co-products)
+    for (const adjustment of payload.adjustments) {
+      const { data: productLot } = await this.supabaseService.admin
+        .from('finished_product_lots')
+        .select('*')
+        .eq('id', adjustment.finishedProductLotId)
+        .eq('production_order_id', orderId)
+        .single();
+
+      if (!productLot) {
+        throw new BadRequestException(`Lote de produto acabado não encontrado para esta OP: ${adjustment.finishedProductLotId}`);
+      }
+
+      const oldQuantity = Number(productLot.quantity_produced);
+      const newQuantity = Number(adjustment.newQuantity);
+      const difference = newQuantity - oldQuantity;
+      const newAvailable = Number(productLot.available_quantity) + difference;
+
+      if (newAvailable < 0) {
+        throw new BadRequestException(
+          'A nova quantidade produzida não suporta as movimentações já realizadas no lote. Estoque ficaria negativo.',
+        );
+      }
+
+      // Update the lot
+      await this.supabaseService.admin
+        .from('finished_product_lots')
+        .update({
+          quantity_produced: newQuantity,
+          available_quantity: newAvailable,
+          updated_by: user?.id ?? null,
+        })
+        .eq('id', adjustment.finishedProductLotId);
+
+      // If it is the main product lot, update the production_order actual_quantity_produced
+      if (productLot.product_id === order.product_id) {
+        const newActualYield = Number((Number(order.liters_planned) / newQuantity).toFixed(3));
+        await this.supabaseService.admin
+          .from('production_orders')
+          .update({
+            actual_quantity_produced: newQuantity,
+            actual_yield: newActualYield,
+            updated_by: user?.id ?? null,
+          })
+          .eq('id', orderId);
+      }
+
+      // Insert into the adjustments log table
+      await this.supabaseService.admin
+        .from('production_order_adjustments')
+        .insert({
+          production_order_id: orderId,
+          finished_product_lot_id: adjustment.finishedProductLotId,
+          old_quantity: oldQuantity,
+          new_quantity: newQuantity,
+          reason: payload.reason,
+          notes: payload.notes,
+          created_by: user?.id ?? null,
+        });
+
+      // Insert stock movement for the difference
+      if (difference !== 0) {
+        // Find existing adjustment record to use as reference
+        const { data: adjRecord } = await this.supabaseService.admin
+          .from('production_order_adjustments')
+          .select('id')
+          .eq('production_order_id', orderId)
+          .eq('finished_product_lot_id', adjustment.finishedProductLotId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        await this.supabaseService.admin.from('stock_movements').insert({
+          movement_type: difference > 0 ? 'entrada' : 'saida',
+          lot_type: 'Produto Acabado',
+          lot_id: adjustment.finishedProductLotId,
+          quantity: Math.abs(difference),
+          reference_table: 'production_order_adjustments',
+          reference_id: adjRecord?.id ?? null,
+          created_by: user?.id ?? null,
+          updated_by: user?.id ?? null,
+        });
+      }
+    }
+
+    return { success: true };
   }
 
   private async getById(table: string, id: string) {

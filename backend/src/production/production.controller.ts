@@ -6,6 +6,7 @@ import { SupabaseAuthGuard } from '../common/guards/supabase-auth.guard';
 import { CompleteProductionOrderDto } from './dto/complete-production-order.dto';
 import { CreateProductionOrderDto } from './dto/create-production-order.dto';
 import { UpdateProductionOrderDto } from './dto/update-production-order.dto';
+import { AdjustProductionOrderDto } from './dto/adjust-production-order.dto';
 import { ProductionService } from './production.service';
 
 @ApiTags('production')
@@ -44,6 +45,15 @@ export class ProductionController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     return this.productionService.updateOrder(orderId, payload, user);
+  }
+
+  @Post(':id/adjust')
+  adjustOrder(
+    @Param('id') orderId: string,
+    @Body() payload: AdjustProductionOrderDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.productionService.adjustOrder(orderId, payload, user);
   }
 
   @Delete(':id')

@@ -1371,4 +1371,16 @@ export async function createManualProductExit(payload: {
   });
 }
 
-
+export async function adjustProductionOrder(
+  orderId: string,
+  payload: {
+    adjustments: Array<{ finishedProductLotId: string; newQuantity: number }>;
+    reason: string;
+    notes: string;
+  },
+) {
+  return apiRequest<{ success: boolean }>(`/production-orders/${orderId}/adjust`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

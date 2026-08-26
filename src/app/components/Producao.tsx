@@ -23,6 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './ui/alert-dialog';
+import { ModalAjusteEstoqueOP } from './ModalAjusteEstoqueOP';
 
 const emptyCreateForm = {
  milkLotId: '',
@@ -66,6 +67,8 @@ export default function Producao() {
  const [viewOrder, setViewOrder] = useState<OrdemProducao | null>(null);
  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
  const [editingOrder, setEditingOrder] = useState<OrdemProducao | null>(null);
+ const [ajusteModalOpen, setAjusteModalOpen] = useState(false);
+ const [orderToAdjust, setOrderToAdjust] = useState<OrdemProducao | null>(null);
  const { finishedProducts, getFinishedProductById, getUnitSymbol, getSupplyItemById } = useCadastros();
 
  const loadData = async () => {
@@ -437,6 +440,19 @@ export default function Producao() {
           >
             <Trash2 className="w-4 h-4" /> Excluir
           </button>
+          {op.status === 'Finalizada' && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setOrderToAdjust(op);
+                setAjusteModalOpen(true);
+                setOpenDropdownId(null);
+              }}
+              className="w-full text-left px-4 py-2 text-sm text-blue-700 hover:bg-gray-100 flex items-center gap-2 font-medium"
+            >
+              <Edit2 className="w-4 h-4 text-blue-600" /> Ajustar Estoque
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -991,6 +1007,21 @@ export default function Producao() {
       </div>
     </div>
   ) : null}
+
+  {orderToAdjust && (
+    <ModalAjusteEstoqueOP
+      isOpen={ajusteModalOpen}
+      onClose={() => {
+        setAjusteModalOpen(false);
+        setOrderToAdjust(null);
+      }}
+      order={orderToAdjust}
+      finishedProductLots={finishedProductLots}
+      onSuccess={async () => {
+        await loadData();
+      }}
+    />
+  )}
   </div>
  );
 }
