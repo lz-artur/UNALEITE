@@ -554,6 +554,9 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  maxUsageHours: 48,
  idealReceptionTemperature: 4,
  maxReceptionTemperature: 7,
+ accountingCategoryId: '',
+ accountingSubcategoryId: '',
+ costCenterId: '',
  active: true,
  };
  case 'qualityParameters':
@@ -893,6 +896,9 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  maxUsageHours: Number(formState.maxUsageHours),
  idealReceptionTemperature: Number(formState.idealReceptionTemperature) || undefined,
  maxReceptionTemperature: Number(formState.maxReceptionTemperature),
+ accountingCategoryId: String(formState.accountingCategoryId || '') || undefined,
+ accountingSubcategoryId: String(formState.accountingSubcategoryId || '') || undefined,
+ costCenterId: String(formState.costCenterId || '') || undefined,
  });
  break;
  case 'qualityParameters':
@@ -1599,6 +1605,24 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  value={String(formState.unitId || '')}
  onChange={(value) => updateField('unitId', value)}
  options={units.filter((item) => item.active).map((item) => ({ label: `${item.name} (${item.symbol})`, value: item.id }))}
+ />
+ <SelectField
+ label="Categoria Financeira"
+ value={String(formState.accountingCategoryId || '')}
+ onChange={(value) => updateField('accountingCategoryId', value)}
+ options={accountingCategories.filter((item) => item.active).map((item) => ({ label: item.name, value: item.id }))}
+ />
+ <SelectField
+ label="Subcategoria"
+ value={String(formState.accountingSubcategoryId || '')}
+ onChange={(value) => updateField('accountingSubcategoryId', value)}
+ options={accountingSubcategories.filter((item) => item.active && item.categoryId === formState.accountingCategoryId).map((item) => ({ label: item.name, value: item.id }))}
+ />
+ <SelectField
+ label="Centro de Custo"
+ value={String(formState.costCenterId || '')}
+ onChange={(value) => updateField('costCenterId', value)}
+ options={costCenters.filter((item) => item.active).map((item) => ({ label: item.name, value: item.id }))}
  />
  <Field label="Prazo máximo de uso (horas)" type="number" required value={String(formState.maxUsageHours || 0)} onChange={(value) => updateField('maxUsageHours', value)} />
  <Field label="Temperatura ideal" type="number" step="0.1" value={String(formState.idealReceptionTemperature || '')} onChange={(value) => updateField('idealReceptionTemperature', value)} />

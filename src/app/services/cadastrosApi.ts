@@ -436,6 +436,9 @@ function serializeMilkType(record: MilkTypeRecord) {
     max_usage_hours: record.maxUsageHours,
     ideal_reception_temperature: record.idealReceptionTemperature ?? null,
     max_reception_temperature: record.maxReceptionTemperature,
+    accounting_category_id: record.accountingCategoryId ?? null,
+    accounting_subcategory_id: record.accountingSubcategoryId ?? null,
+    cost_center_id: record.costCenterId ?? null,
     active: record.active,
   };
 }
