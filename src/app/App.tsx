@@ -16,6 +16,7 @@ import RelatoriosOperacionais from './components/RelatoriosOperacionais';
 import RecepcaoLeite from './components/RecepcaoLeite';
 import ContasReceber from './components/financeiro/ContasReceber';
 import ContasPagar from './components/financeiro/ContasPagar';
+import ContasBancarias from './components/financeiro/ContasBancarias';
 import GestaoUsuarios from './components/GestaoUsuarios';
 import { useAuth } from './context/AuthContext';
 import { CadastrosProvider } from './context/CadastrosContext';
@@ -61,6 +62,7 @@ const ORDERED_PAGES = [
   'compras',
   'contas-receber',
   'contas-pagar',
+  'contas-bancarias',
   'folha-leite',
   'dre',
   'cadastros',
@@ -129,6 +131,8 @@ function AppInner() {
         return <ContasReceber />;
       case 'contas-pagar':
         return <ContasPagar />;
+      case 'contas-bancarias':
+        return <ContasBancarias />;
       case 'folha-leite':
         return <FolhaLeite />;
       case 'dre':
