@@ -110,7 +110,7 @@ export default function Comercial() {
   });
   const [returnForm, setReturnForm] = useState<{
     returnDate: string;
-    items: Array<{ productId: string; lotId: string; returnedQuantity: string; reason: string; unitPrice: number }>;
+    items: Array<{ salesOrderItemId: string; productId: string; lotId: string; returnedQuantity: string; reason: string; unitPrice: number; maxQuantity: number }>;
     discountAmount: string;
   }>({
     returnDate: getToday(),
@@ -480,6 +480,7 @@ export default function Comercial() {
     // Create return items for every fulfillment
     const items = selectedOrder.items.flatMap(item => 
       item.fulfillments.map(f => ({
+        salesOrderItemId: item.id,
         productId: item.productId,
         lotId: f.finishedProductLotId,
         returnedQuantity: '', // empty initially
@@ -507,7 +508,7 @@ export default function Comercial() {
     const itemsToReturn = returnForm.items
       .filter(item => Number(item.returnedQuantity) > 0)
       .map(item => ({
-        productId: item.productId,
+        salesOrderItemId: item.salesOrderItemId,
         lotId: item.lotId,
         returnedQuantity: Number(item.returnedQuantity),
         reason: item.reason,

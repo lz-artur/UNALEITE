@@ -214,10 +214,10 @@ export class SalesService {
     // Registrar o retorno por item
     for (const item of payload.items) {
       const fulfillment = bundle.fulfillments.find(
-        (f) => String(f.finished_product_lot_id) === item.lotId && String(f.sales_order_id) === salesOrderId && String(f.sales_order_item_id) === item.productId
+        (f) => String(f.finished_product_lot_id) === item.lotId && String(f.sales_order_id) === salesOrderId && String(f.sales_order_item_id) === item.salesOrderItemId
       );
       
-      const salesOrderItem = bundle.salesOrderItems.find(entry => String(entry.id) === item.productId);
+      const salesOrderItem = bundle.salesOrderItems.find(entry => String(entry.id) === item.salesOrderItemId);
 
       if (!fulfillment || !salesOrderItem) {
         throw new BadRequestException(`Atendimento não encontrado para o lote ${item.lotId}`);

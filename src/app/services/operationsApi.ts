@@ -1325,7 +1325,7 @@ export async function returnSalesOrder(payload: {
   salesOrderId: string;
   returnDate: string;
   items: Array<{
-    productId: string;
+    salesOrderItemId: string;
     lotId: string;
     returnedQuantity: number;
     reason?: string;

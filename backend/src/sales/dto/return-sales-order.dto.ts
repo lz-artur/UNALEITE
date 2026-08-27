@@ -3,7 +3,7 @@ import { IsArray, IsNumber, IsOptional, IsString, ValidateNested } from 'class-v
 
 export class ReturnSalesOrderItemDto {
   @IsString()
-  productId!: string;
+  salesOrderItemId!: string;
 
   @IsString()
   lotId!: string;
