@@ -10,10 +10,56 @@ describe('FinanceService', () => {
     supabaseServiceMock = {
       admin: {
         from: jest.fn(),
+        rpc: jest.fn(),
       },
     };
 
     service = new FinanceService(supabaseServiceMock as SupabaseService);
+  });
+
+  describe('createReceipt', () => {
+    it('registers a partial receipt and returns the recalculated balance', async () => {
+      supabaseServiceMock.admin.rpc.mockResolvedValue({ data: 'receipt-1', error: null });
+      supabaseServiceMock.admin.from.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({
+              data: {
+                id: 'entry-1',
+                amount: 10000,
+                due_date: '2029-01-01',
+                status: 'Parcial',
+                financial_entry_receipts: [{
+                  id: 'receipt-1',
+                  amount: 5000,
+                  payment_date: '2026-08-30T12:00:00.000Z',
+                  payment_method: 'Pix',
+                }],
+              },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      const result = await service.createReceipt('entry-1', {
+        amount: 5000,
+        paymentDate: '2026-08-30',
+        paymentMethod: 'Pix',
+      });
+
+      expect(supabaseServiceMock.admin.rpc).toHaveBeenCalledWith(
+        'register_financial_receipt',
+        expect.objectContaining({
+          p_entry_id: 'entry-1',
+          p_amount: 5000,
+          p_payment_method: 'Pix',
+        }),
+      );
+      expect((result as any).received_amount).toBe(5000);
+      expect((result as any).outstanding_amount).toBe(5000);
+      expect((result as any).computed_status).toBe('Parcial');
+    });
   });
 
   describe('deleteEntry', () => {

@@ -170,7 +170,7 @@ export interface ContaFinanceira {
   valor: number;
   dataVencimento: Date;
   dataPagamento?: Date;
-  status: 'Aberto' | 'Pago' | 'Vencido' | 'Cancelado';
+  status: 'Aberto' | 'Parcial' | 'Pago' | 'Vencido' | 'Cancelado';
   categoria: string;
   fornecedorId?: string;
   clienteId?: string;

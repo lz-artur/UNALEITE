@@ -17,13 +17,15 @@ import {
   X,
   CircleX
 } from 'lucide-react';
-import { loadFinancialEntries, createFinancialEntry, createBatchFinancialEntries, deleteFinancialEntry, settleFinancialEntry, unsettleFinancialEntry, updateFinancialEntry, uploadFinancialAttachment, type FinancialEntryRecord } from '../../services/operationsApi';
+import { createBatchFinancialEntries, createFinancialEntry, createFinancialReceipt, deleteFinancialEntry, deleteFinancialReceipt, loadFinancialEntries, settleFinancialEntry, updateFinancialEntry, uploadFinancialAttachment, type FinancialEntryRecord } from '../../services/operationsApi';
 import type { ContaFinanceira } from '../../data/mockData';
 import NovaReceitaModal from './NovaReceitaModal';
-import BaixaModal from './BaixaModal';
+import RecebimentoModal from './RecebimentoModal';
 import { toast } from 'sonner';
+import { useCadastros } from '../../context/CadastrosContext';
 
 export default function ContasReceber() {
+  const { bankAccounts } = useCadastros();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState('');
   const [entries, setEntries] = useState<FinancialEntryRecord[]>([]);
@@ -95,19 +97,18 @@ export default function ContasReceber() {
   };
 
   const handleExportCsv = () => {
-    const headers = ['Vencimento', 'Recebimento', 'Descrição', 'Categoria', 'Valor Total', 'A Receber', 'Situação'];
+    const headers = ['Vencimento', 'Último recebimento', 'Descrição', 'Categoria', 'Valor Total', 'Recebido', 'A Receber', 'Situação'];
     const csvContent = [
       headers.join(';'),
       ...entries.map(entry => {
-        const isPaid = entry.statusCalculado === 'Pago' || entry.status === 'Pago';
-        const aReceber = isPaid ? 0 : entry.valor;
         return [
           safeFormatDate(entry.dataVencimento),
           entry.dataPagamento ? safeFormatDate(entry.dataPagamento) : '',
           `"${entry.descricao}"`,
           `"${entry.categoria}"`,
           entry.valor.toString().replace('.', ','),
-          aReceber.toString().replace('.', ','),
+          entry.valorRecebido.toString().replace('.', ','),
+          entry.saldoReceber.toString().replace('.', ','),
           entry.statusCalculado || entry.status
         ].join(';');
       })
@@ -139,16 +140,14 @@ export default function ContasReceber() {
     let recebidos = 0;
 
     filteredEntries.forEach(entry => {
-      const isPaid = entry.statusCalculado === 'Pago' || entry.status === 'Pago';
       const entryDate = new Date(entry.dataVencimento);
       entryDate.setHours(0, 0, 0, 0);
 
-      if (isPaid) {
-        recebidos += entry.valor;
-      } else {
-        if (entryDate < today) vencidos += entry.valor;
-        else if (entryDate.getTime() === today.getTime()) vencemHoje += entry.valor;
-        else aVencer += entry.valor;
+      recebidos += entry.valorRecebido;
+      if (entry.saldoReceber > 0) {
+        if (entryDate < today) vencidos += entry.saldoReceber;
+        else if (entryDate.getTime() === today.getTime()) vencemHoje += entry.saldoReceber;
+        else aVencer += entry.saldoReceber;
       }
     });
 
@@ -163,10 +162,8 @@ export default function ContasReceber() {
 
   const sortedEntries = useMemo(() => {
     return [...filteredEntries].sort((a, b) => {
-      const isPaidA = a.statusCalculado === 'Pago' || a.status === 'Pago';
-      const isPaidB = b.statusCalculado === 'Pago' || b.status === 'Pago';
-      const aReceberA = isPaidA ? 0 : a.valor;
-      const aReceberB = isPaidB ? 0 : b.valor;
+      const aReceberA = a.saldoReceber;
+      const aReceberB = b.saldoReceber;
 
       let valA: any, valB: any;
       switch (sortColumn) {
@@ -222,6 +219,7 @@ export default function ContasReceber() {
   const getStatusStyle = (status?: string) => {
     switch(status) {
       case 'Pago': return 'bg-green-100 text-green-700';
+      case 'Parcial': return 'bg-blue-100 text-blue-700';
       case 'Vencido': return 'bg-red-100 text-red-700';
       case 'Cancelado': return 'bg-gray-100 text-gray-700';
       default: return 'bg-amber-100 text-amber-700'; // Aberto
@@ -439,6 +437,9 @@ export default function ContasReceber() {
               <th className="px-4 py-3 font-medium text-right whitespace-nowrap cursor-pointer hover:bg-gray-100" onClick={() => handleSort('valor')}>
                 Total (R$) {sortColumn === 'valor' && <ChevronDown className={`inline w-3 h-3 transition-transform ${sortDirection === 'desc' ? 'rotate-180' : ''}`} />}
               </th>
+              <th className="px-4 py-3 font-medium text-right whitespace-nowrap">
+                Recebido (R$)
+              </th>
               <th className="px-4 py-3 font-medium text-right whitespace-nowrap cursor-pointer hover:bg-gray-100" onClick={() => handleSort('aReceber')}>
                 A receber (R$) {sortColumn === 'aReceber' && <ChevronDown className={`inline w-3 h-3 transition-transform ${sortDirection === 'desc' ? 'rotate-180' : ''}`} />}
               </th>
@@ -451,28 +452,25 @@ export default function ContasReceber() {
           <tbody className="divide-y divide-gray-100">
             {loading ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
+                <td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-500">
                   <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-blue-500" />
                   Carregando registros...
                 </td>
               </tr>
             ) : error ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-sm text-red-500">
+                <td colSpan={9} className="px-4 py-8 text-center text-sm text-red-500">
                   {error}
                 </td>
               </tr>
             ) : paginatedEntries.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
+                <td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-500">
                   Nenhum registro encontrado.
                 </td>
               </tr>
             ) : (
               paginatedEntries.map((entry) => {
-                const isPaid = entry.statusCalculado === 'Pago' || entry.status === 'Pago';
-                const aReceber = isPaid ? 0 : entry.valor;
-                
                 return (
                   <tr key={entry.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
@@ -490,7 +488,8 @@ export default function ContasReceber() {
                       <div className="text-xs text-gray-400">{entry.categoria}</div>
                     </td>
                     <td className="px-4 py-3 text-right text-gray-600">{formatCurrency(entry.valor)}</td>
-                    <td className="px-4 py-3 text-right text-gray-600">{formatCurrency(aReceber)}</td>
+                    <td className="px-4 py-3 text-right font-medium text-green-700">{formatCurrency(entry.valorRecebido)}</td>
+                    <td className="px-4 py-3 text-right text-gray-600">{formatCurrency(entry.saldoReceber)}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded ${getStatusStyle(entry.statusCalculado || entry.status)}`}>
                         {entry.statusCalculado || entry.status}
@@ -508,7 +507,7 @@ export default function ContasReceber() {
                       
                       {openDropdownId === entry.id && (
                         <div className="absolute right-4 top-10 w-36 bg-white rounded-md shadow-lg border border-gray-200 z-20 py-1">
-                          {entry.statusCalculado !== 'Pago' && entry.status !== 'Pago' && (
+                          {entry.saldoReceber > 0 && entry.status !== 'Cancelado' && (
                             <button 
                               onClick={() => {
                                 setEntryToSettle(entry);
@@ -516,24 +515,7 @@ export default function ContasReceber() {
                               }}
                               className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
                             >
-                              <CheckCircle className="w-4 h-4 text-green-500" /> Dar baixa
-                            </button>
-                          )}
-                          {(entry.statusCalculado === 'Pago' || entry.status === 'Pago') && (
-                            <button 
-                              onClick={async () => {
-                                try {
-                                  await unsettleFinancialEntry(entry.id);
-                                  toast.success('Baixa cancelada com sucesso!');
-                                  setOpenDropdownId(null);
-                                  void loadData();
-                                } catch (e) {
-                                  toast.error('Erro ao cancelar baixa.');
-                                }
-                              }}
-                              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                            >
-                              <CircleX className="w-4 h-4 text-amber-500" /> Cancelar baixa
+                              <CheckCircle className="w-4 h-4 text-green-500" /> Receber
                             </button>
                           )}
                           <button 
@@ -684,17 +666,20 @@ export default function ContasReceber() {
         />
 
       {entryToSettle && (
-        <BaixaModal
+        <RecebimentoModal
           isOpen={!!entryToSettle}
+          entry={entryToSettle}
           onClose={() => setEntryToSettle(null)}
-          onConfirm={async (file) => {
+          onConfirm={async (payload, file) => {
             try {
-              const url = await uploadFinancialAttachment(file);
-              await settleFinancialEntry(entryToSettle.id, undefined, url);
-              toast.success('Receita baixada com sucesso!');
-              void loadData();
+              const attachmentUrl = file ? await uploadFinancialAttachment(file) : undefined;
+              await createFinancialReceipt(entryToSettle.id, { ...payload, anexoUrl: attachmentUrl });
+              toast.success(payload.valor < entryToSettle.saldoReceber
+                ? 'Recebimento parcial registrado com sucesso!'
+                : 'Receita recebida integralmente!');
+              await loadData();
             } catch (error) {
-              toast.error('Erro ao realizar baixa ou enviar comprovante.');
+              toast.error('Erro ao registrar o recebimento.');
               throw error;
             }
           }}
@@ -703,37 +688,91 @@ export default function ContasReceber() {
         
         {viewingEntry && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
               <div className="flex items-center justify-between p-4 border-b border-gray-200">
                 <h2 className="text-lg font-semibold text-gray-800">Detalhes da Receita</h2>
                 <button onClick={() => setViewingEntry(null)} className="text-gray-500 hover:text-gray-700">
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="p-4 flex flex-col gap-3 text-sm">
+              <div className="p-4 flex flex-col gap-3 text-sm overflow-y-auto">
                 <div><span className="font-semibold text-gray-700">Descrição:</span> {viewingEntry.descricao}</div>
                 <div><span className="font-semibold text-gray-700">Categoria:</span> {viewingEntry.categoria}</div>
                 <div><span className="font-semibold text-gray-700">Valor Total:</span> {formatCurrency(viewingEntry.valor)}</div>
+                <div><span className="font-semibold text-gray-700">Valor Recebido:</span> <span className="text-green-700">{formatCurrency(viewingEntry.valorRecebido)}</span></div>
+                <div><span className="font-semibold text-gray-700">Saldo a Receber:</span> <span className="text-blue-700">{formatCurrency(viewingEntry.saldoReceber)}</span></div>
                 <div><span className="font-semibold text-gray-700">Data de Vencimento:</span> {safeFormatDate(viewingEntry.dataVencimento)}</div>
-                <div><span className="font-semibold text-gray-700">Data de Recebimento:</span> {viewingEntry.dataPagamento ? safeFormatDate(viewingEntry.dataPagamento) : '-'}</div>
+                <div><span className="font-semibold text-gray-700">Último Recebimento:</span> {viewingEntry.dataPagamento ? safeFormatDate(viewingEntry.dataPagamento) : '-'}</div>
                 {viewingEntry.centroCusto && <div><span className="font-semibold text-gray-700">Centro de Custo:</span> {viewingEntry.centroCusto}</div>}
                 {viewingEntry.subcategoriaContabil && <div><span className="font-semibold text-gray-700">Subcategoria:</span> {viewingEntry.subcategoriaContabil}</div>}
-                {viewingEntry.formaPagamento && <div><span className="font-semibold text-gray-700">Forma de Pagamento:</span> {viewingEntry.formaPagamento}</div>}
-                {viewingEntry.tipoPagamento && <div><span className="font-semibold text-gray-700">Tipo:</span> {viewingEntry.tipoPagamento}</div>}
-                {viewingEntry.anexoUrl && (
-                  <div>
-                    <span className="font-semibold text-gray-700">Comprovante:</span>{' '}
-                    <a href={viewingEntry.anexoUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Ver Anexo</a>
-                  </div>
-                )}
                 <div>
                   <span className="font-semibold text-gray-700">Situação:</span> 
                   <span className={`ml-2 inline-block px-2 py-0.5 text-xs font-medium rounded ${getStatusStyle(viewingEntry.statusCalculado || viewingEntry.status)}`}>
                     {viewingEntry.statusCalculado || viewingEntry.status}
                   </span>
                 </div>
+                <div className="mt-2 border-t border-gray-200 pt-3">
+                  <div className="mb-2 font-semibold text-gray-700">Histórico de recebimentos</div>
+                  {viewingEntry.recebimentos.length === 0 ? (
+                    <p className="text-gray-500">Nenhum recebimento registrado.</p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {viewingEntry.recebimentos.map((recebimento) => {
+                        const conta = bankAccounts.find((account) => account.id === recebimento.contaBancariaId);
+                        return (
+                          <div key={recebimento.id} className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="font-semibold text-green-700">R$ {formatCurrency(recebimento.valor)}</div>
+                                <div className="mt-1 text-xs text-gray-600">
+                                  {safeFormatDate(recebimento.dataPagamento)} • {recebimento.formaPagamento}
+                                  {conta ? ` • ${conta.name}` : ' • Sem conta/caixa'}
+                                </div>
+                                {recebimento.observacoes && <div className="mt-1 text-xs text-gray-500">{recebimento.observacoes}</div>}
+                                {recebimento.anexoUrl && (
+                                  <a href={recebimento.anexoUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs text-blue-600 hover:underline">
+                                    Ver comprovante
+                                  </a>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                title="Estornar recebimento"
+                                onClick={async () => {
+                                  if (!confirm('Estornar este recebimento? O saldo do lançamento será recalculado.')) return;
+                                  try {
+                                    const updated = await deleteFinancialReceipt(viewingEntry.id, recebimento.id);
+                                    setViewingEntry(updated);
+                                    toast.success('Recebimento estornado com sucesso!');
+                                    void loadData();
+                                  } catch {
+                                    toast.error('Erro ao estornar o recebimento.');
+                                  }
+                                }}
+                                className="rounded p-1 text-amber-600 hover:bg-amber-100"
+                              >
+                                <CircleX className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="p-4 border-t border-gray-200 flex justify-end">
+              <div className="p-4 border-t border-gray-200 flex justify-between gap-3">
+                {viewingEntry.saldoReceber > 0 && (
+                  <button
+                    onClick={() => {
+                      setEntryToSettle(viewingEntry);
+                      setViewingEntry(null);
+                    }}
+                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+                  >
+                    Registrar recebimento
+                  </button>
+                )}
                 <button 
                   onClick={() => setViewingEntry(null)}
                   className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded text-sm font-medium transition-colors"

@@ -143,6 +143,55 @@ describe('SalesService', () => {
       expect(supabaseMock.deleteMock).toHaveBeenCalledTimes(5);
     });
 
+    it('should clear quantities returned by the deleted sale while restoring its fulfilled stock', async () => {
+      const bundle = baseSalesBundle();
+      bundle.fulfillments[0].quantity = 7.28;
+      bundle.finishedProductLots[0].available_quantity = 0;
+      bundle.finishedProductLots[0].returned_quantity = 5;
+      bundle.salesReturns = [{
+        id: 'return-1',
+        sales_order_id: 'order-1',
+        product_id: 'prod-1',
+        finished_product_lot_id: 'lot-1',
+        returned_quantity: 5,
+      }];
+
+      const tableData: Record<string, any[]> = {
+        sales_orders: bundle.salesOrders,
+        sales_order_items: bundle.salesOrderItems,
+        sales_order_fulfillments: bundle.fulfillments,
+        clients: bundle.clients,
+        finished_products: bundle.finishedProducts,
+        finished_product_lots: bundle.finishedProductLots,
+        sales_returns: bundle.salesReturns,
+      };
+      const updates: Array<{ table: string; data: any }> = [];
+
+      supabaseMock.fromMock.mockImplementation((table: string) => ({
+        select: jest.fn().mockResolvedValue({ data: tableData[table] ?? [], error: null }),
+        update: jest.fn().mockImplementation((data: any) => {
+          updates.push({ table, data });
+          return { eq: jest.fn().mockResolvedValue({ error: null }) };
+        }),
+        delete: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue(Object.assign(
+            Promise.resolve({ error: null }),
+            { eq: jest.fn().mockResolvedValue({ error: null }) },
+          )),
+        }),
+      }));
+
+      await service.deleteOrder('order-1');
+
+      expect(updates).toContainEqual({
+        table: 'finished_product_lots',
+        data: {
+          available_quantity: 7.28,
+          returned_quantity: 0,
+        },
+      });
+    });
+
     it('should throw NotFoundException if order does not exist', async () => {
       supabaseMock.selectMock.mockImplementation(() =>
         Promise.resolve({ data: [], error: null }),
@@ -218,7 +267,7 @@ describe('SalesService', () => {
       await expect(
         service.returnSalesOrder('non-existent', {
           returnDate: '2026-08-25',
-          items: [{ productId: 'item-1', lotId: 'lot-1', returnedQuantity: 1 }],
+          items: [{ productId: 'prod-1', lotId: 'lot-1', returnedQuantity: 1 }],
           discountAmount: 0,
         }),
       ).rejects.toThrow(NotFoundException);
@@ -255,7 +304,7 @@ describe('SalesService', () => {
       await expect(
         service.returnSalesOrder('order-1', {
           returnDate: '2026-08-25',
-          items: [{ productId: 'item-1', lotId: 'lot-1', returnedQuantity: 2 }],
+          items: [{ productId: 'prod-1', lotId: 'lot-1', returnedQuantity: 2 }],
           discountAmount: 0,
         }),
       ).rejects.toThrow(BadRequestException);
@@ -308,7 +357,7 @@ describe('SalesService', () => {
       await expect(
         service.returnSalesOrder('order-1', {
           returnDate: '2026-08-25',
-          items: [{ productId: 'item-1', lotId: 'lot-1', returnedQuantity: 5 }], // 8 + 5 > 10
+          items: [{ productId: 'prod-1', lotId: 'lot-1', returnedQuantity: 5 }], // 8 + 5 > 10
           discountAmount: 0,
         }),
       ).rejects.toThrow(BadRequestException);
@@ -382,7 +431,7 @@ describe('SalesService', () => {
       try {
         await service.returnSalesOrder('order-1', {
           returnDate: '2026-08-25',
-          items: [{ productId: 'item-1', lotId: 'lot-1', returnedQuantity: 3, reason: 'Avariado' }],
+          items: [{ productId: 'prod-1', lotId: 'lot-1', returnedQuantity: 3, reason: 'Avariado' }],
           discountAmount: 0,
         });
       } catch {

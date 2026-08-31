@@ -10,6 +10,8 @@ import {
   deletePurchase,
   deleteFinancialEntry,
   createBatchFinancialEntries,
+  createFinancialReceipt,
+  deleteFinancialReceipt,
   unsettleFinancialEntry,
   uploadFinancialAttachment,
   returnSalesOrder,
@@ -107,6 +109,32 @@ describe('operationsApi - Deletion endpoints', () => {
       await unsettleFinancialEntry('entry-2');
       expect(api.apiRequest).toHaveBeenCalledWith('/financial-entries/entry-2/unsettle', {
         method: 'POST',
+      });
+    });
+
+    it('createFinancialReceipt calls POST with partial receipt details', async () => {
+      await createFinancialReceipt('entry-3', {
+        valor: 2000,
+        dataPagamento: '2026-08-30',
+        formaPagamento: 'Pix',
+        contaBancariaId: '00000000-0000-0000-0000-000000000001',
+      });
+
+      expect(api.apiRequest).toHaveBeenCalledWith('/financial-entries/entry-3/receipts', {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: 2000,
+          paymentDate: '2026-08-30',
+          paymentMethod: 'Pix',
+          bankAccountId: '00000000-0000-0000-0000-000000000001',
+        }),
+      });
+    });
+
+    it('deleteFinancialReceipt calls DELETE for one receipt', async () => {
+      await deleteFinancialReceipt('entry-3', 'receipt-1');
+      expect(api.apiRequest).toHaveBeenCalledWith('/financial-entries/entry-3/receipts/receipt-1', {
+        method: 'DELETE',
       });
     });
 

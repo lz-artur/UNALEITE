@@ -1,6 +1,13 @@
-import { IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsNumber, IsOptional, IsPositive, IsString, IsUUID } from 'class-validator';
 
 export class SettleFinancialEntryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @IsPositive()
+  amount?: number;
+
   @IsOptional()
   @IsString()
   paymentDate?: string;
@@ -8,4 +15,16 @@ export class SettleFinancialEntryDto {
   @IsOptional()
   @IsString()
   attachmentUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string;
+
+  @IsOptional()
+  @IsUUID()
+  bankAccountId?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }

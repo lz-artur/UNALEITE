@@ -190,12 +190,34 @@ export interface SalesOrderFilters {
 export interface FinancialEntryRecord extends ContaFinanceira {
   referenceTable?: string;
   referenceId?: string;
-  statusCalculado?: 'Aberto' | 'Pago' | 'Vencido' | 'Cancelado';
+  statusCalculado?: 'Aberto' | 'Parcial' | 'Pago' | 'Vencido' | 'Cancelado';
+  valorRecebido: number;
+  saldoReceber: number;
+  recebimentos: FinancialReceiptRecord[];
+}
+
+export interface FinancialReceiptRecord {
+  id: string;
+  valor: number;
+  dataPagamento: Date;
+  formaPagamento: string;
+  contaBancariaId?: string;
+  anexoUrl?: string;
+  observacoes?: string;
+}
+
+export interface CreateFinancialReceiptPayload {
+  valor: number;
+  dataPagamento: string;
+  formaPagamento: string;
+  contaBancariaId?: string;
+  anexoUrl?: string;
+  observacoes?: string;
 }
 
 export interface FinancialEntryFilters {
   type?: 'Pagar' | 'Receber';
-  status?: 'Aberto' | 'Pago' | 'Vencido' | 'Cancelado';
+  status?: 'Aberto' | 'Parcial' | 'Pago' | 'Vencido' | 'Cancelado';
   category?: string;
   producerId?: string;
   startDate?: string;
@@ -616,14 +638,31 @@ function mapSalesOrder(row: any): SalesOrderRecord {
   };
 }
 
-function mapFinancialEntry(row: any): ContaFinanceira {
+function mapFinancialEntry(row: any): FinancialEntryRecord {
+  const recebimentos: FinancialReceiptRecord[] = (row.financial_entry_receipts ?? []).map((receipt: any) => ({
+    id: receipt.id,
+    valor: Number(receipt.amount),
+    dataPagamento: new Date(receipt.payment_date),
+    formaPagamento: receipt.payment_method,
+    contaBancariaId: receipt.bank_account_id ?? undefined,
+    anexoUrl: receipt.attachment_url ?? undefined,
+    observacoes: receipt.notes ?? undefined,
+  }));
+  const valor = Number(row.amount);
+  const valorRecebido = Number(row.received_amount ?? recebimentos.reduce((sum, receipt) => sum + receipt.valor, 0));
+  const saldoReceber = Number(row.outstanding_amount ?? Math.max(0, valor - valorRecebido));
+
   return {
     id: row.id,
     tipo: row.entry_type,
     descricao: row.description,
-    valor: Number(row.amount),
+    valor,
     dataVencimento: new Date(row.due_date),
-    dataPagamento: row.payment_date ? new Date(row.payment_date) : undefined,
+    dataPagamento: row.last_payment_date
+      ? new Date(row.last_payment_date)
+      : row.payment_date
+        ? new Date(row.payment_date)
+        : undefined,
     status: row.status,
     categoria: row.category,
     fornecedorId: row.supplier_id ?? undefined,
@@ -644,6 +683,9 @@ function mapFinancialEntry(row: any): ContaFinanceira {
     installmentGroupId: row.installment_group_id ?? undefined,
     installmentNumber: row.installment_number ?? undefined,
     tipoCusto: row.cost_type ?? undefined,
+    valorRecebido,
+    saldoReceber,
+    recebimentos,
   };
 }
 
@@ -898,7 +940,16 @@ export async function loadFinancialEntries(filters?: FinancialEntryFilters) {
     const query = params.toString();
     const entries = await apiRequest<any[]>(`/financial-entries${query ? `?${query}` : ''}`);
     return entries.map(mapFinancialEntry);
-  }, () => mockContasFinanceiras);
+  }, () => mockContasFinanceiras.map((entry) => {
+    const isPaid = entry.status === 'Pago';
+    return {
+      ...entry,
+      statusCalculado: entry.status,
+      valorRecebido: isPaid ? entry.valor : 0,
+      saldoReceber: isPaid ? 0 : entry.valor,
+      recebimentos: [],
+    } as FinancialEntryRecord;
+  }));
 }
 
 export async function settleFinancialEntry(entryId: string, paymentDate?: string, attachmentUrl?: string) {
@@ -911,6 +962,29 @@ export async function settleFinancialEntry(entryId: string, paymentDate?: string
 export async function unsettleFinancialEntry(entryId: string) {
   return apiRequest<any>(`/financial-entries/${entryId}/unsettle`, {
     method: 'POST',
+  }).then(mapFinancialEntry);
+}
+
+export async function createFinancialReceipt(
+  entryId: string,
+  payload: CreateFinancialReceiptPayload,
+) {
+  return apiRequest<any>(`/financial-entries/${entryId}/receipts`, {
+    method: 'POST',
+    body: JSON.stringify({
+      amount: payload.valor,
+      paymentDate: payload.dataPagamento,
+      paymentMethod: payload.formaPagamento,
+      bankAccountId: payload.contaBancariaId,
+      attachmentUrl: payload.anexoUrl,
+      notes: payload.observacoes,
+    }),
+  }).then(mapFinancialEntry);
+}
+
+export async function deleteFinancialReceipt(entryId: string, receiptId: string) {
+  return apiRequest<any>(`/financial-entries/${entryId}/receipts/${receiptId}`, {
+    method: 'DELETE',
   }).then(mapFinancialEntry);
 }
 

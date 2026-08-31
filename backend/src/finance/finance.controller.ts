@@ -6,6 +6,7 @@ import { SupabaseAuthGuard } from '../common/guards/supabase-auth.guard';
 import { FinanceService } from './finance.service';
 import { ListFinancialEntriesDto } from './dto/list-financial-entries.dto';
 import { SettleFinancialEntryDto } from './dto/settle-financial-entry.dto';
+import { CreateFinancialReceiptDto } from './dto/create-financial-receipt.dto';
 
 @ApiTags('finance')
 @ApiBearerAuth()
@@ -34,6 +35,24 @@ export class FinanceController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     return this.financeService.settleEntry(id, payload, user);
+  }
+
+  @Post(':id/receipts')
+  createReceipt(
+    @Param('id') id: string,
+    @Body() payload: CreateFinancialReceiptDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.financeService.createReceipt(id, payload, user);
+  }
+
+  @Delete(':id/receipts/:receiptId')
+  deleteReceipt(
+    @Param('id') id: string,
+    @Param('receiptId') receiptId: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.financeService.deleteReceipt(id, receiptId, user);
   }
 
   @Post(':id/unsettle')

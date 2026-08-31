@@ -213,11 +213,20 @@ export class SalesService {
 
     // Registrar o retorno por item
     for (const item of payload.items) {
-      const fulfillment = bundle.fulfillments.find(
-        (f) => String(f.finished_product_lot_id) === item.lotId && String(f.sales_order_id) === salesOrderId && String(f.sales_order_item_id) === item.productId
+      const salesOrderItem = bundle.salesOrderItems.find(
+        (entry) =>
+          String(entry.sales_order_id) === salesOrderId
+          && String(entry.product_id) === item.productId,
       );
-      
-      const salesOrderItem = bundle.salesOrderItems.find(entry => String(entry.id) === item.productId);
+
+      const fulfillment = salesOrderItem
+        ? bundle.fulfillments.find(
+            (entry) =>
+              String(entry.finished_product_lot_id) === item.lotId
+              && String(entry.sales_order_id) === salesOrderId
+              && String(entry.sales_order_item_id) === String(salesOrderItem.id),
+          )
+        : undefined;
 
       if (!fulfillment || !salesOrderItem) {
         throw new BadRequestException(`Atendimento não encontrado para o lote ${item.lotId}`);
@@ -623,18 +632,49 @@ export class SalesService {
     }
 
     const fulfillments = bundle.fulfillments.filter((f) => String(f.sales_order_id) === id);
+    const returns = bundle.salesReturns.filter((entry) => String(entry.sales_order_id) === id);
+    const fulfilledByLot = new Map<string, number>();
+    const returnedByLot = new Map<string, number>();
 
     for (const fulfillment of fulfillments) {
-      const lot = bundle.finishedProductLots.find(
-        (l) => String(l.id) === String(fulfillment.finished_product_lot_id)
+      const lotId = String(fulfillment.finished_product_lot_id);
+      fulfilledByLot.set(
+        lotId,
+        (fulfilledByLot.get(lotId) ?? 0) + Number(fulfillment.quantity),
       );
+    }
+
+    for (const salesReturn of returns) {
+      const lotId = String(salesReturn.finished_product_lot_id);
+      returnedByLot.set(
+        lotId,
+        (returnedByLot.get(lotId) ?? 0) + Number(salesReturn.returned_quantity),
+      );
+    }
+
+    const affectedLotIds = new Set([...fulfilledByLot.keys(), ...returnedByLot.keys()]);
+    for (const lotId of affectedLotIds) {
+      const lot = bundle.finishedProductLots.find((entry) => String(entry.id) === lotId);
 
       if (lot) {
-        const restoredVolume = Number(lot.available_quantity) + Number(fulfillment.quantity);
-        await this.supabaseService.admin
+        const restoredVolume = Number((
+          Number(lot.available_quantity) + (fulfilledByLot.get(lotId) ?? 0)
+        ).toFixed(4));
+        const restoredReturnedQuantity = Number(Math.max(
+          0,
+          Number(lot.returned_quantity || 0) - (returnedByLot.get(lotId) ?? 0),
+        ).toFixed(4));
+        const { error: lotUpdateError } = await this.supabaseService.admin
           .from('finished_product_lots')
-          .update({ available_quantity: restoredVolume })
+          .update({
+            available_quantity: restoredVolume,
+            returned_quantity: restoredReturnedQuantity,
+          })
           .eq('id', lot.id);
+
+        if (lotUpdateError) {
+          throw new BadRequestException(lotUpdateError.message);
+        }
       }
     }
 

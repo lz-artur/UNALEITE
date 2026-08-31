@@ -1,15 +1,25 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsDateString,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 export class ReturnSalesOrderItemDto {
   @IsString()
-  productId: string;
+  productId!: string;
 
   @IsString()
-  lotId: string;
+  lotId!: string;
 
   @IsNumber()
-  returnedQuantity: number;
+  @Min(0.0001)
+  returnedQuantity!: number;
 
   @IsString()
   @IsOptional()
@@ -17,14 +27,16 @@ export class ReturnSalesOrderItemDto {
 }
 
 export class ReturnSalesOrderDto {
-  @IsString()
-  returnDate: string;
+  @IsDateString()
+  returnDate!: string;
 
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => ReturnSalesOrderItemDto)
-  items: ReturnSalesOrderItemDto[];
+  items!: ReturnSalesOrderItemDto[];
 
   @IsNumber()
-  discountAmount: number;
+  @Min(0)
+  discountAmount!: number;
 }

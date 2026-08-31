@@ -168,25 +168,29 @@ export class ReportsService {
 
   async getDreReport(filters: ListReportsDto = {}) {
     const basis = filters.basis || 'accrual';
-    const [entries, entryItems, categories] = await Promise.all([
+    const [entries, entryItems, categories, receipts] = await Promise.all([
       this.selectMany('financial_entries'),
       this.selectMany('financial_entry_items'),
-      this.selectMany('accounting_categories')
+      this.selectMany('accounting_categories'),
+      this.selectMany('financial_entry_receipts'),
     ]);
 
     const dreCategoryMap = new Map(categories.filter((c: any) => c.show_in_dre).map((c: any) => [c.id, c.name]));
     const dreCategoryNames = new Set(categories.filter((c: any) => c.show_in_dre).map((c: any) => c.name));
 
-    const rows = entries.filter((entry) => {
-      const dateField = basis === 'cash' ? String(entry.payment_date || entry.due_date) : String(entry.due_date);
-      if (!this.matchesPeriod(dateField, filters)) {
-        return false;
-      }
-      if (basis === 'cash' && String(entry.status) !== 'Pago') {
-        return false;
-      }
-      return true;
-    });
+    const rows = basis === 'cash'
+      ? entries.flatMap((entry) => receipts
+          .filter((receipt) => String(receipt.financial_entry_id) === String(entry.id))
+          .filter((receipt) => this.matchesPeriod(String(receipt.payment_date), filters))
+          .map((receipt) => ({
+            ...entry,
+            payment_date: receipt.payment_date,
+            cash_amount: Number(receipt.amount || 0),
+            cash_ratio: Number(entry.amount || 0) > 0
+              ? Number(receipt.amount || 0) / Number(entry.amount)
+              : 0,
+          })))
+      : entries.filter((entry) => this.matchesPeriod(String(entry.due_date), filters));
 
     const revenueCategories = new Map<string, number>();
     const expenseCategories = new Map<string, number>();
@@ -208,7 +212,7 @@ export class ReportsService {
             continue;
           }
 
-          const amount = Number(item.amount || 0);
+          const amount = Number(item.amount || 0) * Number(row.cash_ratio ?? 1);
 
           if (row.entry_type === 'Receber') {
             totalRevenue += amount;
@@ -227,7 +231,7 @@ export class ReportsService {
           continue;
         }
 
-        const amount = Number(row.amount || 0);
+        const amount = Number(row.cash_amount ?? row.amount ?? 0);
 
         if (row.entry_type === 'Receber') {
           totalRevenue += amount;
@@ -277,10 +281,11 @@ export class ReportsService {
       curr.setMonth(curr.getMonth() + 1);
     }
 
-    const [entries, entryItems, categories] = await Promise.all([
+    const [entries, entryItems, categories, receipts] = await Promise.all([
       this.selectMany('financial_entries'),
       this.selectMany('financial_entry_items'),
-      this.selectMany('accounting_categories')
+      this.selectMany('accounting_categories'),
+      this.selectMany('financial_entry_receipts'),
     ]);
 
     const dreCategoryMap = new Map(categories.filter((c: any) => c.show_in_dre).map((c: any) => [c.id, c.name]));
@@ -311,7 +316,13 @@ export class ReportsService {
       if (!row.due_date) continue;
       
       const dueD = new Date(String(row.due_date));
-      const isPaid = String(row.status) === 'Pago';
+      const receivedAmount = receipts
+        .filter((receipt) => String(receipt.financial_entry_id) === String(row.id))
+        .reduce((sum, receipt) => sum + Number(receipt.amount || 0), 0);
+      const receivedRatio = Number(row.amount || 0) > 0
+        ? Math.min(1, receivedAmount / Number(row.amount))
+        : 0;
+      const hasReceipt = receivedAmount > 0;
       const isReceita = row.entry_type === 'Receber';
       const isDespesa = row.entry_type === 'Pagar';
 
@@ -329,12 +340,13 @@ export class ReportsService {
           }
 
           const amount = Number(item.amount || 0);
+          const realizedAmount = amount * receivedRatio;
 
           // Check if it's before our start date (for initial balance)
           if (dueD < new Date(startObj.getFullYear(), startObj.getMonth(), 1)) {
-            if (isPaid) {
-              if (isReceita) initialBalance += amount;
-              if (isDespesa) initialBalance -= amount;
+            if (hasReceipt) {
+              if (isReceita) initialBalance += realizedAmount;
+              if (isDespesa) initialBalance -= realizedAmount;
             }
             continue;
           }
@@ -349,17 +361,17 @@ export class ReportsService {
               if (!revenueCategories.has(category)) revenueCategories.set(category, initMonthMap());
               revenueCategories.get(category)![monthKey].previsto += amount;
               totals.revenues[monthKey].previsto += amount;
-              if (isPaid) {
-                revenueCategories.get(category)![monthKey].realizado += amount;
-                totals.revenues[monthKey].realizado += amount;
+              if (hasReceipt) {
+                revenueCategories.get(category)![monthKey].realizado += realizedAmount;
+                totals.revenues[monthKey].realizado += realizedAmount;
               }
             } else if (isDespesa) {
               if (!expenseCategories.has(category)) expenseCategories.set(category, initMonthMap());
               expenseCategories.get(category)![monthKey].previsto += amount;
               totals.expenses[monthKey].previsto += amount;
-              if (isPaid) {
-                expenseCategories.get(category)![monthKey].realizado += amount;
-                totals.expenses[monthKey].realizado += amount;
+              if (hasReceipt) {
+                expenseCategories.get(category)![monthKey].realizado += realizedAmount;
+                totals.expenses[monthKey].realizado += realizedAmount;
               }
             }
           }
@@ -373,12 +385,13 @@ export class ReportsService {
         }
 
         const amount = Number(row.amount || 0);
+        const realizedAmount = receivedAmount;
 
         // Check if it's before our start date (for initial balance)
         if (dueD < new Date(startObj.getFullYear(), startObj.getMonth(), 1)) {
-          if (isPaid) {
-            if (isReceita) initialBalance += amount;
-            if (isDespesa) initialBalance -= amount;
+          if (hasReceipt) {
+            if (isReceita) initialBalance += realizedAmount;
+            if (isDespesa) initialBalance -= realizedAmount;
           }
           continue;
         }
@@ -393,17 +406,17 @@ export class ReportsService {
             if (!revenueCategories.has(category)) revenueCategories.set(category, initMonthMap());
             revenueCategories.get(category)![monthKey].previsto += amount;
             totals.revenues[monthKey].previsto += amount;
-            if (isPaid) {
-              revenueCategories.get(category)![monthKey].realizado += amount;
-              totals.revenues[monthKey].realizado += amount;
+            if (hasReceipt) {
+              revenueCategories.get(category)![monthKey].realizado += realizedAmount;
+              totals.revenues[monthKey].realizado += realizedAmount;
             }
           } else if (isDespesa) {
             if (!expenseCategories.has(category)) expenseCategories.set(category, initMonthMap());
             expenseCategories.get(category)![monthKey].previsto += amount;
             totals.expenses[monthKey].previsto += amount;
-            if (isPaid) {
-              expenseCategories.get(category)![monthKey].realizado += amount;
-              totals.expenses[monthKey].realizado += amount;
+            if (hasReceipt) {
+              expenseCategories.get(category)![monthKey].realizado += realizedAmount;
+              totals.expenses[monthKey].realizado += realizedAmount;
             }
           }
         }
