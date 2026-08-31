@@ -22,8 +22,10 @@ import type { ContaFinanceira } from '../../data/mockData';
 import NovaDespesaModal from './NovaDespesaModal';
 import BaixaModal from './BaixaModal';
 import { toast } from 'sonner';
+import { useCadastros } from '../../context/CadastrosContext';
 
 export default function ContasPagar() {
+  const { suppliers, producers } = useCadastros();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState('');
   const [entries, setEntries] = useState<FinancialEntryRecord[]>([]);
@@ -720,6 +722,8 @@ export default function ContasPagar() {
                 {viewingEntry.subcategoriaContabil && <div><span className="font-semibold text-gray-700">Subcategoria:</span> {viewingEntry.subcategoriaContabil}</div>}
                 {viewingEntry.formaPagamento && <div><span className="font-semibold text-gray-700">Forma de Pagamento:</span> {viewingEntry.formaPagamento}</div>}
                 {viewingEntry.tipoPagamento && <div><span className="font-semibold text-gray-700">Tipo:</span> {viewingEntry.tipoPagamento}</div>}
+                {viewingEntry.fornecedorId && <div><span className="font-semibold text-gray-700">Fornecedor:</span> {suppliers.find(s => s.id === viewingEntry.fornecedorId)?.name || viewingEntry.fornecedorId}</div>}
+                {viewingEntry.produtorId && <div><span className="font-semibold text-gray-700">Produtor:</span> {producers.find(p => p.id === viewingEntry.produtorId)?.name || viewingEntry.produtorId}</div>}
                 {viewingEntry.anexoUrl && (
                   <div>
                     <span className="font-semibold text-gray-700">Comprovante:</span>{' '}

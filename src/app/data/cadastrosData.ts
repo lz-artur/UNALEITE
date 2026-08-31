@@ -72,6 +72,9 @@ export interface MilkTypeRecord {
   maxUsageHours: number;
   idealReceptionTemperature?: number;
   maxReceptionTemperature: number;
+  accountingCategoryId?: string;
+  accountingSubcategoryId?: string;
+  costCenterId?: string;
   active: boolean;
 }
 

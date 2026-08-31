@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 vi.mock('../../services/operationsApi', () => ({
   uploadFinancialAttachment: vi.fn(),
+  loadClients: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('sonner', () => ({
@@ -21,7 +22,9 @@ vi.mock('../../context/CadastrosContext', () => ({
     contasBancarias: [],
     centrosCusto: [],
     categoriasContabeis: [],
-    accountingCategories: [],
+    accountingCategories: [
+      { id: 'category-receivable', name: 'Receita de teste', active: true, entryType: 'Receber' },
+    ],
     accountingSubcategories: [],
     costCenters: [],
     bankAccounts: [],
@@ -37,6 +40,12 @@ describe('NovaReceitaModal Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
+
+  const selectRequiredCategory = () => {
+    fireEvent.change(document.querySelectorAll('select')[1], {
+      target: { value: 'category-receivable' },
+    });
+  };
 
   it('does not render when isOpen is false', () => {
     const { container } = render(
@@ -66,8 +75,9 @@ describe('NovaReceitaModal Component', () => {
     fireEvent.change(valorInput, { target: { value: '100' } });
     const dateInput = document.querySelector('input[type="date"]');
     fireEvent.change(dateInput!, { target: { value: '2023-12-01' } });
+    selectRequiredCategory();
     
-    const situacaoSelect = document.querySelectorAll('select')[3];
+    const situacaoSelect = document.querySelectorAll('select')[4];
     fireEvent.change(situacaoSelect, { target: { value: 'Pago' } });
 
     const salvarBtn = screen.getByText('Salvar Receita');
@@ -93,6 +103,7 @@ describe('NovaReceitaModal Component', () => {
     
     const dateInput = document.querySelector('input[type="date"]');
     fireEvent.change(dateInput!, { target: { value: '2023-12-01' } });
+    selectRequiredCategory();
 
     const salvarBtn = screen.getByText('Salvar Receita');
     fireEvent.click(salvarBtn);
@@ -134,6 +145,7 @@ describe('NovaReceitaModal Component', () => {
     
     const allDateInputsUpdated = document.querySelectorAll('input[type="date"]');
     fireEvent.change(allDateInputsUpdated[1], { target: { value: '2023-11-01' } });
+    selectRequiredCategory();
 
     const salvarBtn = screen.getByText('Salvar Receita');
     fireEvent.click(salvarBtn);

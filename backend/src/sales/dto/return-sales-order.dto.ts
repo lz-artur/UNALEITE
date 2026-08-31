@@ -12,7 +12,7 @@ import {
 
 export class ReturnSalesOrderItemDto {
   @IsString()
-  productId!: string;
+  salesOrderItemId!: string;
 
   @IsString()
   lotId!: string;

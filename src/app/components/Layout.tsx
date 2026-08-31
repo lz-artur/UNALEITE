@@ -42,6 +42,7 @@ const menuItems = [
     subItems: [
       { id: 'contas-receber', label: 'Contas a receber' },
       { id: 'contas-pagar', label: 'Contas a pagar' },
+      { id: 'contas-bancarias', label: 'Contas Bancárias' },
     ],
   },
   { id: 'folha-leite', label: 'Folha do Leite', icon: FileText },
@@ -88,7 +89,7 @@ function getPageKeyForItem(id: string): string {
 export default function Layout({ children, currentPage, onNavigate }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
-    financeiro: currentPage === 'contas-receber' || currentPage === 'contas-pagar' || currentPage === 'financeiro',
+    financeiro: currentPage === 'contas-receber' || currentPage === 'contas-pagar' || currentPage === 'contas-bancarias' || currentPage === 'financeiro',
     cadastros: currentPage.startsWith('cadastros'),
   });
   const { user, signOut } = useAuth();

@@ -259,6 +259,12 @@ export class QualityService {
   ) {
     const description = `Folha do leite - ${lot.code as string}`;
 
+    const { data: milkType } = await this.supabaseService.admin
+      .from('milk_types')
+      .select('accounting_category_id, accounting_subcategory_id, cost_center_id')
+      .eq('id', lot.milk_type_id)
+      .maybeSingle();
+
     const { error } = await this.supabaseService.admin.from('financial_entries').insert({
       entry_type: 'Pagar',
       description,
@@ -266,6 +272,9 @@ export class QualityService {
       due_date: lot.received_at,
       status: 'Aberto',
       category: 'Matéria Prima',
+      accounting_category_id: milkType?.accounting_category_id ?? null,
+      accounting_subcategory_id: milkType?.accounting_subcategory_id ?? null,
+      cost_center_id: milkType?.cost_center_id ?? null,
       producer_id: lot.producer_id,
       reference_table: 'milk_lots',
       reference_id: lot.id,

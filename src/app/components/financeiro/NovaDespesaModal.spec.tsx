@@ -21,12 +21,16 @@ vi.mock('../../context/CadastrosContext', () => ({
     contasBancarias: [],
     centrosCusto: [],
     categoriasContabeis: [],
-    accountingCategories: [],
+    accountingCategories: [
+      { id: 'category-payable', name: 'Despesa de teste', active: true, entryType: 'Pagar' },
+    ],
     accountingSubcategories: [],
     costCenters: [],
     bankAccounts: [],
     paymentMethods: [],
     paymentTypes: [],
+    suppliers: [],
+    producers: [],
   }),
 }));
 
@@ -37,6 +41,12 @@ describe('NovaDespesaModal Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
+
+  const selectRequiredCategory = () => {
+    fireEvent.change(document.querySelectorAll('select')[2], {
+      target: { value: 'category-payable' },
+    });
+  };
 
   it('does not render when isOpen is false', () => {
     const { container } = render(
@@ -66,9 +76,10 @@ describe('NovaDespesaModal Component', () => {
     fireEvent.change(valorInput, { target: { value: '100' } });
     const dateInput = document.querySelector('input[type="date"]');
     fireEvent.change(dateInput!, { target: { value: '2023-12-01' } });
+    selectRequiredCategory();
     
     // Select status Pago
-    const situacaoSelect = document.querySelectorAll('select')[3];
+    const situacaoSelect = document.querySelectorAll('select')[5];
     fireEvent.change(situacaoSelect, { target: { value: 'Pago' } });
 
     // Clica em Salvar
@@ -95,6 +106,7 @@ describe('NovaDespesaModal Component', () => {
     
     const dateInput = document.querySelector('input[type="date"]');
     fireEvent.change(dateInput!, { target: { value: '2023-12-01' } });
+    selectRequiredCategory();
 
     const salvarBtn = screen.getByText('Salvar Despesa');
     fireEvent.click(salvarBtn);
@@ -144,6 +156,7 @@ describe('NovaDespesaModal Component', () => {
     
     const allDateInputsUpdated = document.querySelectorAll('input[type="date"]');
     fireEvent.change(allDateInputsUpdated[1], { target: { value: '2023-11-01' } });
+    selectRequiredCategory();
 
     // Submeter
     const salvarBtn = screen.getByText('Salvar Despesa');

@@ -267,7 +267,7 @@ describe('SalesService', () => {
       await expect(
         service.returnSalesOrder('non-existent', {
           returnDate: '2026-08-25',
-          items: [{ productId: 'prod-1', lotId: 'lot-1', returnedQuantity: 1 }],
+          items: [{ salesOrderItemId: 'item-1', lotId: 'lot-1', returnedQuantity: 1 }],
           discountAmount: 0,
         }),
       ).rejects.toThrow(NotFoundException);
@@ -304,7 +304,7 @@ describe('SalesService', () => {
       await expect(
         service.returnSalesOrder('order-1', {
           returnDate: '2026-08-25',
-          items: [{ productId: 'prod-1', lotId: 'lot-1', returnedQuantity: 2 }],
+          items: [{ salesOrderItemId: 'item-1', lotId: 'lot-1', returnedQuantity: 2 }],
           discountAmount: 0,
         }),
       ).rejects.toThrow(BadRequestException);
@@ -357,7 +357,7 @@ describe('SalesService', () => {
       await expect(
         service.returnSalesOrder('order-1', {
           returnDate: '2026-08-25',
-          items: [{ productId: 'prod-1', lotId: 'lot-1', returnedQuantity: 5 }], // 8 + 5 > 10
+          items: [{ salesOrderItemId: 'item-1', lotId: 'lot-1', returnedQuantity: 5 }], // 8 + 5 > 10
           discountAmount: 0,
         }),
       ).rejects.toThrow(BadRequestException);
@@ -431,7 +431,7 @@ describe('SalesService', () => {
       try {
         await service.returnSalesOrder('order-1', {
           returnDate: '2026-08-25',
-          items: [{ productId: 'prod-1', lotId: 'lot-1', returnedQuantity: 3, reason: 'Avariado' }],
+          items: [{ salesOrderItemId: 'item-1', lotId: 'lot-1', returnedQuantity: 3, reason: 'Avariado' }],
           discountAmount: 0,
         });
       } catch {

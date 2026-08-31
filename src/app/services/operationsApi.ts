@@ -1125,6 +1125,62 @@ export async function deleteFinancialEntry(id: string) {
   });
 }
 
+// --- Bank Accounts API ---
+export interface BankAccountRecord {
+  id: string;
+  name: string;
+  bank_name?: string;
+  agency?: string;
+  agency_digit?: string;
+  account_number?: string;
+  account_digit?: string;
+  document_type?: string;
+  document_number?: string;
+  pix_key?: string;
+  active: boolean;
+  current_balance: number;
+}
+
+export async function loadBankAccounts() {
+  return apiRequest<BankAccountRecord[]>('/bank-accounts');
+}
+
+export async function createBankAccount(payload: Partial<BankAccountRecord> & { initial_balance?: number }) {
+  return apiRequest<BankAccountRecord>('/bank-accounts', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateBankAccount(id: string, payload: Partial<BankAccountRecord>) {
+  return apiRequest<BankAccountRecord>(`/bank-accounts/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getBankAccountStatement(id: string, startDate?: string, endDate?: string) {
+  const query = new URLSearchParams();
+  if (startDate) query.append('startDate', startDate);
+  if (endDate) query.append('endDate', endDate);
+  const qStr = query.toString();
+  return apiRequest<any[]>(`/bank-accounts/${id}/statement${qStr ? `?${qStr}` : ''}`);
+}
+
+export async function transferFunds(payload: {
+  sourceAccountId: string;
+  destinationAccountId: string;
+  amount: number;
+  date?: string;
+  description?: string;
+  attachmentUrl?: string;
+}) {
+  return apiRequest<any>('/bank-accounts/transfer', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function loadMilkPayrollSummary(startDate?: string, endDate?: string) {
   const params = new URLSearchParams();
   if (startDate) params.set('startDate', startDate);
@@ -1399,7 +1455,7 @@ export async function returnSalesOrder(payload: {
   salesOrderId: string;
   returnDate: string;
   items: Array<{
-    productId: string;
+    salesOrderItemId: string;
     lotId: string;
     returnedQuantity: number;
     reason?: string;
