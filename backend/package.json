@@ -4,7 +4,7 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "build": "nest build",
+    "build": "npm run native:rebuild && nest build",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "db:apply-migrations": "node scripts/apply-supabase-migrations.js",
