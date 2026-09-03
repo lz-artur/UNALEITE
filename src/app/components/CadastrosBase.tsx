@@ -624,6 +624,20 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  storageTemperature: 4,
  theoreticalYield: 0,
  productionLine: '',
+ fiscalName: '',
+ ncm: '',
+ cest: '',
+ goodsOrigin: '0',
+ commercialUnitSymbol: '',
+ taxUnitSymbol: '',
+ internalCfop: '',
+ interstateCfop: '',
+ icmsCst: '00',
+ pisCst: '01',
+ cofinsCst: '01',
+ ibsCbsCst: '',
+ ibsCbsClassification: '',
+ fiscalAdditionalInfo: '',
  active: true,
  };
  case 'productSpecs':
@@ -781,6 +795,9 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  if (Number(formState.shelfLifeDays) <= 0) errors.push('Prazo de validade deve ser maior que zero.');
  if (Number(formState.theoreticalYield) <= 0) errors.push('Rendimento teórico deve ser maior que zero.');
  if (hasDuplicate(finishedProducts, (item) => item.code === formState.code)) errors.push('Já existe produto com este código.');
+ if (formState.ncm && !/^\d{8}$/.test(String(formState.ncm).replace(/\D/g, ''))) errors.push('O NCM deve ter 8 dígitos.');
+ if (formState.internalCfop && !/^\d{4}$/.test(String(formState.internalCfop).replace(/\D/g, ''))) errors.push('O CFOP interno deve ter 4 dígitos.');
+ if (formState.interstateCfop && !/^\d{4}$/.test(String(formState.interstateCfop).replace(/\D/g, ''))) errors.push('O CFOP interestadual deve ter 4 dígitos.');
  break;
  case 'productSpecs':
  if (!formState.productId) errors.push('Selecione o produto.');
@@ -1818,6 +1835,31 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  <Field label="Rendimento teórico" type="number" step="0.01" required value={String(formState.theoreticalYield || 0)} onChange={(value) => updateField('theoreticalYield', value)} />
  <Field label="Linha de produção" value={String(formState.productionLine || '')} onChange={(value) => updateField('productionLine', value)} />
  <ToggleSelect label="Ativo" value={Boolean(formState.active)} onChange={(value) => updateField('active', value)} />
+ <div className="md:col-span-2 mt-3 border-t border-gray-200 pt-4">
+   <h4 className="font-semibold text-gray-900">Dados fiscais para faturamento</h4>
+   <p className="text-xs text-gray-500">O nome interno continua sendo usado na UNA. O nome fiscal abaixo será enviado na NF-e.</p>
+ </div>
+ <Field label="Código fiscal do produto" value={String(formState.fiscalCode || '')} onChange={(value) => updateField('fiscalCode', value)} />
+ <Field label="Nome fiscal do produto" value={String(formState.fiscalName || '')} onChange={(value) => updateField('fiscalName', value)} />
+ <Field label="NCM (8 dígitos)" value={String(formState.ncm || '')} onChange={(value) => updateField('ncm', value)} />
+ <Field label="CEST" value={String(formState.cest || '')} onChange={(value) => updateField('cest', value)} />
+ <Field label="Origem da mercadoria" value={String(formState.goodsOrigin || '')} onChange={(value) => updateField('goodsOrigin', value)} />
+ <Field label="Unidade comercial fiscal" value={String(formState.commercialUnitSymbol || '')} onChange={(value) => updateField('commercialUnitSymbol', value)} />
+ <Field label="Unidade tributável" value={String(formState.taxUnitSymbol || '')} onChange={(value) => updateField('taxUnitSymbol', value)} />
+ <Field label="CFOP interno" value={String(formState.internalCfop || '')} onChange={(value) => updateField('internalCfop', value)} />
+ <Field label="CFOP interestadual" value={String(formState.interstateCfop || '')} onChange={(value) => updateField('interstateCfop', value)} />
+ <Field label="CST ICMS" value={String(formState.icmsCst || '')} onChange={(value) => updateField('icmsCst', value)} />
+ <Field label="CST PIS" value={String(formState.pisCst || '')} onChange={(value) => updateField('pisCst', value)} />
+ <Field label="CST COFINS" value={String(formState.cofinsCst || '')} onChange={(value) => updateField('cofinsCst', value)} />
+ <Field label="CST IBS/CBS" value={String(formState.ibsCbsCst || '')} onChange={(value) => updateField('ibsCbsCst', value)} />
+ <Field label="Classificação IBS/CBS" value={String(formState.ibsCbsClassification || '')} onChange={(value) => updateField('ibsCbsClassification', value)} />
+ <Field label="Alíquota IBS UF %" type="number" step="0.0001" value={String(formState.ibsStateRate ?? '')} onChange={(value) => updateField('ibsStateRate', Number(value))} />
+ <Field label="Redução IBS UF %" type="number" step="0.0001" value={String(formState.ibsStateReduction ?? '')} onChange={(value) => updateField('ibsStateReduction', Number(value))} />
+ <Field label="Alíquota IBS município %" type="number" step="0.0001" value={String(formState.ibsCityRate ?? '')} onChange={(value) => updateField('ibsCityRate', Number(value))} />
+ <Field label="Redução IBS município %" type="number" step="0.0001" value={String(formState.ibsCityReduction ?? '')} onChange={(value) => updateField('ibsCityReduction', Number(value))} />
+ <Field label="Alíquota CBS %" type="number" step="0.0001" value={String(formState.cbsRate ?? '')} onChange={(value) => updateField('cbsRate', Number(value))} />
+ <Field label="Redução CBS %" type="number" step="0.0001" value={String(formState.cbsReduction ?? '')} onChange={(value) => updateField('cbsReduction', Number(value))} />
+ <div className="md:col-span-2"><TextAreaField label="Informações fiscais adicionais" value={String(formState.fiscalAdditionalInfo || '')} onChange={(value) => updateField('fiscalAdditionalInfo', value)} /></div>
  </div>
  );
  case 'productSpecs':

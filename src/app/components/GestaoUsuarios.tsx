@@ -17,6 +17,9 @@ import {
   Search,
   Loader2,
   Key,
+  Send,
+  XCircle,
+  Settings,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -39,6 +42,7 @@ const PAGE_DEFINITIONS = [
   { key: 'producao', label: 'Produção', actions: ['view', 'create', 'edit', 'delete'] },
   { key: 'custos', label: 'Relatórios', actions: ['view'] },
   { key: 'comercial', label: 'Comercial', actions: ['view', 'create', 'edit', 'delete'] },
+  { key: 'faturamento', label: 'Faturamento NF-e', actions: ['view', 'create', 'edit', 'delete', 'authorize', 'cancel', 'configure'] },
   { key: 'compras', label: 'Compras', actions: ['view', 'create', 'edit', 'delete'] },
   { key: 'contas-receber', label: 'Contas a Receber', actions: ['view', 'create', 'edit', 'delete'] },
   { key: 'contas-pagar', label: 'Contas a Pagar', actions: ['view', 'create', 'edit', 'delete'] },
@@ -47,13 +51,16 @@ const PAGE_DEFINITIONS = [
   { key: 'cadastros', label: 'Cadastros', actions: ['view', 'create', 'edit', 'delete'] },
 ] as const;
 
-type ActionKey = 'view' | 'create' | 'edit' | 'delete';
+type ActionKey = 'view' | 'create' | 'edit' | 'delete' | 'authorize' | 'cancel' | 'configure';
 
 const ACTION_LABELS: Record<ActionKey, { label: string; icon: typeof Eye }> = {
   view: { label: 'Ver', icon: Eye },
   create: { label: 'Criar', icon: Plus },
   edit: { label: 'Editar', icon: Edit3 },
   delete: { label: 'Excluir', icon: Trash2 },
+  authorize: { label: 'Autorizar', icon: Send },
+  cancel: { label: 'Cancelar NF-e', icon: XCircle },
+  configure: { label: 'Configurar', icon: Settings },
 };
 
 interface PermissionRow {
@@ -62,6 +69,9 @@ interface PermissionRow {
   can_create: boolean;
   can_edit: boolean;
   can_delete: boolean;
+  can_authorize: boolean;
+  can_cancel: boolean;
+  can_configure: boolean;
 }
 
 function buildDefaultPermissions(): PermissionRow[] {
@@ -71,6 +81,9 @@ function buildDefaultPermissions(): PermissionRow[] {
     can_create: false,
     can_edit: false,
     can_delete: false,
+    can_authorize: false,
+    can_cancel: false,
+    can_configure: false,
   }));
 }
 
@@ -84,6 +97,9 @@ function mergePermissions(existing: PermissionRow[]): PermissionRow[] {
       can_create: false,
       can_edit: false,
       can_delete: false,
+      can_authorize: false,
+      can_cancel: false,
+      can_configure: false,
     };
   });
 }
@@ -270,6 +286,9 @@ export default function GestaoUsuarios() {
         can_create: value && (def.actions as readonly string[]).includes('create'),
         can_edit: value && (def.actions as readonly string[]).includes('edit'),
         can_delete: value && (def.actions as readonly string[]).includes('delete'),
+        can_authorize: value && (def.actions as readonly string[]).includes('authorize'),
+        can_cancel: value && (def.actions as readonly string[]).includes('cancel'),
+        can_configure: value && (def.actions as readonly string[]).includes('configure'),
       })),
     );
   };

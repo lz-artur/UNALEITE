@@ -18,6 +18,7 @@ import ContasReceber from './components/financeiro/ContasReceber';
 import ContasPagar from './components/financeiro/ContasPagar';
 import ContasBancarias from './components/financeiro/ContasBancarias';
 import GestaoUsuarios from './components/GestaoUsuarios';
+import FaturamentoNfe from './components/FaturamentoNfe';
 import { useAuth } from './context/AuthContext';
 import { CadastrosProvider } from './context/CadastrosContext';
 import { PermissionsProvider, usePermissions } from './context/PermissionsContext';
@@ -59,6 +60,7 @@ const ORDERED_PAGES = [
   'producao',
   'custos',
   'comercial',
+  'faturamento',
   'compras',
   'contas-receber',
   'contas-pagar',
@@ -123,6 +125,8 @@ function AppInner() {
         return <RelatoriosOperacionais />;
       case 'comercial':
         return <Comercial />;
+      case 'faturamento':
+        return <FaturamentoNfe />;
       case 'compras':
         return <Compras />;
       case 'financeiro':

@@ -76,10 +76,16 @@ export default function Comercial() {
     email: '',
     address: '',
     addressNumber: '',
+    addressComplement: '',
     neighborhood: '',
     cep: '',
     city: '',
+    cityCode: '',
     state: '',
+    countryCode: '1058',
+    countryName: 'Brasil',
+    ieIndicator: '9',
+    finalConsumer: false,
     notes: '',
     active: true,
   });
@@ -203,10 +209,16 @@ export default function Comercial() {
       email: '',
       address: '',
       addressNumber: '',
+      addressComplement: '',
       neighborhood: '',
       cep: '',
       city: '',
+      cityCode: '',
       state: '',
+      countryCode: '1058',
+      countryName: 'Brasil',
+      ieIndicator: '9',
+      finalConsumer: false,
       notes: '',
       active: true,
     });
@@ -226,10 +238,16 @@ export default function Comercial() {
       email: client.email ?? '',
       address: client.address ?? '',
       addressNumber: client.addressNumber ?? '',
+      addressComplement: client.addressComplement ?? '',
       neighborhood: client.neighborhood ?? '',
       cep: client.cep ?? '',
       city: client.city ?? '',
+      cityCode: client.cityCode ?? '',
       state: client.state ?? '',
+      countryCode: client.countryCode ?? '1058',
+      countryName: client.countryName ?? 'Brasil',
+      ieIndicator: client.ieIndicator ?? '9',
+      finalConsumer: client.finalConsumer ?? false,
       notes: client.notes ?? '',
       active: client.active,
     });
@@ -257,10 +275,16 @@ export default function Comercial() {
         email: clientForm.email || undefined,
         address: clientForm.address || undefined,
         addressNumber: clientForm.addressNumber || undefined,
+        addressComplement: clientForm.addressComplement || undefined,
         neighborhood: clientForm.neighborhood || undefined,
         cep: clientForm.cep || undefined,
         city: clientForm.city || undefined,
+        cityCode: clientForm.cityCode || undefined,
         state: clientForm.state || undefined,
+        countryCode: clientForm.countryCode || '1058',
+        countryName: clientForm.countryName || 'Brasil',
+        ieIndicator: clientForm.ieIndicator || undefined,
+        finalConsumer: clientForm.finalConsumer,
         notes: clientForm.notes || undefined,
         active: clientForm.active,
       };
@@ -881,10 +905,13 @@ export default function Comercial() {
             <InputField label="E-mail" type="text" value={clientForm.email} onChange={(value) => setClientForm((current) => ({ ...current, email: value }))} />
             <InputField label="Endereco" type="text" value={clientForm.address} onChange={(value) => setClientForm((current) => ({ ...current, address: value }))} />
             <InputField label="Numero (Residencia/Empresa)" type="text" value={clientForm.addressNumber} onChange={(value) => setClientForm((current) => ({ ...current, addressNumber: value }))} />
+            <InputField label="Complemento" type="text" value={clientForm.addressComplement} onChange={(value) => setClientForm((current) => ({ ...current, addressComplement: value }))} />
             <InputField label="Bairro" type="text" value={clientForm.neighborhood} onChange={(value) => setClientForm((current) => ({ ...current, neighborhood: value }))} />
             <InputField label="CEP" type="text" value={clientForm.cep} onChange={(value) => setClientForm((current) => ({ ...current, cep: value }))} />
             <InputField label="Cidade" type="text" value={clientForm.city} onChange={(value) => setClientForm((current) => ({ ...current, city: value }))} />
+            <InputField label="Código IBGE do município" type="text" value={clientForm.cityCode} onChange={(value) => setClientForm((current) => ({ ...current, cityCode: value }))} />
             <InputField label="UF" type="text" value={clientForm.state} onChange={(value) => setClientForm((current) => ({ ...current, state: value }))} />
+            <InputField label="Indicador IE (1, 2 ou 9)" type="text" value={clientForm.ieIndicator} onChange={(value) => setClientForm((current) => ({ ...current, ieIndicator: value }))} />
           </div>
           <div className="mt-4">
             <label className="mb-1 block text-sm font-medium text-gray-700">Observacoes</label>
@@ -894,6 +921,17 @@ export default function Comercial() {
               onChange={(event) => setClientForm((current) => ({ ...current, notes: event.target.value }))}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+          </div>
+          <div className="mt-4 flex items-center gap-2">
+            <input
+              id="client-final-consumer"
+              type="checkbox"
+              checked={clientForm.finalConsumer}
+              onChange={(event) => setClientForm((current) => ({ ...current, finalConsumer: event.target.checked }))}
+            />
+            <label htmlFor="client-final-consumer" className="text-sm text-gray-700">
+              Consumidor final
+            </label>
           </div>
           <div className="mt-4 flex items-center gap-2">
             <input

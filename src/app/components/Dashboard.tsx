@@ -55,6 +55,11 @@ function getErrorMessage(error: unknown) {
   return 'Nao foi possivel carregar o dashboard.';
 }
 
+function safeNumber(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function StatCard({ title, value, icon, trend, color }: StatCardProps) {
   const colorClasses = {
     blue: 'bg-blue-50 text-blue-600',
@@ -198,14 +203,14 @@ export default function Dashboard() {
             />
             <StatCard
               title="Custo medio por litro"
-              value={`R$ ${stats.custoMedioKg.toFixed(2)}`}
+              value={`R$ ${safeNumber(stats.custoMedioKg).toFixed(2)}`}
               icon={<DollarSign className="h-6 w-6" />}
               trend="Base de precificacao"
               color="orange"
             />
             <StatCard
               title="Ticket medio custo do kg"
-              value={`R$ ${stats.ticketMedioCustoKg.toFixed(2)}`}
+              value={`R$ ${safeNumber(stats.ticketMedioCustoKg).toFixed(2)}`}
               icon={<DollarSign className="h-6 w-6" />}
               trend="Custo do leite / Kg produzido"
               color="yellow"

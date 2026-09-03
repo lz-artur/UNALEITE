@@ -26,6 +26,9 @@ export interface UserPermission {
   can_create: boolean;
   can_edit: boolean;
   can_delete: boolean;
+  can_authorize: boolean;
+  can_cancel: boolean;
+  can_configure: boolean;
 }
 
 export const ALL_PAGE_KEYS = [
@@ -36,6 +39,7 @@ export const ALL_PAGE_KEYS = [
   'producao',
   'custos',
   'comercial',
+  'faturamento',
   'compras',
   'contas-receber',
   'contas-pagar',
@@ -253,6 +257,9 @@ export class UsersService {
       can_create: boolean;
       can_edit: boolean;
       can_delete: boolean;
+      can_authorize?: boolean;
+      can_cancel?: boolean;
+      can_configure?: boolean;
     }>,
   ): Promise<UserPermission[]> {
     const sb = this.supabaseService.admin;
@@ -283,6 +290,9 @@ export class UsersService {
       can_create: p.can_create,
       can_edit: p.can_edit,
       can_delete: p.can_delete,
+      can_authorize: p.can_authorize ?? false,
+      can_cancel: p.can_cancel ?? false,
+      can_configure: p.can_configure ?? false,
     }));
 
     const { data, error } = await sb

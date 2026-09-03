@@ -37,6 +37,10 @@ export class CreateClientDto {
 
   @IsOptional()
   @IsString()
+  addressComplement?: string;
+
+  @IsOptional()
+  @IsString()
   neighborhood?: string;
 
   @IsOptional()
@@ -49,7 +53,27 @@ export class CreateClientDto {
 
   @IsOptional()
   @IsString()
+  cityCode?: string;
+
+  @IsOptional()
+  @IsString()
   state?: string;
+
+  @IsOptional()
+  @IsString()
+  countryCode?: string;
+
+  @IsOptional()
+  @IsString()
+  countryName?: string;
+
+  @IsOptional()
+  @IsString()
+  ieIndicator?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  finalConsumer?: boolean;
 
   @IsOptional()
   @IsString()

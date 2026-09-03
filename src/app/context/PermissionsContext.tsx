@@ -10,7 +10,7 @@ import {
 import { fetchMyProfile, type UserWithPermissions } from '../services/usersApi';
 import { useAuth } from './AuthContext';
 
-type PermissionAction = 'view' | 'create' | 'edit' | 'delete';
+type PermissionAction = 'view' | 'create' | 'edit' | 'delete' | 'authorize' | 'cancel' | 'configure';
 
 interface PermissionsContextValue {
   /** The full user profile from app_users */
@@ -83,6 +83,9 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       can_create: boolean;
       can_edit: boolean;
       can_delete: boolean;
+      can_authorize: boolean;
+      can_cancel: boolean;
+      can_configure: boolean;
     }>();
 
     if (profile?.permissions) {
@@ -92,6 +95,9 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
           can_create: p.can_create,
           can_edit: p.can_edit,
           can_delete: p.can_delete,
+          can_authorize: p.can_authorize,
+          can_cancel: p.can_cancel,
+          can_configure: p.can_configure,
         });
       }
     }
@@ -108,6 +114,9 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
         case 'create': return perm.can_create;
         case 'edit': return perm.can_edit;
         case 'delete': return perm.can_delete;
+        case 'authorize': return perm.can_authorize;
+        case 'cancel': return perm.can_cancel;
+        case 'configure': return perm.can_configure;
         default: return false;
       }
     }

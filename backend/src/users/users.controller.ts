@@ -114,6 +114,9 @@ export class UsersController {
         can_create: boolean;
         can_edit: boolean;
         can_delete: boolean;
+        can_authorize?: boolean;
+        can_cancel?: boolean;
+        can_configure?: boolean;
       }>;
     },
   ) {

@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronUp,
   ShieldCheck,
+  FileCheck2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../context/PermissionsContext';
@@ -34,6 +35,7 @@ const menuItems = [
   { id: 'producao', label: 'Producao', icon: Factory },
   { id: 'custos', label: 'Relatorios', icon: DollarSign },
   { id: 'comercial', label: 'Comercial', icon: TruckIcon },
+  { id: 'faturamento', label: 'Faturamento NF-e', icon: FileCheck2 },
   { id: 'compras', label: 'Compras', icon: Package },
   {
     id: 'financeiro',

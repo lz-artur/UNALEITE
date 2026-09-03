@@ -16,6 +16,7 @@ import { ReportsModule } from './reports/reports.module';
 import { SalesModule } from './sales/sales.module';
 import { SupabaseModule } from './supabase/supabase.module';
 import { UsersModule } from './users/users.module';
+import { NfeModule } from './nfe/nfe.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { UsersModule } from './users/users.module';
     DashboardModule,
     ReportsModule,
     UsersModule,
+    NfeModule,
   ],
   controllers: [AppController],
 })

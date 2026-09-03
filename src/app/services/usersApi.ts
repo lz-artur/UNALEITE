@@ -19,6 +19,9 @@ export interface UserPermission {
   can_create: boolean;
   can_edit: boolean;
   can_delete: boolean;
+  can_authorize: boolean;
+  can_cancel: boolean;
+  can_configure: boolean;
 }
 
 export interface UserWithPermissions extends AppUser {
@@ -78,6 +81,9 @@ export function updateUserPermissions(
     can_create: boolean;
     can_edit: boolean;
     can_delete: boolean;
+    can_authorize?: boolean;
+    can_cancel?: boolean;
+    can_configure?: boolean;
   }>,
 ): Promise<UserPermission[]> {
   return apiRequest<UserPermission[]>(`/users/${userId}/permissions`, {

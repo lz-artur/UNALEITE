@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "dev": "vite",
+    "dev": "node scripts/dev-local.mjs",
+    "dev:frontend": "vite",
     "backend:build": "npm --prefix backend run build",
     "backend:dev": "npm --prefix backend run start:dev",
     "backend:test": "npm --prefix backend run test -- --runInBand",

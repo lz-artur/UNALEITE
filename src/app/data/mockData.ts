@@ -815,10 +815,10 @@ export const calcularEstatisticas = () => {
   const opsAbertas = ordensProducao.filter(op => op.status === 'Em Andamento').length;
   const producaoFinalizada = ordensProducao.filter(op => op.status === 'Finalizada').length;
 
-  const custoMedioKg = ordensProducao
-    .filter(op => op.custos)
-    .reduce((sum, op) => sum + (op.custos?.custoUnitario || 0), 0) /
-    ordensProducao.filter(op => op.custos).length;
+  const ordensComCusto = ordensProducao.filter(op => op.custos);
+  const custoMedioKg = ordensComCusto.length > 0
+    ? ordensComCusto.reduce((sum, op) => sum + (op.custos?.custoUnitario || 0), 0) / ordensComCusto.length
+    : 0;
 
   const folhaLeite = contasFinanceiras
     .filter(c => c.tipo === 'Pagar' && c.categoria === 'Matéria Prima')
@@ -839,6 +839,7 @@ export const calcularEstatisticas = () => {
     opsAbertas,
     producaoFinalizada,
     custoMedioKg,
+    ticketMedioCustoKg: custoMedioKg,
     folhaLeite,
     contasPagar,
     contasReceber

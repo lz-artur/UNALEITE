@@ -133,10 +133,16 @@ export interface ClientRecord {
   email?: string;
   address?: string;
   addressNumber?: string;
+  addressComplement?: string;
   neighborhood?: string;
   cep?: string;
   city?: string;
+  cityCode?: string;
   state?: string;
+  countryCode?: string;
+  countryName?: string;
+  ieIndicator?: string;
+  finalConsumer?: boolean;
   notes?: string;
   active: boolean;
 }
@@ -592,10 +598,16 @@ function mapClient(row: any): ClientRecord {
     email: row.email ?? undefined,
     address: row.address ?? undefined,
     addressNumber: row.address_number ?? undefined,
+    addressComplement: row.address_complement ?? undefined,
     neighborhood: row.neighborhood ?? undefined,
     cep: row.cep ?? undefined,
     city: row.city ?? undefined,
+    cityCode: row.city_code ?? undefined,
     state: row.state ?? undefined,
+    countryCode: row.country_code ?? undefined,
+    countryName: row.country_name ?? undefined,
+    ieIndicator: row.ie_indicator ?? undefined,
+    finalConsumer: row.final_consumer ?? undefined,
     notes: row.notes ?? undefined,
     active: Boolean(row.active),
   };
@@ -690,28 +702,34 @@ function mapFinancialEntry(row: any): FinancialEntryRecord {
 }
 
 export async function loadDashboardStats(): Promise<DashboardStats> {
+  const numeric = (value: unknown) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
   return withFallback(async () => {
     const summary = await apiRequest<any>('/dashboard/summary');
     return {
-      leiteRecebidoMes: summary.milkReceivedMonth,
-      lotesAprovados: summary.approvedLots,
-      lotesBloqueados: summary.blockedLots,
-      opsAbertas: summary.openOrders,
-      producaoFinalizada: summary.finishedOrders,
-      custoMedioKg: summary.averageCostPerLiter,
-      ticketMedioCustoKg: summary.averageCostPerKg || 0,
-      folhaLeite: summary.milkPayroll,
-      contasPagar: summary.accountsPayable,
-      contasReceber: summary.accountsReceivable,
-      analisesPendentes: summary.pendingAnalysisCount ?? 0,
-      titulosVencidos: summary.overdueEntries ?? 0,
-      valorVencido: summary.overdueAmount ?? 0,
-      insumosAbaixoMinimo: summary.lowStockItemsCount ?? 0,
+      leiteRecebidoMes: numeric(summary.milkReceivedMonth),
+      lotesAprovados: numeric(summary.approvedLots),
+      lotesBloqueados: numeric(summary.blockedLots),
+      opsAbertas: numeric(summary.openOrders),
+      producaoFinalizada: numeric(summary.finishedOrders),
+      custoMedioKg: numeric(summary.averageCostPerLiter),
+      ticketMedioCustoKg: numeric(summary.averageCostPerKg),
+      folhaLeite: numeric(summary.milkPayroll),
+      contasPagar: numeric(summary.accountsPayable),
+      contasReceber: numeric(summary.accountsReceivable),
+      analisesPendentes: numeric(summary.pendingAnalysisCount),
+      titulosVencidos: numeric(summary.overdueEntries),
+      valorVencido: numeric(summary.overdueAmount),
+      insumosAbaixoMinimo: numeric(summary.lowStockItemsCount),
     };
   }, () => {
     const fallback = calcularEstatisticas();
     return {
       ...fallback,
+      ticketMedioCustoKg: numeric(fallback.ticketMedioCustoKg),
       analisesPendentes: 0,
       titulosVencidos: 0,
       valorVencido: 0,
@@ -1352,8 +1370,16 @@ export async function createClient(payload: {
   email?: string;
   address?: string;
   addressNumber?: string;
+  addressComplement?: string;
+  neighborhood?: string;
+  cep?: string;
   city?: string;
+  cityCode?: string;
   state?: string;
+  countryCode?: string;
+  countryName?: string;
+  ieIndicator?: string;
+  finalConsumer?: boolean;
   notes?: string;
   active?: boolean;
 }) {
@@ -1376,8 +1402,16 @@ export async function updateClient(
     email?: string;
     address?: string;
     addressNumber?: string;
+    addressComplement?: string;
+    neighborhood?: string;
+    cep?: string;
     city?: string;
+    cityCode?: string;
     state?: string;
+    countryCode?: string;
+    countryName?: string;
+    ieIndicator?: string;
+    finalConsumer?: boolean;
     notes?: string;
     active?: boolean;
   },

@@ -150,6 +150,27 @@ export interface FinishedProductRecord {
   accountingCategoryId?: string;
   accountingSubcategoryId?: string;
   costType?: string;
+  fiscalCode?: string;
+  fiscalName?: string;
+  ncm?: string;
+  cest?: string;
+  goodsOrigin?: string;
+  commercialUnitSymbol?: string;
+  taxUnitSymbol?: string;
+  internalCfop?: string;
+  interstateCfop?: string;
+  icmsCst?: string;
+  pisCst?: string;
+  cofinsCst?: string;
+  ibsCbsCst?: string;
+  ibsCbsClassification?: string;
+  ibsStateRate?: number;
+  ibsStateReduction?: number;
+  ibsCityRate?: number;
+  ibsCityReduction?: number;
+  cbsRate?: number;
+  cbsReduction?: number;
+  fiscalAdditionalInfo?: string;
   active: boolean;
 }
 
