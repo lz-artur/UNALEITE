@@ -1345,6 +1345,7 @@ export default function Comercial() {
           onClose={() => setShowDetailModal(false)}
           maxWidth="max-w-5xl"
           hideCancel={true}
+          zIndex="z-[60]"
           extraFooterActions={
             <div className="flex items-center gap-3 w-full justify-end">
               {(selectedOrder.status === 'Atendido' || selectedOrder.status === 'Parcialmente Atendido') && (
@@ -1684,7 +1685,7 @@ export default function Comercial() {
                           <tr><td colSpan={5} className="py-12 text-center text-gray-500 font-medium">Nenhum pedido encontrado para este cliente.</td></tr>
                         ) : (
                           clientOrders.sort((a, b) => b.orderDate.getTime() - a.orderDate.getTime()).map(order => (
-                            <tr key={order.id} className="hover:bg-blue-50/50 transition-colors cursor-pointer" onClick={() => { setSelectedClientProfile(null); setSelectedOrder(order); setShowDetailModal(true); }}>
+                            <tr key={order.id} className="hover:bg-blue-50/50 transition-colors cursor-pointer" onClick={() => { setSelectedOrder(order); setShowDetailModal(true); }}>
                               <TableCell className="font-bold text-gray-900">{order.number}</TableCell>
                               <TableCell className="text-gray-600">{format(order.orderDate, 'dd/MM/yyyy')}</TableCell>
                               <TableCell className="text-gray-600">{format(order.dueDate, 'dd/MM/yyyy')}</TableCell>
@@ -1792,6 +1793,7 @@ function ModalShell({
   confirmColor = 'blue',
   hideCancel = false,
   extraFooterActions,
+  zIndex = 'z-50',
 }: {
   title: string;
   children: ReactNode;
@@ -1804,6 +1806,7 @@ function ModalShell({
   confirmColor?: 'blue' | 'orange' | 'red';
   hideCancel?: boolean;
   extraFooterActions?: ReactNode;
+  zIndex?: string;
 }) {
   const colorClasses = {
     blue: 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500',
@@ -1812,7 +1815,7 @@ function ModalShell({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className={`fixed inset-0 flex items-center justify-center bg-black/50 p-4 ${zIndex}`}>
       <div className={`max-h-[90vh] w-full flex flex-col overflow-hidden rounded-xl bg-white ${maxWidth}`}>
         <div className="border-b border-gray-200 p-6 shrink-0 flex items-center justify-between">
           <h3 className="text-xl font-bold text-gray-900">{title}</h3>
