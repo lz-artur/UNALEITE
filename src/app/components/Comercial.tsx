@@ -118,10 +118,12 @@ export default function Comercial() {
     returnDate: string;
     items: Array<{ salesOrderItemId: string; productId: string; lotId: string; returnedQuantity: string; reason: string; unitPrice: number; maxQuantity: number }>;
     discountAmount: string;
+    excessHandlingStrategy: 'credit' | 'refund';
   }>({
     returnDate: getToday(),
     items: [],
     discountAmount: '',
+    excessHandlingStrategy: 'credit',
   });
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
@@ -518,6 +520,7 @@ export default function Comercial() {
       returnDate: getToday(),
       items,
       discountAmount: '',
+      excessHandlingStrategy: 'credit',
     });
     setShowReturnModal(true);
   };
@@ -552,6 +555,7 @@ export default function Comercial() {
         returnDate: new Date(returnForm.returnDate).toISOString(),
         items: itemsToReturn,
         discountAmount: Number(returnForm.discountAmount) || 0,
+        excessHandlingStrategy: returnForm.excessHandlingStrategy,
       });
 
       setSalesOrders((current) =>
@@ -1554,19 +1558,37 @@ export default function Comercial() {
               </div>
             </div>
 
-            <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex flex-col md:flex-row items-center justify-between gap-4">
-              <div>
-                <h4 className="font-bold text-blue-900">Abatimento Financeiro</h4>
-                <p className="text-sm text-blue-700 mt-1">O valor será abatido proporcionalmente das parcelas em aberto deste pedido.</p>
+            <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex flex-col space-y-4">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 w-full">
+                <div>
+                  <h4 className="font-bold text-blue-900">Abatimento Financeiro</h4>
+                  <p className="text-sm text-blue-700 mt-1 text-balance">
+                    O valor será abatido da receita original. Se o pedido já estiver pago, escolha o destino do valor excedente abaixo.
+                  </p>
+                </div>
+                <div className="w-full md:w-48 bg-white rounded p-2 border border-blue-200 shrink-0">
+                  <InputField
+                    label="Valor a abater (R$)"
+                    type="number"
+                    value={returnForm.discountAmount}
+                    onChange={(value) => setReturnForm(current => ({ ...current, discountAmount: value }))}
+                  />
+                </div>
               </div>
-              <div className="w-full md:w-48 bg-white rounded p-2 border border-blue-200">
-                <InputField
-                  label="Valor a abater (R$)"
-                  type="number"
-                  value={returnForm.discountAmount}
-                  onChange={(value) => setReturnForm(current => ({ ...current, discountAmount: value }))}
-                />
-              </div>
+              
+              {Number(returnForm.discountAmount) > 0 && (
+                <div className="flex flex-col md:flex-row items-center gap-3 pt-3 border-t border-blue-200">
+                  <span className="text-sm font-medium text-blue-900 shrink-0">Destino do excedente (se já pago):</span>
+                  <select 
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                    value={returnForm.excessHandlingStrategy}
+                    onChange={(e) => setReturnForm(current => ({ ...current, excessHandlingStrategy: e.target.value as 'credit' | 'refund' }))}
+                  >
+                    <option value="credit">Gerar Crédito na carteira do cliente (Troca)</option>
+                    <option value="refund">Gerar um Contas a Pagar (Reembolso financeiro)</option>
+                  </select>
+                </div>
+              )}
             </div>
           </div>
         </ModalShell>

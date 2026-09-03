@@ -39,4 +39,8 @@ export class ReturnSalesOrderDto {
   @IsNumber()
   @Min(0)
   discountAmount!: number;
+
+  @IsString()
+  @IsOptional()
+  excessHandlingStrategy?: 'credit' | 'refund';
 }

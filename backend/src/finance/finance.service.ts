@@ -82,7 +82,9 @@ export class FinanceService {
       (sum: number, receipt: Record<string, unknown>) => sum + Number(receipt.amount || 0),
       0,
     );
-    const remainingAmount = Number(currentEntry.amount) - receivedAmount;
+    const originalAmount = Number(currentEntry.amount || 0);
+    const discountAmount = Number(currentEntry.discount_amount || 0);
+    const remainingAmount = originalAmount - discountAmount - receivedAmount;
 
     if (remainingAmount <= 0) {
       throw new BadRequestException('Este lançamento já está totalmente liquidado.');
@@ -113,6 +115,50 @@ export class FinanceService {
 
     if (Number.isNaN(paymentDate.getTime())) {
       throw new BadRequestException('Data de recebimento inválida.');
+    }
+
+    if (payload.paymentMethod === 'Crédito do Cliente') {
+      const { data: entryData } = await this.supabaseService.admin
+        .from('financial_entries')
+        .select('client_id')
+        .eq('id', id)
+        .single();
+        
+      if (!entryData || !entryData.client_id) {
+        throw new BadRequestException('Lançamento não possui cliente vinculado para uso de crédito.');
+      }
+      
+      const clientId = entryData.client_id;
+      
+      const { data: clientData } = await this.supabaseService.admin
+        .from('clients')
+        .select('credit_balance')
+        .eq('id', clientId)
+        .single();
+        
+      const currentBalance = Number(clientData?.credit_balance || 0);
+      const amountToUse = Number(payload.amount);
+      
+      if (currentBalance < amountToUse) {
+        throw new BadRequestException('Saldo de crédito insuficiente para o cliente.');
+      }
+      
+      await this.supabaseService.admin
+        .from('clients')
+        .update({ credit_balance: currentBalance - amountToUse })
+        .eq('id', clientId);
+        
+      await this.supabaseService.admin
+        .from('client_credits')
+        .insert({
+          client_id: clientId,
+          amount: -amountToUse,
+          transaction_type: 'Credit_Used',
+          reference_type: 'financial_entries',
+          reference_id: id,
+          notes: `Crédito utilizado para liquidação`,
+          created_by: user?.id ?? null
+        });
     }
 
     const { error } = await this.supabaseService.admin.rpc(
@@ -399,7 +445,9 @@ export class FinanceService {
       }))
       .sort((a, b) => new Date(String(a.payment_date)).getTime() - new Date(String(b.payment_date)).getTime());
     const receivedAmount = receipts.reduce((sum, receipt) => sum + receipt.amount, 0);
-    const totalAmount = Number(entry.amount || 0);
+    const originalAmount = Number(entry.amount || 0);
+    const discountAmount = Number(entry.discount_amount || 0);
+    const totalAmount = originalAmount - discountAmount;
     const outstandingAmount = Math.max(0, totalAmount - receivedAmount);
     const effectiveStatus = receivedAmount >= totalAmount && totalAmount > 0
       ? 'Pago'
@@ -416,6 +464,9 @@ export class FinanceService {
 
     return {
       ...entry,
+      amount: totalAmount,
+      original_amount: originalAmount,
+      discount_amount: discountAmount,
       status: effectiveStatus,
       computed_status: computedStatus,
       financial_entry_receipts: receipts,

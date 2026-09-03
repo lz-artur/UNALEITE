@@ -284,31 +284,45 @@ export class SalesService {
 
     // Apply financial discount
     if (totalDiscount > 0) {
-      const { data: openEntries } = await this.supabaseService.admin
+      const { data: relatedEntries } = await this.supabaseService.admin
         .from('financial_entries')
-        .select('*')
+        .select('*, financial_entry_receipts(*)')
         .eq('reference_table', 'sales_orders')
-        .eq('reference_id', salesOrderId)
-        .eq('status', 'Aberto');
+        .eq('reference_id', salesOrderId);
 
-      if (openEntries && openEntries.length > 0) {
-        const totalOpenAmount = openEntries.reduce((sum, e) => sum + Number(e.amount), 0);
+      if (relatedEntries && relatedEntries.length > 0) {
+        const totalAmount = relatedEntries.reduce((sum, e) => sum + Number(e.amount), 0);
         
-        if (totalDiscount > totalOpenAmount) {
-          totalDiscount = totalOpenAmount; // Max limit to avoid negative entries
+        if (totalDiscount > totalAmount) {
+          totalDiscount = totalAmount; // Max limit to avoid negative entries
         }
 
-        for (const entry of openEntries) {
+        let totalNewlyGeneratedExcess = 0;
+
+        for (const entry of relatedEntries) {
           const entryAmount = Number(entry.amount);
-          const proportionalDiscount = Number((totalDiscount * (entryAmount / totalOpenAmount)).toFixed(4));
-          const newAmount = entryAmount - proportionalDiscount;
+          const currentDiscount = Number(entry.discount_amount || 0);
+          const proportionalDiscount = Number((totalDiscount * (entryAmount / totalAmount)).toFixed(4));
+          const newDiscountAmount = currentDiscount + proportionalDiscount;
           
           await this.supabaseService.admin
             .from('financial_entries')
-            .update({ amount: newAmount, updated_by: user?.id ?? null })
+            .update({ discount_amount: newDiscountAmount, updated_by: user?.id ?? null })
             .eq('id', entry.id);
 
-          // Update financial_entry_items (rateio) if needed, proportionally as well
+          const receipts = Array.isArray(entry.financial_entry_receipts) ? entry.financial_entry_receipts : [];
+          const receivedAmount = receipts.reduce((sum: number, r: any) => sum + Number(r.amount || 0), 0);
+          
+          const previousNetAmount = entryAmount - currentDiscount;
+          const netAmount = entryAmount - newDiscountAmount;
+          
+          const previousExcess = Math.max(0, receivedAmount - previousNetAmount);
+          const currentExcess = Math.max(0, receivedAmount - netAmount);
+          const newlyGeneratedExcess = currentExcess - previousExcess;
+          
+          totalNewlyGeneratedExcess += newlyGeneratedExcess;
+
+          // Update financial_entry_items (rateio) if needed
           const { data: rateioItems } = await this.supabaseService.admin
             .from('financial_entry_items')
             .select('*')
@@ -320,9 +334,55 @@ export class SalesService {
                const propRateioDiscount = Number((proportionalDiscount * (rateioAmount / entryAmount)).toFixed(4));
                await this.supabaseService.admin
                  .from('financial_entry_items')
-                 .update({ amount: rateioAmount - propRateioDiscount })
+                 .update({ amount: rateioAmount - propRateioDiscount }) // reducing amount directly for rateios to keep it simple
                  .eq('id', rateio.id);
              }
+          }
+        }
+        
+        // Handle the excess if there is any and a strategy is provided
+        if (totalNewlyGeneratedExcess > 0 && payload.excessHandlingStrategy) {
+          if (payload.excessHandlingStrategy === 'credit' && salesOrder.client_id) {
+            const { data: client } = await this.supabaseService.admin
+              .from('clients')
+              .select('credit_balance')
+              .eq('id', salesOrder.client_id)
+              .single();
+            
+            if (client) {
+              const newBalance = Number(client.credit_balance || 0) + totalNewlyGeneratedExcess;
+              await this.supabaseService.admin
+                .from('clients')
+                .update({ credit_balance: newBalance })
+                .eq('id', salesOrder.client_id);
+                
+              await this.supabaseService.admin
+                .from('client_credits')
+                .insert({
+                  client_id: salesOrder.client_id,
+                  amount: totalNewlyGeneratedExcess,
+                  transaction_type: 'Credit_Earned',
+                  reference_type: 'sales_orders',
+                  reference_id: salesOrderId,
+                  notes: `Crédito gerado por devolução no pedido ${salesOrderId}`,
+                  created_by: user?.id ?? null
+                });
+            }
+          } else if (payload.excessHandlingStrategy === 'refund' && salesOrder.client_id) {
+            await this.supabaseService.admin
+              .from('financial_entries')
+              .insert({
+                entry_type: 'Pagar',
+                description: `Reembolso de Devolução (Pedido ${salesOrder.id})`,
+                amount: totalNewlyGeneratedExcess,
+                due_date: payload.returnDate || new Date().toISOString(),
+                status: 'Aberto',
+                category: 'Reembolsos',
+                client_id: salesOrder.client_id,
+                reference_table: 'sales_orders',
+                reference_id: salesOrderId,
+                created_by: user?.id ?? null
+              });
           }
         }
       }
