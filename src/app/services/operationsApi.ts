@@ -145,6 +145,7 @@ export interface ClientRecord {
   finalConsumer?: boolean;
   notes?: string;
   active: boolean;
+  credit_balance?: number;
 }
 
 export interface SalesOrderItemFulfillmentRecord {
@@ -610,6 +611,7 @@ function mapClient(row: any): ClientRecord {
     finalConsumer: row.final_consumer ?? undefined,
     notes: row.notes ?? undefined,
     active: Boolean(row.active),
+    credit_balance: Number(row.credit_balance || row.creditBalance || 0),
   };
 }
 

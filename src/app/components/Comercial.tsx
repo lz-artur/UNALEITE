@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { format } from 'date-fns';
-import { Loader2, Plus, ShoppingBag, Users, Trash2, Calendar, CalendarDays, FileText, User, X } from 'lucide-react';
+import { Loader2, Plus, ShoppingBag, Users, Trash2, Calendar, CalendarDays, FileText, User, X, Wallet, TrendingUp, History, CreditCard, Edit2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -125,6 +125,7 @@ export default function Comercial() {
     discountAmount: '',
     excessHandlingStrategy: 'credit',
   });
+  const [selectedClientProfile, setSelectedClientProfile] = useState<ClientRecord | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -874,12 +875,23 @@ export default function Comercial() {
                           </span>
                         </TableCell>
                         <TableCell>
-                          <button
-                            onClick={() => openEditClient(client)}
-                            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                          >
-                            Editar
-                          </button>
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => setSelectedClientProfile(client)}
+                              className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700 hover:bg-blue-100 font-medium flex items-center space-x-1"
+                              title="Ver Perfil"
+                            >
+                              <User className="h-4 w-4" />
+                              <span>Perfil</span>
+                            </button>
+                            <button
+                              onClick={() => openEditClient(client)}
+                              className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                              title="Editar"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </button>
+                          </div>
                         </TableCell>
                       </tr>
                     ))}
@@ -1591,6 +1603,105 @@ export default function Comercial() {
               )}
             </div>
           </div>
+        </ModalShell>
+      ) : null}
+
+      {selectedClientProfile ? (
+        <ModalShell
+          title="Perfil do Cliente"
+          onClose={() => setSelectedClientProfile(null)}
+          onConfirm={() => setSelectedClientProfile(null)}
+          confirmLabel="Fechar"
+          hideCancel={true}
+          maxWidth="max-w-4xl"
+        >
+          {(() => {
+            const clientOrders = salesOrders.filter(o => o.clientId === selectedClientProfile.id);
+            const totalSpent = clientOrders.reduce((sum, order) => sum + order.totalAmount, 0);
+
+            return (
+              <div className="space-y-6">
+                <div className="flex items-center gap-4 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                  <div className="h-16 w-16 bg-gradient-to-br from-blue-100 to-indigo-50 text-blue-600 rounded-2xl flex items-center justify-center shrink-0 border border-blue-100 shadow-sm">
+                    <User className="h-8 w-8" />
+                  </div>
+                  <div className="flex-1">
+                    <h2 className="text-2xl font-bold text-gray-900">{selectedClientProfile.name}</h2>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2 text-sm text-gray-600">
+                      <span className="flex items-center gap-1"><FileText className="h-4 w-4 text-gray-400"/> Doc: {selectedClientProfile.document}</span>
+                      {selectedClientProfile.city && (
+                        <span className="flex items-center gap-1">• {selectedClientProfile.city}/{selectedClientProfile.state}</span>
+                      )}
+                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${selectedClientProfile.active ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-800'}`}>{selectedClientProfile.active ? 'Ativo' : 'Inativo'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-6 text-white shadow-lg flex items-center gap-5 relative overflow-hidden group">
+                    <div className="bg-white/20 p-3.5 rounded-2xl shrink-0 backdrop-blur-md border border-white/10 group-hover:scale-110 transition-transform">
+                      <Wallet className="h-8 w-8 text-white" />
+                    </div>
+                    <div className="z-10">
+                      <p className="text-blue-100 font-medium text-sm tracking-wide uppercase">Saldo da Carteira</p>
+                      <p className="text-4xl font-bold mt-1 tracking-tight">R$ {(selectedClientProfile.credit_balance || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    </div>
+                    <div className="absolute -right-4 -top-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                      <CreditCard className="h-40 w-40 transform -rotate-12" />
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm flex items-center gap-5 hover:border-gray-200 transition-colors">
+                    <div className="bg-emerald-50 text-emerald-600 p-3.5 rounded-2xl shrink-0 border border-emerald-100">
+                      <TrendingUp className="h-8 w-8" />
+                    </div>
+                    <div>
+                      <p className="text-gray-500 font-medium text-sm tracking-wide uppercase">Total Gasto</p>
+                      <p className="text-4xl font-bold text-gray-900 mt-1 tracking-tight">R$ {totalSpent.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                      <p className="text-sm text-gray-500 mt-1 font-medium bg-gray-50 inline-block px-2 py-0.5 rounded-md">{clientOrders.length} pedido(s) registrado(s)</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border border-gray-200 bg-white rounded-2xl overflow-hidden shadow-sm">
+                  <div className="bg-gray-50/80 px-5 py-4 border-b border-gray-200 flex items-center gap-2">
+                    <History className="h-5 w-5 text-gray-500" />
+                    <h3 className="font-semibold text-gray-800 text-base">Histórico de Pedidos de Venda</h3>
+                  </div>
+                  <div className="overflow-x-auto max-h-96">
+                    <table className="w-full">
+                      <thead className="bg-white border-b border-gray-100 sticky top-0 z-10 shadow-sm">
+                        <tr>
+                          <TableHead>Número</TableHead>
+                          <TableHead>Data</TableHead>
+                          <TableHead>Vencimento</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Total</TableHead>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {clientOrders.length === 0 ? (
+                          <tr><td colSpan={5} className="py-12 text-center text-gray-500 font-medium">Nenhum pedido encontrado para este cliente.</td></tr>
+                        ) : (
+                          clientOrders.sort((a, b) => b.orderDate.getTime() - a.orderDate.getTime()).map(order => (
+                            <tr key={order.id} className="hover:bg-blue-50/50 transition-colors cursor-pointer" onClick={() => { setSelectedClientProfile(null); setSelectedOrder(order); setShowOrderDetails(true); }}>
+                              <TableCell className="font-bold text-gray-900">{order.number}</TableCell>
+                              <TableCell className="text-gray-600">{format(order.orderDate, 'dd/MM/yyyy')}</TableCell>
+                              <TableCell className="text-gray-600">{format(order.dueDate, 'dd/MM/yyyy')}</TableCell>
+                              <TableCell>
+                                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold leading-5 ${order.status === 'Atendido' ? 'bg-emerald-100 text-emerald-800' : order.status === 'Parcialmente Atendido' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>{order.status}</span>
+                              </TableCell>
+                              <TableCell className="font-bold text-gray-900">R$ {order.totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </ModalShell>
       ) : null}
 
