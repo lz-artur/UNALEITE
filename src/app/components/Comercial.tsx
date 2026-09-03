@@ -1684,7 +1684,7 @@ export default function Comercial() {
                           <tr><td colSpan={5} className="py-12 text-center text-gray-500 font-medium">Nenhum pedido encontrado para este cliente.</td></tr>
                         ) : (
                           clientOrders.sort((a, b) => b.orderDate.getTime() - a.orderDate.getTime()).map(order => (
-                            <tr key={order.id} className="hover:bg-blue-50/50 transition-colors cursor-pointer" onClick={() => { setSelectedClientProfile(null); setSelectedOrder(order); setShowOrderDetails(true); }}>
+                            <tr key={order.id} className="hover:bg-blue-50/50 transition-colors cursor-pointer" onClick={() => { setSelectedClientProfile(null); setSelectedOrder(order); setShowDetailModal(true); }}>
                               <TableCell className="font-bold text-gray-900">{order.number}</TableCell>
                               <TableCell className="text-gray-600">{format(order.orderDate, 'dd/MM/yyyy')}</TableCell>
                               <TableCell className="text-gray-600">{format(order.dueDate, 'dd/MM/yyyy')}</TableCell>
