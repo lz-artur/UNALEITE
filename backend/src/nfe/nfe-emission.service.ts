@@ -206,6 +206,7 @@ export class NfeEmissionService {
   private buildNfe(invoice: Record<string, any>, config: Record<string, any>): NFe {
     const recipient = invoice.recipient_snapshot;
     const homologationName = 'NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL';
+    const str = (value: unknown) => typeof value === 'string' ? value.trim() : (value !== null && value !== undefined ? String(value).trim() : undefined as any);
     const money = (value: unknown) => Number(value ?? 0).toFixed(2);
     const rate = (value: unknown) => Number(value ?? 0).toFixed(4);
     const effectiveRate = (nominal: unknown, reduction: unknown) => Number(nominal ?? 0) * (1 - Number(reduction ?? 0) / 100);
@@ -276,23 +277,23 @@ export class NfeEmissionService {
           verProc: config.application_version,
         },
         emit: {
-          CNPJCPF: String(config.cnpj).replace(/\D/g, ''), xNome: config.legal_name,
-          ...(config.trade_name ? { xFant: config.trade_name } : {}),
-          enderEmit: { xLgr: config.address, nro: config.address_number, ...(config.address_complement ? { xCpl: config.address_complement } : {}),
-            xBairro: config.neighborhood, cMun: Number(config.city_code), xMun: config.city_name, UF: config.state,
-            CEP: String(config.cep).replace(/\D/g, ''), cPais: Number(config.country_code), xPais: config.country_name,
+          CNPJCPF: String(config.cnpj).replace(/\D/g, ''), xNome: str(config.legal_name),
+          ...(config.trade_name ? { xFant: str(config.trade_name) } : {}),
+          enderEmit: { xLgr: str(config.address), nro: str(config.address_number), ...(config.address_complement ? { xCpl: str(config.address_complement) } : {}),
+            xBairro: str(config.neighborhood), cMun: Number(config.city_code), xMun: str(config.city_name), UF: str(config.state),
+            CEP: String(config.cep).replace(/\D/g, ''), cPais: Number(config.country_code), xPais: str(config.country_name),
             ...(config.phone ? { fone: String(config.phone).replace(/\D/g, '') } : {}) },
           IE: String(config.state_registration).replace(/\D/g, ''),
           ...(config.cnae ? { CNAE: Number(String(config.cnae).replace(/\D/g, '')) } : {}), CRT: Number(config.tax_regime),
         },
         dest: {
           CNPJCPF: String(recipient.document).replace(/\D/g, ''),
-          xNome: config.environment === 'homologacao' ? homologationName : recipient.name,
-          enderDest: { xLgr: recipient.address, nro: recipient.address_number,
-            ...(recipient.address_complement ? { xCpl: recipient.address_complement } : {}), xBairro: recipient.neighborhood,
-            cMun: Number(recipient.city_code), xMun: recipient.city, UF: recipient.state,
+          xNome: config.environment === 'homologacao' ? homologationName : str(recipient.name),
+          enderDest: { xLgr: str(recipient.address), nro: str(recipient.address_number),
+            ...(recipient.address_complement ? { xCpl: str(recipient.address_complement) } : {}), xBairro: str(recipient.neighborhood),
+            cMun: Number(recipient.city_code), xMun: str(recipient.city), UF: str(recipient.state),
             CEP: String(recipient.cep).replace(/\D/g, ''), cPais: Number(recipient.country_code ?? 1058),
-            xPais: recipient.country_name ?? 'Brasil', ...(recipient.phone ? { fone: String(recipient.phone).replace(/\D/g, '') } : {}) },
+            xPais: str(recipient.country_name ?? 'Brasil'), ...(recipient.phone ? { fone: String(recipient.phone).replace(/\D/g, '') } : {}) },
           indIEDest: Number(recipient.ie_indicator), ...(Number(recipient.ie_indicator) === 1 && recipient.state_registration ? { IE: String(recipient.state_registration).replace(/\D/g, '') } : {}),
           ...(recipientEmail ? { email: recipientEmail } : {}),
         },
@@ -314,7 +315,7 @@ export class NfeEmissionService {
           tPag: String(invoice.payment_snapshot.method_code),
           vPag: String(invoice.payment_snapshot.method_code) === '90' ? '0.00' : money(invoice.total_nfe),
         } },
-        infAdic: { ...(invoice.fiscal_additional_info ? { infAdFisco: invoice.fiscal_additional_info } : {}), ...(invoice.additional_info ? { infCpl: invoice.additional_info } : {}) },
+        infAdic: { ...(invoice.fiscal_additional_info ? { infAdFisco: str(invoice.fiscal_additional_info) } : {}), ...(invoice.additional_info ? { infCpl: str(invoice.additional_info) } : {}) },
         infRespTec: {
           CNPJ: String(config.cnpj).replace(/\D/g, ''),
           xContato: 'Responsável Técnico',
