@@ -1,7 +1,11 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import * as ws from 'ws';
 
+if (typeof globalThis.WebSocket === 'undefined') {
+  (globalThis as any).WebSocket = ws;
+}
 @Injectable()
 export class SupabaseService {
   private readonly client: SupabaseClient;
