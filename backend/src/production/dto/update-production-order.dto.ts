@@ -2,8 +2,13 @@ import { IsArray, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'cl
 import { Type } from 'class-transformer';
 
 class SupplyConsumptionDto {
+  @IsOptional()
   @IsString()
-  supplyLotId!: string;
+  supplyLotId?: string;
+
+  @IsOptional()
+  @IsString()
+  supplyItemId?: string;
 
   @IsNumber()
   @Min(0.0001)
@@ -11,8 +16,13 @@ class SupplyConsumptionDto {
 }
 
 class FinishedProductConsumptionDto {
+  @IsOptional()
   @IsString()
-  finishedProductLotId!: string;
+  finishedProductLotId?: string;
+
+  @IsOptional()
+  @IsString()
+  finishedProductId?: string;
 
   @IsNumber()
   @Min(0.0001)

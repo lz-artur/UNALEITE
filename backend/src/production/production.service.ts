@@ -16,6 +16,28 @@ import { CreateProductionOrderDto } from './dto/create-production-order.dto';
 import { UpdateProductionOrderDto } from './dto/update-production-order.dto';
 import { AdjustProductionOrderDto } from './dto/adjust-production-order.dto';
 
+type SupplyConsumptionInput = {
+  supplyLotId?: string;
+  supplyItemId?: string;
+  quantity: number;
+};
+
+type ResolvedSupplyConsumption = {
+  supplyLotId: string;
+  quantity: number;
+};
+
+type FinishedProductConsumptionInput = {
+  finishedProductLotId?: string;
+  finishedProductId?: string;
+  quantity: number;
+};
+
+type ResolvedFinishedProductConsumption = {
+  finishedProductLotId: string;
+  quantity: number;
+};
+
 @Injectable()
 export class ProductionService {
   constructor(
@@ -64,6 +86,99 @@ export class ProductionService {
       return newLot!.id as string;
     }
     return virtualOrRealId;
+  }
+
+  /** Expands one aggregated insumo consumption into its oldest available lots (FIFO). */
+  private async resolveSupplyConsumptions(
+    consumptions: SupplyConsumptionInput[],
+    user?: AuthenticatedUser,
+  ): Promise<ResolvedSupplyConsumption[]> {
+    const resolved: ResolvedSupplyConsumption[] = [];
+
+    for (const consumption of consumptions) {
+      if (!consumption.supplyItemId) {
+        if (!consumption.supplyLotId) {
+          throw new BadRequestException('Informe o insumo a ser consumido.');
+        }
+        resolved.push({
+          supplyLotId: await this.resolveSupplyLotId(consumption.supplyLotId, consumption.quantity, user),
+          quantity: consumption.quantity,
+        });
+        continue;
+      }
+
+      const { data: lots, error } = await this.supabaseService.admin
+        .from('supply_lots')
+        .select('id, available_quantity')
+        .eq('supply_item_id', consumption.supplyItemId)
+        .in('status', [SUPPLY_LOT_STATUS.AVAILABLE, SUPPLY_LOT_STATUS.PARTIALLY_USED])
+        .gt('available_quantity', 0)
+        .order('entry_date', { ascending: true })
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true });
+
+      if (error) {
+        throw new BadRequestException(error.message);
+      }
+
+      let remaining = consumption.quantity;
+      for (const lot of lots ?? []) {
+        if (remaining <= 0) break;
+        const quantity = Math.min(Number(lot.available_quantity), remaining);
+        resolved.push({ supplyLotId: String(lot.id), quantity });
+        remaining = Number((remaining - quantity).toFixed(4));
+      }
+
+      if (remaining > 0) {
+        throw new BadRequestException('O insumo selecionado não possui saldo disponível suficiente.');
+      }
+    }
+
+    return resolved;
+  }
+
+  /** Expands one aggregated finished-product consumption into its oldest produced lots (FIFO). */
+  private async resolveFinishedProductConsumptions(
+    consumptions: FinishedProductConsumptionInput[],
+  ): Promise<ResolvedFinishedProductConsumption[]> {
+    const resolved: ResolvedFinishedProductConsumption[] = [];
+
+    for (const consumption of consumptions) {
+      if (!consumption.finishedProductId) {
+        if (!consumption.finishedProductLotId) {
+          throw new BadRequestException('Informe o produto acabado a ser consumido.');
+        }
+        resolved.push({ finishedProductLotId: consumption.finishedProductLotId, quantity: consumption.quantity });
+        continue;
+      }
+
+      const { data: lots, error } = await this.supabaseService.admin
+        .from('finished_product_lots')
+        .select('id, available_quantity')
+        .eq('product_id', consumption.finishedProductId)
+        .gt('available_quantity', 0)
+        .order('produced_at', { ascending: true })
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true });
+
+      if (error) {
+        throw new BadRequestException(error.message);
+      }
+
+      let remaining = consumption.quantity;
+      for (const lot of lots ?? []) {
+        if (remaining <= 0) break;
+        const quantity = Math.min(Number(lot.available_quantity), remaining);
+        resolved.push({ finishedProductLotId: String(lot.id), quantity });
+        remaining = Number((remaining - quantity).toFixed(4));
+      }
+
+      if (remaining > 0) {
+        throw new BadRequestException('O produto acabado selecionado não possui saldo disponível suficiente.');
+      }
+    }
+
+    return resolved;
   }
 
   async listOrders() {
@@ -140,8 +255,8 @@ export class ProductionService {
     });
 
     if (payload.supplyConsumptions?.length) {
-      for (const consumption of payload.supplyConsumptions) {
-        consumption.supplyLotId = await this.resolveSupplyLotId(consumption.supplyLotId, consumption.quantity, user);
+      const supplyConsumptions = await this.resolveSupplyConsumptions(payload.supplyConsumptions, user);
+      for (const consumption of supplyConsumptions) {
         const supplyLot = await this.getById('supply_lots', consumption.supplyLotId);
         const nextAvailable = Number(supplyLot.available_quantity) - consumption.quantity;
 
@@ -185,11 +300,23 @@ export class ProductionService {
             })
             .eq('id', supplyLot.supply_item_id);
         }
+
+        await this.supabaseService.admin.from('stock_movements').insert({
+          movement_type: 'saida',
+          lot_type: 'Insumo',
+          lot_id: consumption.supplyLotId,
+          quantity: consumption.quantity,
+          reference_table: 'production_orders',
+          reference_id: order.id,
+          created_by: user?.id ?? null,
+          updated_by: user?.id ?? null,
+        });
       }
     }
 
     if (payload.finishedProductConsumptions?.length) {
-      for (const consumption of payload.finishedProductConsumptions) {
+      const finishedProductConsumptions = await this.resolveFinishedProductConsumptions(payload.finishedProductConsumptions);
+      for (const consumption of finishedProductConsumptions) {
         const productLot = await this.getById('finished_product_lots', consumption.finishedProductLotId);
         const nextAvailable = Number(productLot.available_quantity) - consumption.quantity;
 
@@ -212,6 +339,17 @@ export class ProductionService {
             updated_by: user?.id ?? null,
           })
           .eq('id', consumption.finishedProductLotId);
+
+        await this.supabaseService.admin.from('stock_movements').insert({
+          movement_type: 'saida',
+          lot_type: 'Produto Acabado',
+          lot_id: consumption.finishedProductLotId,
+          quantity: consumption.quantity,
+          reference_table: 'production_orders',
+          reference_id: order.id,
+          created_by: user?.id ?? null,
+          updated_by: user?.id ?? null,
+        });
       }
     }
 
@@ -254,12 +392,16 @@ export class ProductionService {
           quantity: c.quantity_consumed,
         }));
       } else {
-        supplyConsumptions = await this.buildFefoConsumptions(productSpec, Number(order.liters_planned));
+        supplyConsumptions = await this.buildFifoConsumptions(productSpec, Number(order.liters_planned));
         deductStockForConsumptions = true;
       }
     } else {
       deductStockForConsumptions = true;
     }
+
+    const resolvedSupplyConsumptions = deductStockForConsumptions && supplyConsumptions
+      ? await this.resolveSupplyConsumptions(supplyConsumptions, user)
+      : [];
 
     let finishedProductConsumptions = payload.finishedProductConsumptions;
     let deductStockForFPConsumptions = false;
@@ -276,16 +418,19 @@ export class ProductionService {
           quantity: c.quantity_consumed,
         }));
       } else {
-        finishedProductConsumptions = await this.buildFefoFinishedProductConsumptions(productSpec, Number(order.liters_planned));
+        finishedProductConsumptions = await this.buildFifoFinishedProductConsumptions(productSpec, Number(order.liters_planned));
         deductStockForFPConsumptions = true;
       }
     } else {
       deductStockForFPConsumptions = true;
     }
 
+    const resolvedFinishedProductConsumptions = deductStockForFPConsumptions && finishedProductConsumptions
+      ? await this.resolveFinishedProductConsumptions(finishedProductConsumptions)
+      : [];
+
     if (deductStockForConsumptions) {
-      for (const consumption of supplyConsumptions) {
-        consumption.supplyLotId = await this.resolveSupplyLotId(consumption.supplyLotId, consumption.quantity, user);
+      for (const consumption of resolvedSupplyConsumptions) {
         const supplyLot = await this.getById('supply_lots', consumption.supplyLotId);
         const availableQuantity = Number(supplyLot.available_quantity);
         // Desabilitado temporariamente para inserção de dados retroativos
@@ -306,8 +451,8 @@ export class ProductionService {
       }
     }
 
-    if (deductStockForFPConsumptions && finishedProductConsumptions && finishedProductConsumptions.length > 0) {
-      for (const consumption of finishedProductConsumptions) {
+    if (deductStockForFPConsumptions && resolvedFinishedProductConsumptions.length > 0) {
+      for (const consumption of resolvedFinishedProductConsumptions) {
         const productLot = await this.getById('finished_product_lots', consumption.finishedProductLotId);
         const availableQuantity = Number(productLot.available_quantity);
 
@@ -364,7 +509,7 @@ export class ProductionService {
       throw new BadRequestException(milkUpdateError.message);
     }
 
-    if (deductStockForConsumptions && supplyConsumptions && supplyConsumptions.length > 0) {
+    if (deductStockForConsumptions && resolvedSupplyConsumptions.length > 0) {
       // Restore previous consumptions to avoid double deduction
       const { data: oldConsumptions } = await this.supabaseService.admin
         .from('production_order_supply_consumptions')
@@ -408,7 +553,7 @@ export class ProductionService {
         .delete()
         .eq('production_order_id', orderId);
 
-      for (const consumption of supplyConsumptions) {
+      for (const consumption of resolvedSupplyConsumptions) {
         const supplyLot = await this.getById('supply_lots', consumption.supplyLotId);
         const nextAvailable = Number(supplyLot.available_quantity) - consumption.quantity;
 
@@ -452,10 +597,21 @@ export class ProductionService {
             })
             .eq('id', supplyLot.supply_item_id);
         }
+
+        await this.supabaseService.admin.from('stock_movements').insert({
+          movement_type: 'saida',
+          lot_type: 'Insumo',
+          lot_id: consumption.supplyLotId,
+          quantity: consumption.quantity,
+          reference_table: 'production_orders',
+          reference_id: orderId,
+          created_by: user?.id ?? null,
+          updated_by: user?.id ?? null,
+        });
       }
     }
 
-    if (deductStockForFPConsumptions && finishedProductConsumptions && finishedProductConsumptions.length > 0) {
+    if (deductStockForFPConsumptions && resolvedFinishedProductConsumptions.length > 0) {
       const { data: oldFPConsumptions } = await this.supabaseService.admin
         .from('production_order_finished_product_consumptions')
         .select('finished_product_lot_id, quantity_consumed')
@@ -484,7 +640,7 @@ export class ProductionService {
         .delete()
         .eq('production_order_id', orderId);
 
-      for (const consumption of finishedProductConsumptions) {
+      for (const consumption of resolvedFinishedProductConsumptions) {
         const productLot = await this.getById('finished_product_lots', consumption.finishedProductLotId);
         const nextAvailable = Number(productLot.available_quantity) - consumption.quantity;
 
@@ -507,6 +663,17 @@ export class ProductionService {
             updated_by: user?.id ?? null,
           })
           .eq('id', consumption.finishedProductLotId);
+
+        await this.supabaseService.admin.from('stock_movements').insert({
+          movement_type: 'saida',
+          lot_type: 'Produto Acabado',
+          lot_id: consumption.finishedProductLotId,
+          quantity: consumption.quantity,
+          reference_table: 'production_orders',
+          reference_id: orderId,
+          created_by: user?.id ?? null,
+          updated_by: user?.id ?? null,
+        });
       }
     }
 
@@ -604,7 +771,7 @@ export class ProductionService {
     return {
       order: completedOrder,
       productLot,
-      supplyConsumptions,
+      supplyConsumptions: deductStockForConsumptions ? resolvedSupplyConsumptions : supplyConsumptions,
     };
   }
 
@@ -635,6 +802,7 @@ export class ProductionService {
     }
 
     if (payload.supplyConsumptions !== undefined) {
+      const supplyConsumptions = await this.resolveSupplyConsumptions(payload.supplyConsumptions, user);
       const { data: oldConsumptions } = await this.supabaseService.admin
         .from('production_order_supply_consumptions')
         .select('supply_lot_id, quantity_consumed')
@@ -677,9 +845,7 @@ export class ProductionService {
         .delete()
         .eq('production_order_id', orderId);
 
-      for (const consumption of payload.supplyConsumptions) {
-        consumption.supplyLotId = await this.resolveSupplyLotId(consumption.supplyLotId, consumption.quantity, user);
-        
+      for (const consumption of supplyConsumptions) {
         const { data: supplyLot } = await this.supabaseService.admin
           .from('supply_lots')
           .select('available_quantity, supply_item_id, internal_lot_code')
@@ -729,10 +895,22 @@ export class ProductionService {
             })
             .eq('id', supplyLot.supply_item_id);
         }
+
+        await this.supabaseService.admin.from('stock_movements').insert({
+          movement_type: 'saida',
+          lot_type: 'Insumo',
+          lot_id: consumption.supplyLotId,
+          quantity: consumption.quantity,
+          reference_table: 'production_orders',
+          reference_id: orderId,
+          created_by: user?.id ?? null,
+          updated_by: user?.id ?? null,
+        });
       }
     }
 
     if (payload.finishedProductConsumptions !== undefined) {
+      const finishedProductConsumptions = await this.resolveFinishedProductConsumptions(payload.finishedProductConsumptions);
       const { data: oldFPConsumptions } = await this.supabaseService.admin
         .from('production_order_finished_product_consumptions')
         .select('finished_product_lot_id, quantity_consumed')
@@ -761,7 +939,7 @@ export class ProductionService {
         .delete()
         .eq('production_order_id', orderId);
 
-      for (const consumption of payload.finishedProductConsumptions) {
+      for (const consumption of finishedProductConsumptions) {
         const { data: productLot } = await this.supabaseService.admin
           .from('finished_product_lots')
           .select('available_quantity, lot_code')
@@ -792,6 +970,17 @@ export class ProductionService {
             updated_by: user?.id ?? null,
           })
           .eq('id', consumption.finishedProductLotId);
+
+        await this.supabaseService.admin.from('stock_movements').insert({
+          movement_type: 'saida',
+          lot_type: 'Produto Acabado',
+          lot_id: consumption.finishedProductLotId,
+          quantity: consumption.quantity,
+          reference_table: 'production_orders',
+          reference_id: orderId,
+          created_by: user?.id ?? null,
+          updated_by: user?.id ?? null,
+        });
       }
     }
 
@@ -964,7 +1153,7 @@ export class ProductionService {
     return data;
   }
 
-  private async buildFefoConsumptions(productSpec: Record<string, unknown> | null, litersPlanned: number) {
+  private async buildFifoConsumptions(productSpec: Record<string, unknown> | null, litersPlanned: number) {
     if (!productSpec) {
       return [];
     }
@@ -983,8 +1172,9 @@ export class ProductionService {
         .select('*')
         .eq('supply_item_id', item.supply_item_id as string)
         .in('status', [SUPPLY_LOT_STATUS.AVAILABLE, SUPPLY_LOT_STATUS.PARTIALLY_USED])
-        .order('expiration_date', { ascending: true, nullsFirst: false })
-        .order('entry_date', { ascending: true });
+        .order('entry_date', { ascending: true })
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true });
 
       if (error) {
         throw new BadRequestException(error.message);
@@ -1029,7 +1219,7 @@ export class ProductionService {
     return consumptions;
   }
 
-  private async buildFefoFinishedProductConsumptions(productSpec: Record<string, unknown> | null, litersPlanned: number) {
+  private async buildFifoFinishedProductConsumptions(productSpec: Record<string, unknown> | null, litersPlanned: number) {
     if (!productSpec) {
       return [];
     }
@@ -1048,8 +1238,9 @@ export class ProductionService {
         .select('*')
         .eq('product_id', item.finished_product_id as string)
         .gt('available_quantity', 0)
-        .order('expiration_date', { ascending: true, nullsFirst: false })
-        .order('produced_at', { ascending: true });
+        .order('produced_at', { ascending: true })
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true });
 
       if (error) {
         throw new BadRequestException(error.message);

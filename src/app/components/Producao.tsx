@@ -30,8 +30,8 @@ const emptyCreateForm = {
  productId: '',
  litersToUse: '',
  actualQuantityProduced: '',
- supplyConsumptions: [] as { supplyLotId: string; quantity: string }[],
- finishedProductConsumptions: [] as { finishedProductLotId: string; quantity: string }[],
+ supplyConsumptions: [] as { supplyItemId: string; quantity: string }[],
+ finishedProductConsumptions: [] as { finishedProductId: string; quantity: string }[],
 };
 
 const emptyCompleteForm = {
@@ -69,6 +69,10 @@ export default function Producao() {
  const [editingOrder, setEditingOrder] = useState<OrdemProducao | null>(null);
  const [ajusteModalOpen, setAjusteModalOpen] = useState(false);
  const [orderToAdjust, setOrderToAdjust] = useState<OrdemProducao | null>(null);
+ const [supplySearchTerms, setSupplySearchTerms] = useState<Record<number, string>>({});
+ const [openSupplySearch, setOpenSupplySearch] = useState<number | null>(null);
+ const [finishedProductSearchTerms, setFinishedProductSearchTerms] = useState<Record<number, string>>({});
+ const [openFinishedProductSearch, setOpenFinishedProductSearch] = useState<number | null>(null);
  const { finishedProducts, getFinishedProductById, getUnitSymbol, getSupplyItemById } = useCadastros();
 
  const loadData = async () => {
@@ -107,6 +111,44 @@ export default function Producao() {
  [finishedProducts],
  );
 
+ const availableSupplyItems = useMemo(() => {
+   const grouped = new Map<string, { id: string; name: string; availableQuantity: number; unit: string }>();
+
+   supplyLots
+     .filter((lot) => lot.availableQuantity > 0)
+     .forEach((lot) => {
+       const current = grouped.get(lot.supplyItemId);
+       const item = getSupplyItemById(lot.supplyItemId);
+       grouped.set(lot.supplyItemId, {
+         id: lot.supplyItemId,
+         name: lot.supplyItemName || item?.name || 'Insumo sem nome',
+         availableQuantity: (current?.availableQuantity ?? 0) + lot.availableQuantity,
+         unit: getUnitSymbol(lot.unitId || item?.unitId),
+       });
+     });
+
+   return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+ }, [getSupplyItemById, getUnitSymbol, supplyLots]);
+
+ const availableFinishedProducts = useMemo(() => {
+   const grouped = new Map<string, { id: string; name: string; availableQuantity: number; unit: string }>();
+
+   finishedProductLots
+     .filter((lot) => lot.disponivel > 0)
+     .forEach((lot) => {
+       const current = grouped.get(lot.produtoId);
+       const product = getFinishedProductById(lot.produtoId);
+       grouped.set(lot.produtoId, {
+         id: lot.produtoId,
+         name: product?.name || 'Produto acabado sem nome',
+         availableQuantity: (current?.availableQuantity ?? 0) + lot.disponivel,
+         unit: getUnitSymbol(product?.unitId),
+       });
+     });
+
+   return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+ }, [finishedProductLots, getFinishedProductById, getUnitSymbol]);
+
  const selectedLot = lotes.find((lote) => lote.id === formState.milkLotId);
  const selectedProduct = getFinishedProductById(formState.productId);
  const finishedOrders = ordensProducao.filter((op) => op.status === 'Finalizada');
@@ -133,12 +175,12 @@ export default function Producao() {
 
  try {
  const payloadSupplyConsumptions = formState.supplyConsumptions
-   .filter(c => c.supplyLotId && Number(c.quantity) > 0)
-   .map(c => ({ supplyLotId: c.supplyLotId, quantity: Number(c.quantity) }));
+   .filter(c => c.supplyItemId && Number(c.quantity) > 0)
+   .map(c => ({ supplyItemId: c.supplyItemId, quantity: Number(c.quantity) }));
 
  const payloadFinishedProductConsumptions = formState.finishedProductConsumptions
-   .filter(c => c.finishedProductLotId && Number(c.quantity) > 0)
-   .map(c => ({ finishedProductLotId: c.finishedProductLotId, quantity: Number(c.quantity) }));
+   .filter(c => c.finishedProductId && Number(c.quantity) > 0)
+   .map(c => ({ finishedProductId: c.finishedProductId, quantity: Number(c.quantity) }));
 
  if (editingOrder) {
    await updateProductionOrder(editingOrder.id, {
@@ -161,6 +203,10 @@ export default function Producao() {
  setShowCreateModal(false);
  setEditingOrder(null);
  setFormState(emptyCreateForm);
+ setSupplySearchTerms({});
+ setOpenSupplySearch(null);
+ setFinishedProductSearchTerms({});
+ setOpenFinishedProductSearch(null);
  await loadData();
  } catch (error) {
  setSubmitError(getErrorMessage(error));
@@ -230,6 +276,10 @@ export default function Producao() {
  setShowCreateModal(false);
  setEditingOrder(null);
  setFormState(emptyCreateForm);
+ setSupplySearchTerms({});
+ setOpenSupplySearch(null);
+ setFinishedProductSearchTerms({});
+ setOpenFinishedProductSearch(null);
  setSubmitError(null);
  };
 
@@ -416,11 +466,28 @@ export default function Producao() {
                 litersToUse: String(op.litrosUtilizados),
                 actualQuantityProduced: op.quantidadeProduzida ? String(op.quantidadeProduzida) : '',
                 supplyConsumptions: op.insumos
-                  .filter(i => i.supplyLotId)
-                  .map(i => ({ supplyLotId: i.supplyLotId as string, quantity: String(i.quantidade) })),
+                  .filter(i => i.insumoId)
+                  .reduce((consumptions, item) => {
+                    const existing = consumptions.find((consumption) => consumption.supplyItemId === item.insumoId);
+                    if (existing) {
+                      existing.quantity = String(Number(existing.quantity) + item.quantidade);
+                    } else {
+                      consumptions.push({ supplyItemId: item.insumoId, quantity: String(item.quantidade) });
+                    }
+                    return consumptions;
+                  }, [] as { supplyItemId: string; quantity: string }[]),
                 finishedProductConsumptions: (op.produtosAcabadosConsumidos || [])
-                  .filter(i => i.finishedProductLotId)
-                  .map(i => ({ finishedProductLotId: i.finishedProductLotId, quantity: String(i.quantidade) })),
+                  .reduce((consumptions, item) => {
+                    const productId = item.produtoId || finishedProductLots.find((lot) => lot.id === item.finishedProductLotId)?.produtoId;
+                    if (!productId) return consumptions;
+                    const existing = consumptions.find((consumption) => consumption.finishedProductId === productId);
+                    if (existing) {
+                      existing.quantity = String(Number(existing.quantity) + item.quantidade);
+                    } else {
+                      consumptions.push({ finishedProductId: productId, quantity: String(item.quantidade) });
+                    }
+                    return consumptions;
+                  }, [] as { finishedProductId: string; quantity: string }[]),
               });
               setShowCreateModal(true);
               setOpenDropdownId(null);
@@ -553,7 +620,7 @@ export default function Producao() {
  <h4 className="text-sm font-semibold text-gray-900">Insumos Planejados (Opcional)</h4>
  <button
  type="button"
- onClick={() => setFormState(prev => ({ ...prev, supplyConsumptions: [...prev.supplyConsumptions, { supplyLotId: '', quantity: '' }] }))}
+ onClick={() => setFormState(prev => ({ ...prev, supplyConsumptions: [...prev.supplyConsumptions, { supplyItemId: '', quantity: '' }] }))}
  className="text-sm flex items-center text-blue-600 hover:text-blue-700"
  >
  <Plus className="h-4 w-4 mr-1" /> Adicionar insumo
@@ -563,26 +630,50 @@ export default function Producao() {
  <div className="space-y-3">
  {formState.supplyConsumptions.map((consumption, index) => (
  <div key={index} className="flex gap-2 items-start">
- <div className="flex-1">
- <select
- value={consumption.supplyLotId}
- onChange={(e) => {
- const newCons = [...formState.supplyConsumptions];
- newCons[index].supplyLotId = e.target.value;
- setFormState(prev => ({ ...prev, supplyConsumptions: newCons }));
+ <div className="relative flex-1">
+ <input
+ type="search"
+ value={supplySearchTerms[index] ?? availableSupplyItems.find((item) => item.id === consumption.supplyItemId)?.name ?? ''}
+ onFocus={() => setOpenSupplySearch(index)}
+ onChange={(event) => {
+   const newCons = [...formState.supplyConsumptions];
+   newCons[index].supplyItemId = '';
+   setFormState((prev) => ({ ...prev, supplyConsumptions: newCons }));
+   setSupplySearchTerms((terms) => ({ ...terms, [index]: event.target.value }));
+   setOpenSupplySearch(index);
  }}
+ placeholder="Busque o insumo por nome..."
  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
- >
- <option value="">Selecione o lote do insumo...</option>
- {supplyLots.filter(l => l.availableQuantity > 0 || l.id === consumption.supplyLotId).map(lote => {
- const item = getSupplyItemById(lote.supplyItemId);
- return (
- <option key={lote.id} value={lote.id}>
- {item?.name || 'Insumo'} - Lote {lote.internalLotCode} ({lote.availableQuantity})
- </option>
- );
- })}
- </select>
+ aria-label="Buscar insumo"
+ autoComplete="off"
+ />
+ {openSupplySearch === index ? (
+ <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+ {availableSupplyItems
+   .filter((item) => item.name.toLocaleLowerCase('pt-BR').includes((supplySearchTerms[index] ?? '').trim().toLocaleLowerCase('pt-BR')))
+   .map((item) => (
+     <button
+       type="button"
+       key={item.id}
+       onMouseDown={(event) => event.preventDefault()}
+       onClick={() => {
+         const newCons = [...formState.supplyConsumptions];
+         newCons[index].supplyItemId = item.id;
+         setFormState((prev) => ({ ...prev, supplyConsumptions: newCons }));
+         setSupplySearchTerms((terms) => ({ ...terms, [index]: item.name }));
+         setOpenSupplySearch(null);
+       }}
+       className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
+     >
+       <span className="block font-medium text-gray-900">{item.name}</span>
+       <span className="block text-xs text-gray-500">Saldo total: {item.availableQuantity.toLocaleString('pt-BR')} {item.unit}</span>
+     </button>
+   ))}
+ {availableSupplyItems.filter((item) => item.name.toLocaleLowerCase('pt-BR').includes((supplySearchTerms[index] ?? '').trim().toLocaleLowerCase('pt-BR'))).length === 0 ? (
+   <p className="px-3 py-2 text-sm text-gray-500">Nenhum insumo disponível encontrado.</p>
+ ) : null}
+ </div>
+ ) : null}
  </div>
  <div className="w-24">
  <input
@@ -605,6 +696,15 @@ export default function Producao() {
  const newCons = [...formState.supplyConsumptions];
  newCons.splice(index, 1);
  setFormState(prev => ({ ...prev, supplyConsumptions: newCons }));
+ setSupplySearchTerms((terms) => {
+   const nextTerms: Record<number, string> = {};
+   Object.entries(terms).forEach(([key, value]) => {
+     const currentIndex = Number(key);
+     if (currentIndex < index) nextTerms[currentIndex] = value;
+     if (currentIndex > index) nextTerms[currentIndex - 1] = value;
+   });
+   return nextTerms;
+ });
  }}
  className="p-2 text-red-500 hover:bg-red-50 rounded-md"
  >
@@ -613,7 +713,7 @@ export default function Producao() {
  </div>
  ))}
  {formState.supplyConsumptions.length === 0 && (
- <p className="text-xs text-gray-500 italic">Nenhum insumo planejado selecionado. O sistema aplicará FEFO na finalização da OP.</p>
+ <p className="text-xs text-gray-500 italic">Selecione o insumo e informe somente o total consumido. O sistema baixará os lotes mais antigos primeiro (FIFO).</p>
  )}
  </div>
  </div>
@@ -623,7 +723,7 @@ export default function Producao() {
  <h4 className="text-sm font-semibold text-gray-900">Produtos Acabados Planejados (Ex: Creme)</h4>
  <button
  type="button"
- onClick={() => setFormState(prev => ({ ...prev, finishedProductConsumptions: [...prev.finishedProductConsumptions, { finishedProductLotId: '', quantity: '' }] }))}
+ onClick={() => setFormState(prev => ({ ...prev, finishedProductConsumptions: [...prev.finishedProductConsumptions, { finishedProductId: '', quantity: '' }] }))}
  className="text-sm flex items-center text-blue-600 hover:text-blue-700"
  >
  <Plus className="h-4 w-4 mr-1" /> Adicionar produto acabado
@@ -633,26 +733,50 @@ export default function Producao() {
  <div className="space-y-3">
  {formState.finishedProductConsumptions.map((consumption, index) => (
  <div key={index} className="flex gap-2 items-start">
- <div className="flex-1">
- <select
- value={consumption.finishedProductLotId}
- onChange={(e) => {
- const newCons = [...formState.finishedProductConsumptions];
- newCons[index].finishedProductLotId = e.target.value;
- setFormState(prev => ({ ...prev, finishedProductConsumptions: newCons }));
+ <div className="relative flex-1">
+ <input
+ type="search"
+ value={finishedProductSearchTerms[index] ?? availableFinishedProducts.find((item) => item.id === consumption.finishedProductId)?.name ?? ''}
+ onFocus={() => setOpenFinishedProductSearch(index)}
+ onChange={(event) => {
+   const newCons = [...formState.finishedProductConsumptions];
+   newCons[index].finishedProductId = '';
+   setFormState((prev) => ({ ...prev, finishedProductConsumptions: newCons }));
+   setFinishedProductSearchTerms((terms) => ({ ...terms, [index]: event.target.value }));
+   setOpenFinishedProductSearch(index);
  }}
+ placeholder="Busque o produto acabado por nome..."
  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
- >
- <option value="">Selecione o lote do produto acabado...</option>
- {finishedProductLots.filter(l => l.disponivel > 0 || l.id === consumption.finishedProductLotId).map(lote => {
- const item = getFinishedProductById(lote.produtoId);
- return (
- <option key={lote.id} value={lote.id}>
- {item?.name || 'Produto'} - Lote {lote.lote} ({lote.disponivel})
- </option>
- );
- })}
- </select>
+ aria-label="Buscar produto acabado"
+ autoComplete="off"
+ />
+ {openFinishedProductSearch === index ? (
+ <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+ {availableFinishedProducts
+   .filter((item) => item.name.toLocaleLowerCase('pt-BR').includes((finishedProductSearchTerms[index] ?? '').trim().toLocaleLowerCase('pt-BR')))
+   .map((item) => (
+     <button
+       type="button"
+       key={item.id}
+       onMouseDown={(event) => event.preventDefault()}
+       onClick={() => {
+         const newCons = [...formState.finishedProductConsumptions];
+         newCons[index].finishedProductId = item.id;
+         setFormState((prev) => ({ ...prev, finishedProductConsumptions: newCons }));
+         setFinishedProductSearchTerms((terms) => ({ ...terms, [index]: item.name }));
+         setOpenFinishedProductSearch(null);
+       }}
+       className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
+     >
+       <span className="block font-medium text-gray-900">{item.name}</span>
+       <span className="block text-xs text-gray-500">Saldo total: {item.availableQuantity.toLocaleString('pt-BR')} {item.unit}</span>
+     </button>
+   ))}
+ {availableFinishedProducts.filter((item) => item.name.toLocaleLowerCase('pt-BR').includes((finishedProductSearchTerms[index] ?? '').trim().toLocaleLowerCase('pt-BR'))).length === 0 ? (
+   <p className="px-3 py-2 text-sm text-gray-500">Nenhum produto acabado disponível encontrado.</p>
+ ) : null}
+ </div>
+ ) : null}
  </div>
  <div className="w-24">
  <input
@@ -675,6 +799,15 @@ export default function Producao() {
  const newCons = [...formState.finishedProductConsumptions];
  newCons.splice(index, 1);
  setFormState(prev => ({ ...prev, finishedProductConsumptions: newCons }));
+ setFinishedProductSearchTerms((terms) => {
+   const nextTerms: Record<number, string> = {};
+   Object.entries(terms).forEach(([key, value]) => {
+     const currentIndex = Number(key);
+     if (currentIndex < index) nextTerms[currentIndex] = value;
+     if (currentIndex > index) nextTerms[currentIndex - 1] = value;
+   });
+   return nextTerms;
+ });
  }}
  className="p-2 text-red-500 hover:bg-red-50 rounded-md"
  >
@@ -757,7 +890,7 @@ export default function Producao() {
  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
  />
  <p className="mt-2 text-xs text-gray-500">
- Se nenhum consumo manual for informado, o backend aplica FEFO automaticamente nos insumos da ficha tecnica.
+ Se nenhum consumo for informado, o sistema calcula a receita pela ficha técnica e aplica FIFO aos insumos automaticamente.
  </p>
  </div>
 

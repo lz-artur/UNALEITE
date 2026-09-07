@@ -138,6 +138,73 @@ describe('ProductionService', () => {
     });
   });
 
+  describe('FIFO supply consumption', () => {
+    it('splits an aggregated insumo quantity across its oldest lots first', async () => {
+      let chain: any;
+      const order = jest.fn()
+        .mockImplementationOnce(() => chain)
+        .mockImplementationOnce(() => chain)
+        .mockResolvedValueOnce({
+          data: [
+            { id: 'lot-oldest', available_quantity: 20.1 },
+            { id: 'lot-next', available_quantity: 10 },
+          ],
+          error: null,
+        });
+      chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        gt: jest.fn().mockReturnThis(),
+        order,
+      };
+      supabaseServiceMock.admin.from.mockReturnValue(chain);
+
+      const consumptions = await (service as any).resolveSupplyConsumptions([
+        { supplyItemId: 'mix-75', quantity: 25 },
+      ]);
+
+      expect(consumptions).toEqual([
+        { supplyLotId: 'lot-oldest', quantity: 20.1 },
+        { supplyLotId: 'lot-next', quantity: 4.9 },
+      ]);
+      expect(order).toHaveBeenNthCalledWith(1, 'entry_date', { ascending: true });
+    });
+  });
+
+  describe('FIFO finished-product consumption', () => {
+    it('splits an aggregated finished-product quantity across its oldest produced lots first', async () => {
+      let chain: any;
+      const order = jest.fn()
+        .mockImplementationOnce(() => chain)
+        .mockImplementationOnce(() => chain)
+        .mockResolvedValueOnce({
+          data: [
+            { id: 'cream-oldest', available_quantity: 10.3 },
+            { id: 'cream-next', available_quantity: 76.6 },
+          ],
+          error: null,
+        });
+      chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        gt: jest.fn().mockReturnThis(),
+        order,
+      };
+      supabaseServiceMock.admin.from.mockReturnValue(chain);
+
+      const consumptions = await (service as any).resolveFinishedProductConsumptions([
+        { finishedProductId: 'cream', quantity: 40 },
+      ]);
+
+      expect(consumptions).toEqual([
+        { finishedProductLotId: 'cream-oldest', quantity: 10.3 },
+        { finishedProductLotId: 'cream-next', quantity: 29.7 },
+      ]);
+      expect(order).toHaveBeenNthCalledWith(1, 'produced_at', { ascending: true });
+    });
+  });
+
   describe('adjustOrder', () => {
     let selectMock: jest.Mock;
     let updateMock: jest.Mock;

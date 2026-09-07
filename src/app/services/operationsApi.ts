@@ -574,6 +574,7 @@ function mapProductionOrder(row: any): OrdemProducao {
     })),
     produtosAcabadosConsumidos: (row.production_order_finished_product_consumptions ?? []).map((c: any) => ({
       finishedProductLotId: c.finished_product_lot_id,
+      produtoId: c.finished_product_lots?.product_id,
       quantidade: Number(c.quantity_consumed),
     })),
   };
@@ -914,6 +915,8 @@ export async function createProductionOrder(payload: {
   milkLotId: string;
   productId: string;
   litersToUse: number;
+  supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
+  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; quantity: number }>;
 }) {
   return apiRequest<{ order: any }>('/production-orders', {
     method: 'POST',
@@ -926,8 +929,8 @@ export async function updateProductionOrder(orderId: string, payload: {
   productId?: string;
   litersToUse?: number;
   actualQuantityProduced?: number;
-  supplyConsumptions?: Array<{ supplyLotId: string; quantity: number }>;
-  finishedProductConsumptions?: Array<{ finishedProductLotId: string; quantity: number }>;
+  supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
+  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; quantity: number }>;
 }) {
   return apiRequest<{ order: any }>(`/production-orders/${orderId}`, {
     method: 'PATCH',
@@ -938,7 +941,8 @@ export async function updateProductionOrder(orderId: string, payload: {
 export async function completeProductionOrder(payload: {
   orderId: string;
   actualQuantityProduced: number;
-  supplyConsumptions?: Array<{ supplyLotId: string; quantity: number }>;
+  supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
+  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; quantity: number }>;
   generatedCoProducts?: Array<{ productId: string; quantity: number }>;
 }) {
   return apiRequest<{ order: any; productLot: any }>(`/production-orders/${payload.orderId}/complete`, {
@@ -946,6 +950,7 @@ export async function completeProductionOrder(payload: {
     body: JSON.stringify({
       actualQuantityProduced: payload.actualQuantityProduced,
       supplyConsumptions: payload.supplyConsumptions,
+      finishedProductConsumptions: payload.finishedProductConsumptions,
       generatedCoProducts: payload.generatedCoProducts,
     }),
   }).then((result) => ({
