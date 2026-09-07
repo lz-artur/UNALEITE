@@ -26,6 +26,12 @@ import {
  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+ DropdownMenu,
+ DropdownMenuContent,
+ DropdownMenuItem,
+ DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import type {
  BlockReasonRecord,
  FinishedProductRecord,
@@ -341,7 +347,6 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  const [linkedIds, setLinkedIds] = useState<string[]>([]);
  const [specItems, setSpecItems] = useState<ProductSpecItemRecord[]>([]);
  const [specFinishedProductItems, setSpecFinishedProductItems] = useState<any[]>([]);
- const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
 
  const currentSection = sections.find((section) => section.key === selectedSection)!;
 
@@ -1451,58 +1456,51 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
 
  function renderActions(record: { id: string; active?: boolean }, allowToggle = true) {
  return (
- <div className="relative flex items-center gap-2">
+ <DropdownMenu>
+ <DropdownMenuTrigger asChild>
  <button
- onClick={() => setOpenDropdownId(openDropdownId === record.id ? null : record.id)}
- className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+ type="button"
+ aria-label="Abrir ações do registro"
+ className="rounded-full p-1 transition-colors hover:bg-gray-100"
  >
- <MoreHorizontal className="w-5 h-5 text-gray-500" />
+ <MoreHorizontal className="h-5 w-5 text-gray-500" />
  </button>
-
- {openDropdownId === record.id && (
- <div className="absolute right-0 top-8 w-36 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
- <button
- onClick={() => {
- startEdit(record);
- setOpenDropdownId(null);
- }}
- className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+ </DropdownMenuTrigger>
+ <DropdownMenuContent align="end" sideOffset={6} className="w-40 bg-white p-1 shadow-lg">
+ <DropdownMenuItem
+ onSelect={() => startEdit(record)}
+ className="gap-2 px-3 py-2 text-gray-700"
  >
- <Pencil className="w-4 h-4 text-blue-600" />
+ <Pencil className="h-4 w-4 text-blue-600" />
  Editar
- </button>
+ </DropdownMenuItem>
  {allowToggle && typeof record.active === 'boolean' ? (
- <button
- onClick={() => {
- toggleActive(selectedSection, record.id);
- setOpenDropdownId(null);
- }}
- className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+ <DropdownMenuItem
+ onSelect={() => toggleActive(selectedSection, record.id)}
+ className="gap-2 px-3 py-2 text-gray-700"
  >
- <Power className="w-4 h-4 text-gray-600" />
+ <Power className="h-4 w-4 text-gray-600" />
  {record.active ? 'Inativar' : 'Ativar'}
- </button>
+ </DropdownMenuItem>
  ) : null}
- <button
- onClick={async () => {
+ <DropdownMenuItem
+ onSelect={async () => {
  if (confirm('Tem certeza que deseja excluir este registro?')) {
  try {
  await deleteRecord(selectedSection, record.id);
  toast.success('Registro excluído com sucesso!');
- } catch (e) {
+ } catch {
  // Error is already toasted by api.ts
  }
  }
- setOpenDropdownId(null);
  }}
- className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-50 flex items-center gap-2"
+ className="gap-2 px-3 py-2 text-red-600 focus:bg-red-50 focus:text-red-600"
  >
- <Trash2 className="w-4 h-4 text-red-600" />
+ <Trash2 className="h-4 w-4 text-red-600" />
  Excluir
- </button>
- </div>
- )}
- </div>
+ </DropdownMenuItem>
+ </DropdownMenuContent>
+ </DropdownMenu>
  );
  }
 
