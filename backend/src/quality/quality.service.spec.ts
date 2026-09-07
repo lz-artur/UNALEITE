@@ -26,6 +26,197 @@ describe('QualityService', () => {
     );
   });
 
+  describe('createAnalysis (and financial entry)', () => {
+    let selectMock: jest.Mock;
+    let insertMock: jest.Mock;
+    let updateMock: jest.Mock;
+
+    beforeEach(() => {
+      selectMock = jest.fn();
+      insertMock = jest.fn();
+      updateMock = jest.fn();
+
+      supabaseServiceMock.admin.from.mockImplementation((table: string) => {
+        return {
+          select: selectMock,
+          insert: insertMock,
+          update: updateMock,
+        };
+      });
+    });
+
+    it('should create a financial entry using category from milk_type', async () => {
+      // 1. getMilkLot
+      selectMock.mockReturnValueOnce({
+        eq: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({
+            data: { id: 'lot-1', producer_id: 'prod-1', milk_type_id: 'type-1', total_value: 500, received_at: '2026-05-01' },
+            error: null,
+          }),
+        }),
+      });
+
+      // 2. getQualityParameters
+      selectMock.mockReturnValueOnce({
+        eq: jest.fn().mockResolvedValue({
+          data: [],
+          error: null,
+        }),
+      });
+
+      // 3. evaluateAnalysis
+      domainRulesServiceMock.evaluateAnalysis.mockReturnValue({
+        approved: true,
+        blocked: false,
+        reasonNames: [],
+      });
+
+      // 4. insert milk_lot_analyses
+      insertMock.mockReturnValueOnce({
+        select: jest.fn().mockReturnValue({
+          single: jest.fn().mockResolvedValue({
+            data: { id: 'analysis-1', analyzed_at: '2026-05-02' },
+            error: null,
+          }),
+        }),
+      });
+
+      // 5. update milk_lots
+      updateMock.mockReturnValueOnce({
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({
+              data: { id: 'lot-1', status: MILK_LOT_STATUS.APPROVED },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      // 6. select milk_types (for upsertFinancialEntry)
+      selectMock.mockReturnValueOnce({
+        eq: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({
+            data: {
+              accounting_category_id: 'cat-id',
+              accounting_subcategory_id: 'sub-id',
+              cost_center_id: 'cc-id',
+              accounting_categories: { name: 'Fornecedores Leite' },
+            },
+            error: null,
+          }),
+        }),
+      });
+
+      // 7. insert financial_entries
+      insertMock.mockReturnValueOnce({
+        error: null,
+      });
+
+      await service.createAnalysis('lot-1', {
+        alizarol: 'Aprovado',
+        gordura: 3.5,
+        proteina: 3.2,
+        antibioticos: 'Não Detectado'
+      });
+
+      // Verify the insert into financial_entries
+      expect(supabaseServiceMock.admin.from).toHaveBeenCalledWith('financial_entries');
+      expect(insertMock).toHaveBeenLastCalledWith(expect.objectContaining({
+        category: 'Fornecedores Leite',
+        accounting_category_id: 'cat-id',
+        accounting_subcategory_id: 'sub-id',
+        cost_center_id: 'cc-id',
+        amount: 500,
+      }));
+    });
+
+    it('should default to "Matéria Prima" if milk_type has no category configured', async () => {
+      // 1. getMilkLot
+      selectMock.mockReturnValueOnce({
+        eq: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({
+            data: { id: 'lot-2', producer_id: 'prod-2', milk_type_id: 'type-2', total_value: 300, received_at: '2026-05-01' },
+            error: null,
+          }),
+        }),
+      });
+
+      // 2. getQualityParameters
+      selectMock.mockReturnValueOnce({
+        eq: jest.fn().mockResolvedValue({
+          data: [],
+          error: null,
+        }),
+      });
+
+      // 3. evaluateAnalysis
+      domainRulesServiceMock.evaluateAnalysis.mockReturnValue({
+        approved: true,
+        blocked: false,
+        reasonNames: [],
+      });
+
+      // 4. insert milk_lot_analyses
+      insertMock.mockReturnValueOnce({
+        select: jest.fn().mockReturnValue({
+          single: jest.fn().mockResolvedValue({
+            data: { id: 'analysis-2', analyzed_at: '2026-05-02' },
+            error: null,
+          }),
+        }),
+      });
+
+      // 5. update milk_lots
+      updateMock.mockReturnValueOnce({
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({
+              data: { id: 'lot-2', status: MILK_LOT_STATUS.APPROVED },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      // 6. select milk_types (for upsertFinancialEntry)
+      selectMock.mockReturnValueOnce({
+        eq: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({
+            data: {
+              accounting_category_id: null,
+              accounting_subcategory_id: null,
+              cost_center_id: null,
+              accounting_categories: null,
+            },
+            error: null,
+          }),
+        }),
+      });
+
+      // 7. insert financial_entries
+      insertMock.mockReturnValueOnce({
+        error: null,
+      });
+
+      await service.createAnalysis('lot-2', {
+        alizarol: 'Aprovado',
+        gordura: 3.5,
+        proteina: 3.2,
+        antibioticos: 'Não Detectado'
+      });
+
+      // Verify the insert into financial_entries
+      expect(supabaseServiceMock.admin.from).toHaveBeenCalledWith('financial_entries');
+      expect(insertMock).toHaveBeenLastCalledWith(expect.objectContaining({
+        category: 'Matéria Prima',
+        accounting_category_id: null,
+        accounting_subcategory_id: null,
+        cost_center_id: null,
+      }));
+    });
+  });
+
   describe('deleteAnalysis', () => {
     let selectMock: jest.Mock;
     let updateMock: jest.Mock;
