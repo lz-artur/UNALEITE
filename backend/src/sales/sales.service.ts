@@ -109,6 +109,7 @@ export class SalesService {
   ) {
     const bundle = await this.loadSalesBundle();
     const salesOrder = bundle.salesOrders.find((entry) => String(entry.id) === salesOrderId);
+    const orderItems = bundle.salesOrderItems.filter((entry) => String(entry.sales_order_id) === salesOrderId);
 
     if (!salesOrder) {
       throw new NotFoundException('Pedido de venda não encontrado');
@@ -119,6 +120,20 @@ export class SalesService {
       String(salesOrder.status) === SALES_ORDER_STATUS.CANCELED
     ) {
       throw new BadRequestException('O pedido de venda não pode ser atendido');
+    }
+
+    let fulfilledValue = 0;
+    let fullOrderAmount = 0;
+
+    for (const item of orderItems) {
+      fullOrderAmount += Number(item.total_value) || (Number(item.ordered_quantity) * Number(item.unit_price));
+    }
+
+    for (const item of payload.items) {
+      const orderItem = orderItems.find(i => String(i.id) === item.salesOrderItemId);
+      if (orderItem) {
+        fulfilledValue += item.quantity * Number(orderItem.unit_price);
+      }
     }
 
     const fulfilledAt = payload.fulfilledAt ?? new Date().toISOString();
@@ -134,63 +149,100 @@ export class SalesService {
       throw new BadRequestException(rpcError.message);
     }
 
-    if (payload.paymentMethod || payload.installments || payload.bankAccountId || payload.installmentEntries?.length) {
-      if (payload.installmentEntries?.length) {
-        const { data: originalEntries } = await this.supabaseService.admin
-          .from('financial_entries')
-          .select('*')
-          .eq('reference_table', 'sales_orders')
-          .eq('reference_id', salesOrderId);
+    if (fulfilledValue > 0) {
+      const { data: openEntries } = await this.supabaseService.admin
+        .from('financial_entries')
+        .select('*')
+        .eq('reference_table', 'sales_orders')
+        .eq('reference_id', salesOrderId)
+        .eq('status', 'Aberto')
+        .order('created_at', { ascending: true });
 
-        const originalEntry = originalEntries?.[0];
+      const provisionEntry = openEntries?.[0];
 
-        if (originalEntry) {
+      if (provisionEntry) {
+        let billedAmount = fulfilledValue;
+        if (payload.installmentEntries?.length) {
+          billedAmount = payload.installmentEntries.reduce((sum, p) => sum + p.amount, 0);
+        }
+
+        const remainingProvisionAmount = Number(provisionEntry.amount) - billedAmount;
+
+        await this.supabaseService.admin
+          .from('financial_entry_items')
+          .delete()
+          .eq('financial_entry_id', provisionEntry.id);
+
+        if (remainingProvisionAmount <= 0) {
           await this.supabaseService.admin
             .from('financial_entries')
             .delete()
-            .eq('reference_table', 'sales_orders')
-            .eq('reference_id', salesOrderId);
+            .eq('id', provisionEntry.id);
+        } else {
+          await this.supabaseService.admin
+            .from('financial_entries')
+            .update({ amount: remainingProvisionAmount, updated_by: user?.id ?? null })
+            .eq('id', provisionEntry.id);
+            
+          await this.generateRateio([{ ...provisionEntry, amount: remainingProvisionAmount }], salesOrderId, fullOrderAmount, user);
+        }
 
-          const groupId = require('crypto').randomUUID();
-          const newEntries = payload.installmentEntries.map((installment, index) => {
-            const { id, created_at, updated_at, computed_status, ...rest } = originalEntry;
+        const groupId = require('crypto').randomUUID();
+        let newEntriesToInsert = [];
+
+        if (payload.installmentEntries?.length) {
+          newEntriesToInsert = payload.installmentEntries.map((installment, index) => {
+            const { id, created_at, updated_at, computed_status, ...rest } = provisionEntry;
             return {
               ...rest,
               amount: installment.amount,
               due_date: installment.dueDate,
-              description: `${originalEntry.description} (Parcela ${index + 1}/${payload.installmentEntries!.length})`,
+              description: `${provisionEntry.description} (Fatura Parcela ${index + 1}/${payload.installmentEntries!.length})`,
               installment_group_id: groupId,
               installment_number: index + 1,
-              payment_method: payload.paymentMethod || originalEntry.payment_method,
-              bank_account_id: payload.bankAccountId || originalEntry.bank_account_id,
+              payment_method: payload.paymentMethod || provisionEntry.payment_method,
+              bank_account_id: payload.bankAccountId || provisionEntry.bank_account_id,
               updated_by: user?.id ?? null,
             };
           });
+        } else {
+          const { id, created_at, updated_at, computed_status, ...rest } = provisionEntry;
+          newEntriesToInsert = [{
+            ...rest,
+            amount: billedAmount,
+            description: `${provisionEntry.description} (Fatura)`,
+            payment_method: payload.paymentMethod || provisionEntry.payment_method,
+            installments: payload.installments || provisionEntry.installments,
+            bank_account_id: payload.bankAccountId || provisionEntry.bank_account_id,
+            updated_by: user?.id ?? null,
+          }];
+        }
 
-          const { data: insertedEntries, error: insertError } = await this.supabaseService.admin
-            .from('financial_entries')
-            .insert(newEntries)
-            .select('id, amount');
+        const { data: insertedEntries, error: insertError } = await this.supabaseService.admin
+          .from('financial_entries')
+          .insert(newEntriesToInsert)
+          .select('id, amount');
 
-          if (insertError) {
-            throw new BadRequestException(insertError.message);
-          }
+        if (insertError) {
+          throw new BadRequestException(insertError.message);
+        }
 
-          if (insertedEntries && insertedEntries.length > 0) {
-            await this.generateRateio(insertedEntries, salesOrderId, Number(originalEntry.amount), user);
-          }
+        if (insertedEntries && insertedEntries.length > 0) {
+          await this.generateRateio(insertedEntries, salesOrderId, fullOrderAmount, user);
         }
       } else {
-        await this.supabaseService.admin
-          .from('financial_entries')
-          .update({
-            ...(payload.paymentMethod ? { payment_method: payload.paymentMethod } : {}),
-            ...(payload.installments ? { installments: payload.installments } : {}),
-            ...(payload.bankAccountId ? { bank_account_id: payload.bankAccountId } : {}),
-            updated_by: user?.id ?? null,
-          })
-          .eq('reference_table', 'sales_orders')
-          .eq('reference_id', salesOrderId);
+        if (payload.paymentMethod || payload.installments || payload.bankAccountId) {
+          await this.supabaseService.admin
+            .from('financial_entries')
+            .update({
+              ...(payload.paymentMethod ? { payment_method: payload.paymentMethod } : {}),
+              ...(payload.installments ? { installments: payload.installments } : {}),
+              ...(payload.bankAccountId ? { bank_account_id: payload.bankAccountId } : {}),
+              updated_by: user?.id ?? null,
+            })
+            .eq('reference_table', 'sales_orders')
+            .eq('reference_id', salesOrderId);
+        }
       }
     }
 

@@ -10,7 +10,7 @@ function createMockSupabase() {
   const updateMock = jest.fn();
   const deleteMock = jest.fn();
   const insertMock = jest.fn();
-  const rpcMock = jest.fn();
+  const rpcMock = jest.fn().mockResolvedValue({ error: null, data: null });
 
   // chainable eq/select mocks
   const chainEq = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) });
@@ -197,6 +197,129 @@ describe('SalesService', () => {
         Promise.resolve({ data: [], error: null }),
       );
       await expect(service.deleteOrder('order-1')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─── fulfillSalesOrder ──────────────────────────────────────────────────────
+
+  describe('fulfillSalesOrder', () => {
+    let bundle: ReturnType<typeof baseSalesBundle>;
+
+    beforeEach(() => {
+      bundle = baseSalesBundle();
+      bundle.salesOrders[0].status = 'Aberto';
+      bundle.salesOrderItems[0].status = 'Aberto';
+      bundle.salesOrderItems[0].ordered_quantity = 10;
+      bundle.salesOrderItems[0].fulfilled_quantity = 0;
+      bundle.salesOrderItems[0].unit_price = 50;
+      bundle.salesOrderItems[0].total_value = 500;
+      bundle.fulfillments = [];
+    });
+
+    it('should split financial entry and generate rateio correctly on partial fulfillment', async () => {
+      const financialEntries = [{
+        id: 'fe-1',
+        reference_table: 'sales_orders',
+        reference_id: 'order-1',
+        amount: 500,
+        status: 'Aberto',
+        description: 'Venda VEN-2026-1',
+        payment_method: 'Boleto'
+      }];
+
+      const updates: Array<{ table: string; data: any }> = [];
+      const inserts: Array<{ table: string; data: any }> = [];
+      const deletes: Array<{ table: string; field?: string; value?: string }> = [];
+
+      let tableIndex = 0;
+      const tables = [
+        bundle.salesOrders,
+        bundle.salesOrderItems,
+        bundle.fulfillments,
+        bundle.clients,
+        bundle.finishedProducts,
+        bundle.finishedProductLots,
+        bundle.salesReturns,
+      ];
+
+      supabaseMock.fromMock.mockImplementation((table: string) => {
+        return {
+          select: jest.fn().mockImplementation(() => {
+            if (table === 'financial_entries') {
+              return Object.assign(Promise.resolve({ data: financialEntries, error: null }), {
+                eq: jest.fn().mockReturnValue({
+                  eq: jest.fn().mockReturnValue({
+                    eq: jest.fn().mockReturnValue({
+                      order: jest.fn().mockResolvedValue({ data: financialEntries, error: null })
+                    })
+                  })
+                })
+              });
+            }
+
+            const tableMap: Record<string, any[]> = {
+              sales_orders: bundle.salesOrders,
+              sales_order_items: bundle.salesOrderItems,
+              sales_order_fulfillments: bundle.fulfillments,
+              clients: bundle.clients,
+              finished_products: bundle.finishedProducts,
+              finished_product_lots: bundle.finishedProductLots,
+              sales_returns: bundle.salesReturns,
+            };
+
+            const data = tableMap[table] ?? [];
+            return Object.assign(Promise.resolve({ data, error: null }), {
+              eq: jest.fn().mockReturnValue({
+                eq: jest.fn().mockResolvedValue({ data: [], error: null }),
+              }),
+            });
+          }),
+          update: jest.fn().mockImplementation((data: any) => {
+            updates.push({ table, data });
+            return { eq: jest.fn().mockResolvedValue({ error: null }) };
+          }),
+          insert: jest.fn().mockImplementation((data: any) => {
+            inserts.push({ table, data });
+            return {
+              select: jest.fn().mockResolvedValue({ data: Array.isArray(data) ? data.map((d, i) => ({ id: `new-fe-${i}`, amount: d.amount })) : [{ id: 'new-fe-1', amount: data.amount }], error: null })
+            };
+          }),
+          delete: jest.fn().mockReturnValue({
+            eq: jest.fn().mockImplementation((field: string, value: string) => {
+              deletes.push({ table, field, value });
+              return Promise.resolve({ error: null });
+            }),
+          }),
+        };
+      });
+
+      jest.spyOn(service, 'getSalesOrder').mockImplementation(() => Promise.resolve({} as any));
+
+      const payload = {
+        fulfilledAt: '2026-09-07T10:00:00Z',
+        items: [{
+          salesOrderItemId: 'item-1',
+          finishedProductLotId: 'lot-1',
+          quantity: 4 // 4 * 50 = 200
+        }]
+      };
+
+      await service.fulfillSalesOrder('order-1', payload);
+
+      const feUpdate = updates.find(u => u.table === 'financial_entries');
+      expect(feUpdate).toBeDefined();
+      expect(feUpdate!.data.amount).toBe(300); // 500 - 200
+
+      const feInsert = inserts.find(i => i.table === 'financial_entries');
+      expect(feInsert).toBeDefined();
+      expect(feInsert!.data[0].amount).toBe(200);
+      expect(feInsert!.data[0].description).toContain('(Fatura)');
+
+      const rateioDeletes = deletes.filter(d => d.table === 'financial_entry_items');
+      expect(rateioDeletes.length).toBeGreaterThan(0);
+
+      const rateioInserts = inserts.filter(i => i.table === 'financial_entry_items');
+      expect(rateioInserts.length).toBeGreaterThan(0);
     });
   });
 
