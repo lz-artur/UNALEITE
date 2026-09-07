@@ -17,7 +17,11 @@ export class FinanceService {
     const { data, error } = await this.supabaseService.admin
       .from('financial_entries')
       .select('*, financial_entry_receipts(*)')
-      .order('due_date', { ascending: false });
+      // A relação de lançamentos é consultada também por integrações. Manter a
+      // ordenação no servidor evita que telas distintas exibam categorias em
+      // ordens diferentes.
+      .order('category', { ascending: true })
+      .order('description', { ascending: true });
 
     if (error) {
       throw new BadRequestException(error.message);
@@ -358,6 +362,7 @@ export class FinanceService {
       installment_group_id: 'installment_group_id',
       installment_number: 'installment_number',
       cost_type: 'cost_type',
+      bank_account_id: 'bank_account_id',
     };
 
     for (const [key, dbColumn] of Object.entries(fieldMap)) {
@@ -431,6 +436,10 @@ export class FinanceService {
     }
 
     return { success: true };
+  }
+
+  async getEntry(id: string) {
+    return this.getEntryWithReceipts(id);
   }
 
   private normalizeEntry(entry: Record<string, unknown>) {

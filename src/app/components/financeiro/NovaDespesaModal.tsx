@@ -31,6 +31,7 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
   const [formaPagamento, setFormaPagamento] = useState('');
   const [tipoPagamento, setTipoPagamento] = useState('');
   const [tipoCusto, setTipoCusto] = useState<'Fixo' | 'Variável' | ''>('');
+  const [contaBancariaId, setContaBancariaId] = useState('');
   
   const [tipoCredor, setTipoCredor] = useState<'Fornecedor' | 'Produtor'>('Fornecedor');
   const [credorId, setCredorId] = useState('');
@@ -45,7 +46,7 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
   
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { costCenters, accountingCategories, accountingSubcategories, suppliers, producers } = useCadastros();
+  const { costCenters, accountingCategories, accountingSubcategories, suppliers, producers, bankAccounts } = useCadastros();
 
   const resetForm = () => {
     setDescricao('');
@@ -58,6 +59,7 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
     setFormaPagamento('');
     setTipoPagamento('');
     setTipoCusto('');
+    setContaBancariaId('');
     setTipoCredor('Fornecedor');
     setCredorId('');
     setIsParcelado(false);
@@ -96,6 +98,7 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
       setFormaPagamento(initialData.formaPagamento || '');
       setTipoPagamento(initialData.tipoPagamento || '');
       setTipoCusto(initialData.tipoCusto || '');
+      setContaBancariaId(initialData.contaBancariaId || '');
       
       if (initialData.produtorId) {
         setTipoCredor('Produtor');
@@ -181,6 +184,7 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
         formaPagamento,
         tipoPagamento,
         tipoCusto: tipoCusto || undefined,
+        contaBancariaId: contaBancariaId || undefined,
         fornecedorId: tipoCredor === 'Fornecedor' && credorId ? credorId : null as unknown as string,
         produtorId: tipoCredor === 'Produtor' && credorId ? credorId : null as unknown as string,
         anexosUrls: allAnexos.length > 0 ? allAnexos : undefined,
@@ -522,6 +526,23 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
                 <option value="Aberto">Em Aberto / Previsto</option>
                 <option value="Pago">Pago / Baixado</option>
               </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Conta prevista</label>
+              <select
+                value={contaBancariaId}
+                onChange={(e) => setContaBancariaId(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+              >
+                <option value="">Não vincular à posição bancária</option>
+                {bankAccounts.filter(account => account.active).map(account => (
+                  <option key={account.id} value={account.id}>{account.name}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">Usada apenas na projeção até a baixa.</p>
             </div>
           </div>
 

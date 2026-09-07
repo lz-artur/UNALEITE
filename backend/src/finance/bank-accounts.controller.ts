@@ -33,6 +33,11 @@ export class BankAccountsController {
     return this.bankAccountsService.transferFunds(payload, user);
   }
 
+  @Get('financial-position')
+  getFinancialPosition() {
+    return this.bankAccountsService.getFinancialPosition();
+  }
+
   @Get(':id')
   getAccount(@Param('id') id: string) {
     return this.bankAccountsService.getAccount(id);
@@ -45,6 +50,15 @@ export class BankAccountsController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     return this.bankAccountsService.updateAccount(id, payload, user);
+  }
+
+  @Post(':id/balance-adjustments')
+  createBalanceAdjustment(
+    @Param('id') id: string,
+    @Body() payload: any,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.bankAccountsService.createBalanceAdjustment(id, payload, user);
   }
 
   @Get(':id/statement')

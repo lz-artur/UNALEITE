@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, ArrowLeftRight, Landmark, Search, FileText, ChevronRight } from 'lucide-react';
+import { Plus, ArrowLeftRight, Landmark, Search, FileText, ChevronRight, ChartNoAxesCombined } from 'lucide-react';
 import { loadBankAccounts, createBankAccount, updateBankAccount, transferFunds } from '../../services/operationsApi';
 import type { BankAccountRecord } from '../../services/operationsApi';
 import NovaContaModal from './NovaContaModal';
 import TransferenciaModal from './TransferenciaModal';
 import ContaBancariaExtrato from './ContaBancariaExtrato';
+import PosicaoFinanceira from './PosicaoFinanceira';
+import LancamentoFinanceiroDialog from './LancamentoFinanceiroDialog';
 import { toast } from 'sonner';
 
 export default function ContasBancarias() {
@@ -19,6 +21,8 @@ export default function ContasBancarias() {
   
   // Extrato
   const [selectedConta, setSelectedConta] = useState<BankAccountRecord | null>(null);
+  const [showPosition, setShowPosition] = useState(false);
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchContas();
@@ -72,14 +76,19 @@ export default function ContasBancarias() {
 
   if (selectedConta) {
     return (
-      <ContaBancariaExtrato 
+      <><ContaBancariaExtrato
         conta={selectedConta} 
+        onOpenEntry={setSelectedEntryId}
         onBack={() => {
           setSelectedConta(null);
           fetchContas(); // refresh in case of changes
         }} 
-      />
+      /><LancamentoFinanceiroDialog entryId={selectedEntryId} onClose={() => setSelectedEntryId(null)} /></>
     );
+  }
+
+  if (showPosition) {
+    return <><PosicaoFinanceira onBack={() => { setShowPosition(false); void fetchContas(); }} onOpenEntry={setSelectedEntryId} /><LancamentoFinanceiroDialog entryId={selectedEntryId} onClose={() => setSelectedEntryId(null)} /></>;
   }
 
   return (
@@ -91,6 +100,13 @@ export default function ContasBancarias() {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowPosition(true)}
+            className="flex items-center gap-2 rounded-xl bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-100"
+          >
+            <ChartNoAxesCombined className="h-4 w-4" />
+            Posição Financeira
+          </button>
           <button
             onClick={() => setIsTransferenciaModalOpen(true)}
             className="flex items-center gap-2 rounded-xl bg-gray-100 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-200"
@@ -236,6 +252,7 @@ export default function ContasBancarias() {
         onSave={handleTransfer}
         contas={contas}
       />
+      <LancamentoFinanceiroDialog entryId={selectedEntryId} onClose={() => setSelectedEntryId(null)} />
     </div>
   );
 }

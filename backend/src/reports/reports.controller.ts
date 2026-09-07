@@ -16,6 +16,11 @@ export class ReportsController {
     return this.reportsService.getProductionReport(query);
   }
 
+  @Get('sales')
+  getSalesReport(@Query() query: ListReportsDto) {
+    return this.reportsService.getSalesReport(query);
+  }
+
   @Get('quality')
   getQualityReport(@Query() query: ListReportsDto) {
     return this.reportsService.getQualityReport(query);

@@ -19,6 +19,10 @@ export class ListReportsDto {
 
   @IsOptional()
   @IsString()
+  clientId?: string;
+
+  @IsOptional()
+  @IsString()
   status?: string;
 
   @IsOptional()

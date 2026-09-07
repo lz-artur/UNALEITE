@@ -317,6 +317,8 @@ export interface ProductionReportResponse {
     litersPlanned: number;
     expectedYield: number;
     actualQuantityProduced: number;
+    totalCost: number;
+    costPerKg: number;
   };
   rows: Array<{
     orderId: string;
@@ -330,6 +332,26 @@ export interface ProductionReportResponse {
     actualQuantityProduced: number;
     actualYield: number;
     yieldDelta: number;
+    productLotId: string;
+    productLotCode: string;
+    yieldInputTotal: number;
+    milkLiters: number;
+    reprocessedQuantity: number;
+    creamQuantity: number;
+    milkCost: number;
+    suppliesCost: number;
+    creamCost: number;
+    reprocessingCost: number;
+    totalCost: number;
+    costPerKg: number;
+    inputs: Array<{
+      name: string;
+      lotCode: string;
+      quantity: number;
+      unitCost: number;
+      totalCost: number;
+      category: 'Insumo' | 'Creme' | 'Reprocessamento';
+    }>;
     status: string;
     startedAt: string;
     finishedAt: string | null;
@@ -362,6 +384,8 @@ export interface QualityReportResponse {
     gordura: number;
     proteina: number;
     acidez: number;
+    cbt: number;
+    ccs: number;
   }>;
 }
 
@@ -434,6 +458,44 @@ function mapMilkLot(row: any): LoteLeite {
     custoLitro: row.cost_per_liter != null ? Number(row.cost_per_liter) : undefined,
     valorTotal: row.total_value != null ? Number(row.total_value) : undefined,
   };
+}
+
+export interface SalesReportResponse {
+  period: {
+    startDate: string | null;
+    endDate: string | null;
+  };
+  totals: {
+    salesCount: number;
+    totalQuantity: number;
+    totalSaleValue: number;
+    totalCost: number;
+    grossMargin: number;
+    invoicedValue: number;
+  };
+  rows: Array<{
+    fulfillmentId: string;
+    fulfilledAt: string;
+    orderId: string;
+    orderNumber: string;
+    clientId: string;
+    clientName: string;
+    clientDocument: string;
+    sellerName: string;
+    invoiced: boolean;
+    invoiceStatus: string;
+    invoiceNumber: number | null;
+    productId: string;
+    productName: string;
+    productLotCode: string;
+    grossQuantity: number;
+    returnedQuantity: number;
+    quantity: number;
+    unitPrice: number;
+    saleValue: number;
+    costValue: number;
+    grossMargin: number;
+  }>;
 }
 
 function mapAnalysis(row: any): AnaliseLaboral {
@@ -697,6 +759,7 @@ function mapFinancialEntry(row: any): FinancialEntryRecord {
     installmentGroupId: row.installment_group_id ?? undefined,
     installmentNumber: row.installment_number ?? undefined,
     tipoCusto: row.cost_type ?? undefined,
+    contaBancariaId: row.bank_account_id ?? undefined,
     valorRecebido,
     saldoReceber,
     recebimentos,
@@ -972,6 +1035,10 @@ export async function loadFinancialEntries(filters?: FinancialEntryFilters) {
   }));
 }
 
+export async function loadFinancialEntry(id: string) {
+  return apiRequest<any>(`/financial-entries/${id}`).then(mapFinancialEntry);
+}
+
 export async function settleFinancialEntry(entryId: string, paymentDate?: string, attachmentUrl?: string) {
   return apiRequest<any>(`/financial-entries/${entryId}/settle`, {
     method: 'POST',
@@ -1033,6 +1100,7 @@ export async function createFinancialEntry(payload: Omit<ContaFinanceira, 'id' |
       installment_group_id: payload.installmentGroupId,
       installment_number: payload.installmentNumber,
       cost_type: payload.tipoCusto,
+      bank_account_id: payload.contaBancariaId,
     }),
   }).then(mapFinancialEntry).catch(() => {
     // Mock fallback since API might not have this endpoint yet
@@ -1086,6 +1154,7 @@ export async function createBatchFinancialEntries(payloads: Omit<ContaFinanceira
       installment_group_id: payload.installmentGroupId,
       installment_number: payload.installmentNumber,
       cost_type: payload.tipoCusto,
+      bank_account_id: payload.contaBancariaId,
     }))),
   }).then(entries => entries.map(mapFinancialEntry));
 }
@@ -1135,6 +1204,7 @@ export async function updateFinancialEntry(id: string, payload: Partial<ContaFin
       installment_group_id: payload.installmentGroupId,
       installment_number: payload.installmentNumber,
       cost_type: payload.tipoCusto,
+      bank_account_id: payload.contaBancariaId,
     }),
   }).then(mapFinancialEntry);
 }
@@ -1161,6 +1231,43 @@ export interface BankAccountRecord {
   current_balance: number;
 }
 
+export interface BankStatementMovement {
+  id: string;
+  financial_entry_id: string;
+  receipt_id?: string | null;
+  bank_account_id: string;
+  entry_type: 'Pagar' | 'Receber' | 'Entrada' | 'Saída';
+  description: string;
+  amount: number;
+  effective_date: string;
+  category?: string;
+  attachment_url?: string;
+  notes?: string;
+  source: 'direct_entry' | 'receipt';
+}
+
+export interface FinancialPositionEntry {
+  financial_entry_id: string;
+  description: string;
+  due_date: string;
+  amount: number;
+  entry_type: 'Pagar' | 'Receber';
+  status: string;
+}
+
+export interface FinancialPositionRecord {
+  account: BankAccountRecord;
+  current_balance: number;
+  expected_inflows: number;
+  expected_outflows: number;
+  projected_balance: number;
+  details: {
+    current: BankStatementMovement[];
+    inflows: FinancialPositionEntry[];
+    outflows: FinancialPositionEntry[];
+  };
+}
+
 export async function loadBankAccounts() {
   return apiRequest<BankAccountRecord[]>('/bank-accounts');
 }
@@ -1184,7 +1291,21 @@ export async function getBankAccountStatement(id: string, startDate?: string, en
   if (startDate) query.append('startDate', startDate);
   if (endDate) query.append('endDate', endDate);
   const qStr = query.toString();
-  return apiRequest<any[]>(`/bank-accounts/${id}/statement${qStr ? `?${qStr}` : ''}`);
+  return apiRequest<BankStatementMovement[]>(`/bank-accounts/${id}/statement${qStr ? `?${qStr}` : ''}`);
+}
+
+export async function loadFinancialPosition() {
+  return apiRequest<FinancialPositionRecord[]>('/bank-accounts/financial-position');
+}
+
+export async function createBankAccountBalanceAdjustment(
+  id: string,
+  payload: { targetBalance: number; justification: string; managerApproval: string; effectiveDate?: string },
+) {
+  return apiRequest<{ current_balance: number }>(`/bank-accounts/${id}/balance-adjustments`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function transferFunds(payload: {
@@ -1236,6 +1357,23 @@ export async function loadProductionReport(filters?: {
   if (filters?.status) params.set('status', filters.status);
   const query = params.toString();
   return apiRequest<ProductionReportResponse>(`/reports/production${query ? `?${query}` : ''}`);
+}
+
+export async function loadSalesReport(filters?: {
+  startDate?: string;
+  endDate?: string;
+  clientId?: string;
+  productId?: string;
+  status?: string;
+}) {
+  const params = new URLSearchParams();
+  if (filters?.startDate) params.set('startDate', filters.startDate);
+  if (filters?.endDate) params.set('endDate', filters.endDate);
+  if (filters?.clientId) params.set('clientId', filters.clientId);
+  if (filters?.productId) params.set('productId', filters.productId);
+  if (filters?.status) params.set('status', filters.status);
+  const query = params.toString();
+  return apiRequest<SalesReportResponse>(`/reports/sales${query ? `?${query}` : ''}`);
 }
 
 export async function loadQualityReport(filters?: {
@@ -1292,8 +1430,28 @@ export interface DreMatrixReportResponse {
     netIncome: Record<string, { previsto: number; realizado: number }>;
     accumulatedBalance: Record<string, { previsto: number; realizado: number }>;
   };
-  revenues: Array<{ category: string; data: Record<string, { previsto: number; realizado: number }> }>;
-  expenses: Array<{ category: string; data: Record<string, { previsto: number; realizado: number }> }>;
+  revenues: DreMatrixCategoryRow[];
+  expenses: DreMatrixCategoryRow[];
+  costTypeBreakdown: {
+    revenues: DreMatrixCostTypeRow[];
+    expenses: DreMatrixCostTypeRow[];
+  };
+}
+
+export interface DreMatrixCategoryRow {
+  id: string;
+  category: string;
+  data: Record<string, { previsto: number; realizado: number }>;
+  subcategories: Array<{
+    id: string;
+    name: string;
+    data: Record<string, { previsto: number; realizado: number }>;
+  }>;
+}
+
+export interface DreMatrixCostTypeRow {
+  costType: 'Fixo' | 'Variável' | 'Não classificado';
+  data: Record<string, { previsto: number; realizado: number }>;
 }
 
 export async function loadDreMatrixReport(filters?: { startDate?: string; endDate?: string }) {

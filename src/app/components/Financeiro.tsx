@@ -270,7 +270,11 @@ export default function Financeiro() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {contasFinanceiras.map((conta) => (
+                {[...contasFinanceiras]
+                  .sort((a, b) =>
+                    `${a.categoria} ${a.descricao}`.localeCompare(`${b.categoria} ${b.descricao}`, 'pt-BR'),
+                  )
+                  .map((conta) => (
                   <tr key={conta.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <span
@@ -342,7 +346,7 @@ export default function Financeiro() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  ))}
               </tbody>
             </table>
           </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState, Fragment, useMemo } from 'react';
-import { Calendar, Loader2 } from 'lucide-react';
+import { Calendar, ChevronDown, ChevronRight, Layers3, Loader2, SlidersHorizontal } from 'lucide-react';
 import {
   ComposedChart,
   Line,
@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
   ReferenceLine
 } from 'recharts';
-import { loadDreMatrixReport, type DreMatrixReportResponse } from '../services/operationsApi';
+import { loadDreMatrixReport, type DreMatrixCategoryRow, type DreMatrixCostTypeRow, type DreMatrixReportResponse } from '../services/operationsApi';
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
@@ -30,6 +30,8 @@ export default function DreGerencial() {
   // But we can add a date selector if we want. For now, let's let backend use the default 3 months.
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [activeView, setActiveView] = useState<'categories' | 'costTypes'>('categories');
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
   const loadData = async () => {
     setLoading(true);
@@ -115,6 +117,21 @@ export default function DreGerencial() {
         </div>
       </div>
 
+      <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+        <button
+          onClick={() => setActiveView('categories')}
+          className={`flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium ${activeView === 'categories' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+        >
+          <Layers3 className="h-4 w-4" /> DRE por categorias
+        </button>
+        <button
+          onClick={() => setActiveView('costTypes')}
+          className={`flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium ${activeView === 'costTypes' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+        >
+          <SlidersHorizontal className="h-4 w-4" /> DRE fixo e variável
+        </button>
+      </div>
+
       {loading ? (
         <div className="flex items-center justify-center gap-3 p-10 text-sm text-gray-600">
           <Loader2 className="h-5 w-5 animate-spin" />
@@ -122,8 +139,7 @@ export default function DreGerencial() {
         </div>
       ) : reportData ? (
         <div className="space-y-6">
-          {/* GRÁFICO */}
-          <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          {activeView === 'categories' ? <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
             <h3 className="mb-6 text-lg font-bold text-gray-800">Fluxo de Caixa Mensal - Previsto e Realizado</h3>
             <div className="h-[400px] w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -160,9 +176,9 @@ export default function DreGerencial() {
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
-          </div>
+          </div> : null}
 
-          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+          {activeView === 'categories' ? <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
           <table className="w-full text-sm text-left">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
@@ -231,23 +247,7 @@ export default function DreGerencial() {
               </tr>
               
               {/* RECEITA ROWS */}
-              {reportData.revenues.map(rev => (
-                <tr key={rev.category} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="p-3 pl-8 text-gray-600 border-r border-gray-200">
-                    {rev.category}
-                  </td>
-                  {reportData.months.map(m => (
-                    <Fragment key={m}>
-                      <td className="px-3 py-2 text-right text-gray-600 bg-yellow-50/20 border-r border-gray-100">
-                        {formatCurrency(rev.data[m].previsto)}
-                      </td>
-                      <td className="px-3 py-2 text-right text-gray-600 bg-white border-r border-gray-200">
-                        {formatCurrency(rev.data[m].realizado)}
-                      </td>
-                    </Fragment>
-                  ))}
-                </tr>
-              ))}
+              <DreCategoryRows rows={reportData.revenues} months={reportData.months} expanded={expandedCategories} onToggle={(id) => setExpandedCategories((current) => ({ ...current, [id]: !current[id] }))} formatCurrency={formatCurrency} tone="green" />
 
               {/* DESPESAS SECTION */}
               <tr className="border-b-2 border-red-200">
@@ -267,23 +267,7 @@ export default function DreGerencial() {
               </tr>
 
               {/* DESPESA ROWS */}
-              {reportData.expenses.map(exp => (
-                <tr key={exp.category} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="p-3 pl-8 text-gray-600 border-r border-gray-200">
-                    {exp.category}
-                  </td>
-                  {reportData.months.map(m => (
-                    <Fragment key={m}>
-                      <td className="px-3 py-2 text-right text-gray-600 bg-yellow-50/20 border-r border-gray-100">
-                        {formatCurrency(exp.data[m].previsto)}
-                      </td>
-                      <td className="px-3 py-2 text-right text-gray-600 bg-white border-r border-gray-200">
-                        {formatCurrency(exp.data[m].realizado)}
-                      </td>
-                    </Fragment>
-                  ))}
-                </tr>
-              ))}
+              <DreCategoryRows rows={reportData.expenses} months={reportData.months} expanded={expandedCategories} onToggle={(id) => setExpandedCategories((current) => ({ ...current, [id]: !current[id] }))} formatCurrency={formatCurrency} tone="red" />
 
               {/* RESULTADO DO MES */}
               <tr className="border-b border-gray-300">
@@ -326,7 +310,7 @@ export default function DreGerencial() {
 
             </tbody>
           </table>
-        </div>
+        </div> : <CostTypeTable reportData={reportData} formatCurrency={formatCurrency} formatMonth={formatMonth} />}
         </div>
       ) : null}
     </div>
@@ -351,6 +335,142 @@ function DateFilter({
         onChange={(event) => onChange(event.target.value)}
         className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
       />
+    </div>
+  );
+}
+
+function DreCategoryRows({
+  rows,
+  months,
+  expanded,
+  onToggle,
+  formatCurrency,
+  tone,
+}: {
+  rows: DreMatrixCategoryRow[];
+  months: string[];
+  expanded: Record<string, boolean>;
+  onToggle: (id: string) => void;
+  formatCurrency: (value: number) => string;
+  tone: 'green' | 'red';
+}) {
+  const styles = tone === 'green'
+    ? 'bg-green-50/30 text-green-900 hover:bg-green-50/60'
+    : 'bg-red-50/30 text-red-900 hover:bg-red-50/60';
+
+  return (
+    <>
+      {rows.map((row) => {
+        const hasSubcategories = row.subcategories.length > 0;
+        const isExpanded = Boolean(expanded[row.id]);
+        return (
+          <Fragment key={row.id}>
+            <tr className={`border-b border-gray-100 ${styles}`}>
+              <td className="border-r border-gray-200 p-3 pl-5 font-medium">
+                {hasSubcategories ? (
+                  <button
+                    onClick={() => onToggle(row.id)}
+                    className="flex items-center gap-2 text-left hover:underline"
+                    aria-expanded={isExpanded}
+                  >
+                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    {row.category}
+                    <span className="text-xs font-normal text-gray-500">({row.subcategories.length})</span>
+                  </button>
+                ) : <span className="pl-6">{row.category}</span>}
+              </td>
+              {months.map((month) => (
+                <Fragment key={month}>
+                  <td className="border-r border-gray-100 bg-yellow-50/20 px-3 py-2 text-right">
+                    {formatCurrency(row.data[month].previsto)}
+                  </td>
+                  <td className="border-r border-gray-200 bg-white px-3 py-2 text-right">
+                    {formatCurrency(row.data[month].realizado)}
+                  </td>
+                </Fragment>
+              ))}
+            </tr>
+            {isExpanded && row.subcategories.map((subcategory) => (
+              <tr key={subcategory.id} className="border-b border-gray-100 bg-white text-gray-600 hover:bg-gray-50">
+                <td className="border-r border-gray-200 p-3 pl-12 text-sm">{subcategory.name}</td>
+                {months.map((month) => (
+                  <Fragment key={month}>
+                    <td className="border-r border-gray-100 bg-yellow-50/20 px-3 py-2 text-right text-sm">
+                      {formatCurrency(subcategory.data[month].previsto)}
+                    </td>
+                    <td className="border-r border-gray-200 px-3 py-2 text-right text-sm">
+                      {formatCurrency(subcategory.data[month].realizado)}
+                    </td>
+                  </Fragment>
+                ))}
+              </tr>
+            ))}
+          </Fragment>
+        );
+      })}
+    </>
+  );
+}
+
+function CostTypeTable({
+  reportData,
+  formatCurrency,
+  formatMonth,
+}: {
+  reportData: DreMatrixReportResponse;
+  formatCurrency: (value: number) => string;
+  formatMonth: (value: string) => string;
+}) {
+  const sections: Array<{ title: string; rows: DreMatrixCostTypeRow[]; tone: 'green' | 'red' }> = [
+    { title: 'Recebimentos por classificação', rows: reportData.costTypeBreakdown?.revenues ?? [], tone: 'green' },
+    { title: 'Pagamentos por classificação', rows: reportData.costTypeBreakdown?.expenses ?? [], tone: 'red' },
+  ];
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="border-b border-gray-200 px-5 py-4">
+        <h3 className="font-bold text-gray-900">DRE por custo fixo e variável</h3>
+        <p className="mt-1 text-sm text-gray-600">A classificação é definida no lançamento financeiro ou em cada item do lançamento.</p>
+      </div>
+      <table className="w-full text-left text-sm">
+        <thead>
+          <tr className="border-b border-gray-200 bg-gray-50">
+            <th className="min-w-[250px] border-r border-gray-200 p-4 font-bold text-gray-700">Classificação</th>
+            {reportData.months.map((month) => (
+              <th key={month} colSpan={2} className="border-r border-gray-200 p-3 text-center font-bold text-gray-700">{formatMonth(month)}</th>
+            ))}
+          </tr>
+          <tr className="border-b border-gray-200">
+            <th className="border-r border-gray-200 px-3 py-2" />
+            {reportData.months.map((month) => (
+              <Fragment key={month}>
+                <th className="border-r border-gray-100 bg-yellow-100 px-3 py-2 text-center font-semibold">Previsto</th>
+                <th className="border-r border-gray-200 px-3 py-2 text-center font-semibold">Realizado</th>
+              </Fragment>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sections.map((section) => (
+            <Fragment key={section.title}>
+              <tr className={section.tone === 'green' ? 'border-b-2 border-green-200 bg-green-50/50' : 'border-b-2 border-red-200 bg-red-50/50'}>
+                <td colSpan={1 + reportData.months.length * 2} className="p-4 font-bold text-gray-800">{section.title}</td>
+              </tr>
+              {section.rows.map((row) => (
+                <tr key={`${section.title}-${row.costType}`} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="border-r border-gray-200 p-3 pl-8 text-gray-700">{row.costType}</td>
+                  {reportData.months.map((month) => (
+                    <Fragment key={month}>
+                      <td className="border-r border-gray-100 bg-yellow-50/20 px-3 py-2 text-right">{formatCurrency(row.data[month].previsto)}</td>
+                      <td className="border-r border-gray-200 px-3 py-2 text-right">{formatCurrency(row.data[month].realizado)}</td>
+                    </Fragment>
+                  ))}
+                </tr>
+              ))}
+            </Fragment>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

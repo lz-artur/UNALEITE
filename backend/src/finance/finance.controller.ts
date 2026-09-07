@@ -71,6 +71,11 @@ export class FinanceController {
     return this.financeService.createBatchEntries(payloads, user);
   }
 
+  @Get(':id')
+  getEntry(@Param('id') id: string) {
+    return this.financeService.getEntry(id);
+  }
+
   @Put(':id')
   updateEntry(
     @Param('id') id: string,

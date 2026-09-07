@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Search, Download, ExternalLink } from 'lucide-react';
-import { getBankAccountStatement } from '../../services/operationsApi';
+import { ArrowLeft, ExternalLink, SlidersHorizontal } from 'lucide-react';
+import { createBankAccountBalanceAdjustment, getBankAccountStatement } from '../../services/operationsApi';
 import type { BankAccountRecord } from '../../services/operationsApi';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -8,13 +8,15 @@ import { toast } from 'sonner';
 interface ContaBancariaExtratoProps {
   conta: BankAccountRecord;
   onBack: () => void;
+  onOpenEntry: (id: string) => void;
 }
 
-export default function ContaBancariaExtrato({ conta, onBack }: ContaBancariaExtratoProps) {
+export default function ContaBancariaExtrato({ conta, onBack, onOpenEntry }: ContaBancariaExtratoProps) {
   const [entries, setEntries] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [adjustmentOpen, setAdjustmentOpen] = useState(false);
 
   useEffect(() => {
     fetchStatement();
@@ -32,35 +34,7 @@ export default function ContaBancariaExtrato({ conta, onBack }: ContaBancariaExt
     }
   };
 
-  // Calcular saldos progressivos
-  // Como as entradas vêm ordenadas da mais recente para a mais antiga, precisamos calcular o saldo
-  // Sabemos o current_balance. O saldo final da linha N é:
-  // Se for a mais recente (index 0), saldo após = current_balance se o filtro não excluir entradas recentes,
-  // mas como o extrato pode ser filtrado, a melhor abordagem é calcular o saldo inicial do período 
-  // e depois ir somando. Como a API não retorna o saldo inicial do período, faremos uma aproximação local 
-  // assumindo que as movimentações listadas são todas as do período, partindo de 0 se não for o extrato completo?
-  // Para ser preciso no extrato, precisamos calcular na ordem cronológica (reverse).
-  
-  const entriesChronological = [...entries].reverse();
-  
-  // Se não tem filtro, o último saldo é o current_balance
-  // Não é tão simples com filtro. Vamos apenas listar o Valor e o Tipo da movimentação para facilitar.
-  // E calcular um saldo progressivo relativo ao que está em tela.
-  
-  let runningBalance = 0;
-  const entriesWithBalance = entriesChronological.map(entry => {
-    const isCredit = entry.entry_type === 'Receber' || entry.entry_type === 'Entrada';
-    const amount = Number(entry.amount);
-    
-    // As transfers use category name, but let's just rely on entry_type
-    runningBalance += (isCredit ? amount : -amount);
-    
-    return {
-      ...entry,
-      isCredit,
-      runningBalance
-    };
-  }).reverse(); // Volta para mais recente primeiro
+  const entriesWithBalance = entries.map(entry => ({ ...entry, isCredit: entry.entry_type === 'Receber' || entry.entry_type === 'Entrada' }));
 
   return (
     <div className="space-y-6">
@@ -101,11 +75,14 @@ export default function ContaBancariaExtrato({ conta, onBack }: ContaBancariaExt
               />
             </div>
           </div>
-          <div className="text-right">
+          <div className="flex items-end gap-3 text-right">
+            <button onClick={() => setAdjustmentOpen(true)} className="mb-1 inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"><SlidersHorizontal className="h-4 w-4" />Ajustar saldo</button>
+            <div>
             <p className="text-sm font-medium text-gray-500">Saldo Atual da Conta</p>
             <p className={`text-xl font-bold ${conta.current_balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               R$ {(conta.current_balance || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </p>
+            </div>
           </div>
         </div>
 
@@ -132,21 +109,16 @@ export default function ContaBancariaExtrato({ conta, onBack }: ContaBancariaExt
                   </tr>
                 ) : (
                   entriesWithBalance.map((entry) => (
-                    <tr key={entry.id} className="transition-colors hover:bg-gray-50">
+                    <tr key={entry.id} onClick={() => onOpenEntry(entry.financial_entry_id)} className="cursor-pointer transition-colors hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {format(new Date(entry.due_date), 'dd/MM/yyyy')}
+                        {format(new Date(entry.effective_date), 'dd/MM/yyyy')}
                       </td>
                       <td className="px-6 py-4">
                         <p className="font-medium text-gray-900">{entry.description}</p>
-                        {entry.status === 'Cancelado' && (
-                          <span className="text-xs text-red-500">Cancelado</span>
-                        )}
-                        {entry.status === 'Aberto' && (
-                          <span className="text-xs text-orange-500">Pendente (Agendado)</span>
-                        )}
+                        <span className="text-xs text-green-600">Efetivado</span>
                       </td>
                       <td className="px-6 py-4 text-gray-600">
-                        {entry.accounting_categories?.name || entry.category}
+                        {entry.category}
                       </td>
                       <td className={`px-6 py-4 text-right font-medium whitespace-nowrap ${entry.isCredit ? 'text-green-600' : 'text-red-600'}`}>
                         {entry.isCredit ? '+ ' : '- '}
@@ -160,6 +132,7 @@ export default function ContaBancariaExtrato({ conta, onBack }: ContaBancariaExt
                             rel="noreferrer"
                             className="inline-flex items-center text-blue-600 hover:text-blue-800"
                             title="Ver Anexo"
+                            onClick={(event) => event.stopPropagation()}
                           >
                             <ExternalLink className="h-4 w-4" />
                           </a>
@@ -173,6 +146,25 @@ export default function ContaBancariaExtrato({ conta, onBack }: ContaBancariaExt
           </div>
         )}
       </div>
+      {adjustmentOpen && <BalanceAdjustmentModal conta={conta} onClose={() => setAdjustmentOpen(false)} onSaved={() => { setAdjustmentOpen(false); void fetchStatement(); toast.success('Ajuste de saldo registrado no extrato.'); }} />}
     </div>
   );
+}
+
+function BalanceAdjustmentModal({ conta, onClose, onSaved }: { conta: BankAccountRecord; onClose: () => void; onSaved: () => void }) {
+  const formatCurrencyInput = (value: number) => value.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const parseCurrencyInput = (value: string) => Number(value.replace(/\./g, '').replace(',', '.')) || 0;
+  const [targetBalance, setTargetBalance] = useState(formatCurrencyInput(conta.current_balance || 0));
+  const [justification, setJustification] = useState('');
+  const [managerApproval, setManagerApproval] = useState('');
+  const [saving, setSaving] = useState(false);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    try { await createBankAccountBalanceAdjustment(conta.id, { targetBalance: parseCurrencyInput(targetBalance), justification, managerApproval }); onSaved(); } catch { /* mensagem é exibida pela API */ } finally { setSaving(false); }
+  };
+  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"><form onSubmit={submit} className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"><h2 className="text-lg font-semibold text-gray-900">Ajuste de saldo</h2><p className="mt-1 text-sm text-gray-500">Use somente após conferência. O ajuste gera uma movimentação auditável no extrato.</p><div className="mt-5 space-y-4"><label className="block text-sm font-medium text-gray-700">Saldo conferido (R$)<input required type="text" inputMode="decimal" value={targetBalance} onChange={e => { const cents = e.target.value.replace(/\D/g, ''); setTargetBalance(formatCurrencyInput(Number(cents || 0) / 100)); }} className="mt-1 w-full rounded-lg border border-gray-300 p-2.5" /></label><label className="block text-sm font-medium text-gray-700">Justificativa <span className="text-red-500">*</span><textarea required value={justification} onChange={e => setJustification(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 p-2.5" rows={3} placeholder="Descreva a divergência e a conferência realizada" /></label><label className="block text-sm font-medium text-gray-700">Autorização do gestor <span className="text-red-500">*</span><input required value={managerApproval} onChange={e => setManagerApproval(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 p-2.5" placeholder="Nome ou referência da aprovação" /></label></div><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-xl px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Cancelar</button><button disabled={saving} className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">{saving ? 'Registrando...' : 'Registrar ajuste'}</button></div></form></div>;
 }
