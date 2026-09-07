@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { differenceInDays, format } from 'date-fns';
-import { AlertTriangle, Award, DollarSign, Loader2, TrendingUp, Trash2, Pencil, X } from 'lucide-react';
+import { AlertTriangle, Award, DollarSign, Loader2, PackageSearch, Search, TrendingUp, Trash2, Pencil, X } from 'lucide-react';
 import type { AnaliseLaboral, EstoqueProduto, LoteLeite, PrecificacaoLeite } from '../data/mockData';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -37,7 +37,8 @@ function getErrorMessage(error: unknown) {
 }
 
 export default function LotesEstoqueDetalhado() {
- const [selectedTab, setSelectedTab] = useState<'leite' | 'insumos' | 'produtos'>('leite');
+ const [selectedTab, setSelectedTab] = useState<'resumo' | 'leite' | 'insumos' | 'produtos'>('resumo');
+ const [stockSearch, setStockSearch] = useState('');
  const [selectedLoteId, setSelectedLoteId] = useState<string | null>(null);
  const [lotes, setLotes] = useState<LoteLeite[]>([]);
  const [estoquesProdutos, setEstoquesProdutos] = useState<EstoqueProduto[]>([]);
@@ -230,11 +231,67 @@ export default function LotesEstoqueDetalhado() {
  });
  }, [supplyItems, supplyLots]);
 
+ const finishedProductSummaries = useMemo(() => {
+ const summaries = new Map<string, {
+ productId: string;
+ productName: string;
+ unitSymbol: string;
+ availableQuantity: number;
+ producedQuantity: number;
+ returnedQuantity: number;
+ lotsCount: number;
+ nextExpiration?: Date;
+ }>();
+
+ estoquesProdutos.forEach((lot) => {
+ const product = getFinishedProductById(lot.produtoId);
+ const current = summaries.get(lot.produtoId) || {
+ productId: lot.produtoId,
+ productName: product?.name || 'Produto não identificado',
+ unitSymbol: getUnitSymbol(product?.unitId),
+ availableQuantity: 0,
+ producedQuantity: 0,
+ returnedQuantity: 0,
+ lotsCount: 0,
+ };
+ const shouldUpdateExpiration = lot.disponivel > 0 &&
+ (!current.nextExpiration || lot.dataValidade < current.nextExpiration);
+
+ summaries.set(lot.produtoId, {
+ ...current,
+ availableQuantity: current.availableQuantity + lot.disponivel,
+ producedQuantity: current.producedQuantity + lot.quantidade,
+ returnedQuantity: current.returnedQuantity + (lot.devolvido || 0),
+ lotsCount: current.lotsCount + 1,
+ nextExpiration: shouldUpdateExpiration ? lot.dataValidade : current.nextExpiration,
+ });
+ });
+
+ return Array.from(summaries.values()).sort((a, b) => a.productName.localeCompare(b.productName, 'pt-BR'));
+ }, [estoquesProdutos, getFinishedProductById, getUnitSymbol]);
+
+ const normalizedStockSearch = stockSearch.trim().toLocaleLowerCase('pt-BR');
+ const filteredSupplyItemSummaries = useMemo(
+ () => supplyItemSummaries.filter(({ item }) =>
+ !normalizedStockSearch || item.name.toLocaleLowerCase('pt-BR').includes(normalizedStockSearch) ||
+ item.code.toLocaleLowerCase('pt-BR').includes(normalizedStockSearch),
+ ),
+ [supplyItemSummaries, normalizedStockSearch],
+ );
+ const filteredFinishedProductSummaries = useMemo(
+ () => finishedProductSummaries.filter((item) =>
+ !normalizedStockSearch || item.productName.toLocaleLowerCase('pt-BR').includes(normalizedStockSearch),
+ ),
+ [finishedProductSummaries, normalizedStockSearch],
+ );
+
  const insumosAbaixoMinimo = useMemo(
  () =>
  supplyItemSummaries.filter(({ item, currentStock }) => currentStock < item.minimumStock),
  [supplyItemSummaries],
  );
+ const supplyLotsWithBalance = supplyLots.filter((lot) => lot.availableQuantity > 0).length;
+ const finishedProductLotsWithBalance = estoquesProdutos.filter((lot) => lot.disponivel > 0).length;
 
  const lotesComAnalise = lotes.filter((lote) => lote.analiseId);
  const mediaGordura =
@@ -326,6 +383,7 @@ export default function LotesEstoqueDetalhado() {
  <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
  <div className="flex border-b border-gray-200">
  {[
+ { key: 'resumo', label: 'Resumo do estoque' },
  { key: 'leite', label: 'Lotes de leite cru' },
  { key: 'insumos', label: 'Lotes de insumos' },
  { key: 'produtos', label: 'Produtos acabados' },
@@ -344,6 +402,135 @@ export default function LotesEstoqueDetalhado() {
  ))}
  </div>
  </div>
+
+ {!loading && selectedTab === 'resumo' ? (
+ <div className="space-y-6">
+ <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+ <MetricCard
+ title="Insumos cadastrados"
+ value={String(supplyItemSummaries.length)}
+ subtitle={`${supplyLotsWithBalance} lotes com saldo`}
+ icon={<PackageSearch className="h-6 w-6 text-blue-600" />}
+ />
+ <MetricCard
+ title="Abaixo do mínimo"
+ value={String(insumosAbaixoMinimo.length)}
+ subtitle={insumosAbaixoMinimo.length === 1 ? 'item requer atenção' : 'itens requerem atenção'}
+ icon={<AlertTriangle className="h-6 w-6 text-amber-600" />}
+ />
+ <MetricCard
+ title="Produtos acabados"
+ value={String(finishedProductSummaries.length)}
+ subtitle={`${finishedProductLotsWithBalance} lotes com saldo`}
+ icon={<TrendingUp className="h-6 w-6 text-emerald-600" />}
+ />
+ <MetricCard
+ title="Lotes em estoque"
+ value={String(supplyLotsWithBalance + finishedProductLotsWithBalance)}
+ subtitle="insumos e produtos acabados"
+ />
+ </div>
+
+ <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
+ <p className="font-semibold">Saldo consolidado por item</p>
+ <p className="mt-1 text-blue-800">Cada linha reúne automaticamente o saldo disponível de todos os lotes daquele insumo ou produto. Use as abas de lotes para conferir a composição e a rastreabilidade.</p>
+ </div>
+
+ <div className="relative max-w-xl">
+ <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+ <input
+ value={stockSearch}
+ onChange={(event) => setStockSearch(event.target.value)}
+ placeholder="Buscar insumo ou produto..."
+ className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+ />
+ </div>
+
+ <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+ <div className="flex items-center justify-between gap-4 border-b border-gray-200 p-4">
+ <div>
+ <h3 className="font-bold text-gray-900">Insumos — saldo total</h3>
+ <p className="text-sm text-gray-500">Soma dos saldos disponíveis em todos os lotes</p>
+ </div>
+ <button onClick={() => setSelectedTab('insumos')} className="text-sm font-medium text-blue-600 hover:text-blue-800">Ver lotes</button>
+ </div>
+ {filteredSupplyItemSummaries.length === 0 ? (
+ <div className="p-8 text-center text-sm text-gray-600">Nenhum insumo encontrado.</div>
+ ) : (
+ <div className="overflow-x-auto">
+ <table className="w-full">
+ <thead className="bg-gray-50">
+ <tr>
+ <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Insumo</th>
+ <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Saldo total</th>
+ <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Estoque mínimo</th>
+ <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Lotes</th>
+ <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Status</th>
+ </tr>
+ </thead>
+ <tbody className="divide-y divide-gray-200">
+ {filteredSupplyItemSummaries.map(({ item, currentStock }) => {
+ const unitSymbol = getUnitSymbol(item.unitId);
+ const lotCount = supplyLots.filter((lot) => lot.supplyItemId === item.id && lot.availableQuantity > 0).length;
+ const belowMinimum = currentStock < item.minimumStock;
+ return (
+ <tr key={item.id} className="hover:bg-gray-50">
+ <td className="px-6 py-4"><div className="font-medium text-gray-900">{item.name}</div><div className="text-xs text-gray-500">{item.code}</div></td>
+ <td className={`px-6 py-4 font-semibold ${belowMinimum ? 'text-red-600' : 'text-gray-900'}`}>{currentStock.toLocaleString('pt-BR')} {unitSymbol}</td>
+ <td className="px-6 py-4 text-sm text-gray-600">{item.minimumStock.toLocaleString('pt-BR')} {unitSymbol}</td>
+ <td className="px-6 py-4 text-sm text-gray-700">{lotCount} {lotCount === 1 ? 'lote' : 'lotes'}</td>
+ <td className="px-6 py-4">{belowMinimum ? <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">Abaixo do mínimo</span> : <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">Normal</span>}</td>
+ </tr>
+ );
+ })}
+ </tbody>
+ </table>
+ </div>
+ )}
+ </div>
+
+ <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+ <div className="flex items-center justify-between gap-4 border-b border-gray-200 p-4">
+ <div>
+ <h3 className="font-bold text-gray-900">Produtos acabados — saldo total</h3>
+ <p className="text-sm text-gray-500">Soma dos saldos disponíveis em todos os lotes</p>
+ </div>
+ <button onClick={() => setSelectedTab('produtos')} className="text-sm font-medium text-blue-600 hover:text-blue-800">Ver lotes</button>
+ </div>
+ {filteredFinishedProductSummaries.length === 0 ? (
+ <div className="p-8 text-center text-sm text-gray-600">Nenhum produto acabado encontrado.</div>
+ ) : (
+ <div className="overflow-x-auto">
+ <table className="w-full">
+ <thead className="bg-gray-50">
+ <tr>
+ <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Produto</th>
+ <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Saldo total</th>
+ <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Lotes</th>
+ <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Próxima validade</th>
+ <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">Devolvidos</th>
+ </tr>
+ </thead>
+ <tbody className="divide-y divide-gray-200">
+ {filteredFinishedProductSummaries.map((item) => {
+ const daysToExpire = item.nextExpiration ? differenceInDays(item.nextExpiration, new Date()) : null;
+ return (
+ <tr key={item.productId} className="hover:bg-gray-50">
+ <td className="px-6 py-4 font-medium text-gray-900">{item.productName}</td>
+ <td className="px-6 py-4 font-semibold text-green-700">{item.availableQuantity.toLocaleString('pt-BR')} {item.unitSymbol}</td>
+ <td className="px-6 py-4 text-sm text-gray-700">{item.lotsCount} {item.lotsCount === 1 ? 'lote' : 'lotes'}</td>
+ <td className="px-6 py-4 text-sm">{item.nextExpiration ? <span className={daysToExpire !== null && daysToExpire < 7 ? 'font-medium text-amber-700' : 'text-gray-700'}>{format(item.nextExpiration, 'dd/MM/yyyy')}{daysToExpire !== null && daysToExpire < 7 ? ` (${daysToExpire}d)` : ''}</span> : <span className="text-gray-500">Sem saldo</span>}</td>
+ <td className="px-6 py-4 text-sm text-gray-700">{item.returnedQuantity.toLocaleString('pt-BR')} {item.unitSymbol}</td>
+ </tr>
+ );
+ })}
+ </tbody>
+ </table>
+ </div>
+ )}
+ </div>
+ </div>
+ ) : null}
 
  {insumosAbaixoMinimo.length > 0 ? (
  <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-6">
