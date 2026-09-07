@@ -15,6 +15,8 @@ import {
   unsettleFinancialEntry,
   uploadFinancialAttachment,
   returnSalesOrder,
+  loadFinishedProductLots,
+  loadClients,
 } from './operationsApi';
 import { supabase } from '../lib/supabase';
 
@@ -33,6 +35,23 @@ vi.mock('../lib/supabase', () => ({
     },
   },
 }));
+
+describe('Dados reais para o vendedor externo', () => {
+  it('propaga falha de rede no estoque em vez de mostrar saldo de demonstração', async () => {
+    vi.mocked(api.apiRequest).mockRejectedValueOnce(new api.ApiUnavailableError());
+    await expect(loadFinishedProductLots({ requireLive: true })).rejects.toBeInstanceOf(api.ApiUnavailableError);
+  });
+
+  it('propaga falha de rede na lista de clientes em vez de mostrar uma lista vazia', async () => {
+    vi.mocked(api.apiRequest).mockRejectedValueOnce(new api.ApiUnavailableError());
+    await expect(loadClients(undefined, { requireLive: true })).rejects.toBeInstanceOf(api.ApiUnavailableError);
+  });
+
+  it('preserva o fallback de estoque dos consumidores existentes', async () => {
+    vi.mocked(api.apiRequest).mockRejectedValueOnce(new api.ApiUnavailableError());
+    await expect(loadFinishedProductLots()).resolves.toBeInstanceOf(Array);
+  });
+});
 
 describe('operationsApi - Deletion endpoints', () => {
   beforeEach(() => {

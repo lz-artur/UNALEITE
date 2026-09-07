@@ -1009,11 +1009,12 @@ export async function adjustSupplyLotStock(id: string, newAvailableQuantity: num
   });
 }
 
-export async function loadFinishedProductLots() {
-  return withFallback(async () => {
+export async function loadFinishedProductLots(options?: { requireLive?: boolean }) {
+  const loader = async () => {
     const lots = await apiRequest<any[]>('/inventory/finished-product-lots');
     return lots.map(mapFinishedProductLot);
-  }, () => mockEstoquesProdutos);
+  };
+  return options?.requireLive ? loader() : withFallback(loader, () => mockEstoquesProdutos);
 }
 
 export async function loadFinancialEntries(filters?: FinancialEntryFilters) {
@@ -1514,15 +1515,16 @@ export async function receivePurchase(payload: {
   return mapPurchase(purchase);
 }
 
-export async function loadClients(filters?: { search?: string; activeOnly?: boolean }) {
-  return withFallback(async () => {
+export async function loadClients(filters?: { search?: string; activeOnly?: boolean }, options?: { requireLive?: boolean }) {
+  const loader = async () => {
     const params = new URLSearchParams();
     if (filters?.search) params.set('search', filters.search);
     if (filters?.activeOnly) params.set('activeOnly', 'true');
     const query = params.toString();
     const clients = await apiRequest<any[]>(`/clients${query ? `?${query}` : ''}`);
     return clients.map(mapClient);
-  }, () => []);
+  };
+  return options?.requireLive ? loader() : withFallback(loader, () => []);
 }
 
 export async function createClient(payload: {

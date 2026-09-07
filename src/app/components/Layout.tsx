@@ -17,6 +17,7 @@ import {
   ChevronUp,
   ShieldCheck,
   FileCheck2,
+  Smartphone,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../context/PermissionsContext';
@@ -35,6 +36,7 @@ const menuItems = [
   { id: 'producao', label: 'Producao', icon: Factory },
   { id: 'custos', label: 'Relatorios', icon: DollarSign },
   { id: 'comercial', label: 'Comercial', icon: TruckIcon },
+  { id: 'vendedor-externo', label: 'Vendedor externo', icon: Smartphone },
   { id: 'faturamento', label: 'Faturamento NF-e', icon: FileCheck2 },
   { id: 'compras', label: 'Compras', icon: Package },
   {
@@ -83,13 +85,18 @@ const menuItems = [
  * Financeiro sub-items map to their own keys; cadastros sub-items map to 'cadastros'.
  */
 function getPageKeyForItem(id: string): string {
+  if (id === 'vendedor-externo') return 'comercial';
   if (id.startsWith('cadastros')) return 'cadastros';
   if (id === 'financeiro') return 'contas-receber'; // parent entry
   return id;
 }
 
 export default function Layout({ children, currentPage, onNavigate }: LayoutProps) {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
+  const navigate = (page: string) => {
+    onNavigate(page);
+    if (window.innerWidth < 768) setSidebarOpen(false);
+  };
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
     financeiro: currentPage === 'contas-receber' || currentPage === 'contas-pagar' || currentPage === 'contas-bancarias' || currentPage === 'financeiro',
     cadastros: currentPage.startsWith('cadastros'),
@@ -112,6 +119,8 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-4">
             <button
+              aria-label={sidebarOpen ? 'Fechar menu' : 'Abrir menu'}
+              aria-expanded={sidebarOpen}
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className="rounded-lg p-2 transition-colors hover:bg-gray-100"
             >
@@ -122,8 +131,8 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
                 <Milk className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">UNA Laticinios</h1>
-                <p className="text-xs text-gray-500">Sistema de Gestao Industrial</p>
+                <h1 className="text-base font-bold text-gray-900 sm:text-xl">UNA Laticinios</h1>
+                <p className="text-xs text-gray-500">{currentPage === 'vendedor-externo' ? 'Vendas externas' : 'Sistema de Gestao Industrial'}</p>
               </div>
             </div>
           </div>
@@ -151,8 +160,11 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
         </div>
       </header>
 
+      {sidebarOpen && <button aria-label="Fechar menu lateral" onClick={() => setSidebarOpen(false)} className="fixed inset-0 top-16 z-30 bg-black/40 md:hidden" />}
       <aside
-        className={`fixed bottom-0 left-0 top-16 z-10 border-r border-gray-200 bg-white transition-all duration-300 ${
+        aria-hidden={!sidebarOpen}
+        hidden={!sidebarOpen}
+        className={`fixed bottom-0 left-0 top-[72px] z-30 border-r border-gray-200 bg-white transition-all duration-300 md:z-10 ${
           sidebarOpen ? 'w-64' : 'w-0 -translate-x-full'
         }`}
       >
@@ -171,7 +183,7 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
                     if (hasSubItems) {
                       setExpandedMenus((prev) => ({ ...prev, [item.id]: !prev[item.id] }));
                     } else {
-                      onNavigate(item.id);
+                      navigate(item.id);
                     }
                   }}
                   className={`flex w-full items-center justify-between rounded-lg px-4 py-3 transition-colors ${
@@ -194,7 +206,7 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
                       return (
                         <button
                           key={sub.id}
-                          onClick={() => onNavigate(sub.id)}
+                          onClick={() => navigate(sub.id)}
                           className={`flex w-full items-center gap-3 rounded-lg py-2 pl-8 pr-4 transition-colors relative ${
                             isSubActive ? 'bg-blue-50/50 font-medium text-blue-700' : 'text-gray-600 hover:bg-gray-50'
                           }`}
@@ -212,8 +224,8 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
         </nav>
       </aside>
 
-      <main className={`pt-16 transition-all duration-300 overflow-x-hidden ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
-        <div className="p-6">{children}</div>
+      <main className={`pt-[72px] transition-all duration-300 ${currentPage === 'vendedor-externo' ? '' : 'overflow-x-hidden'} ${sidebarOpen ? 'md:ml-64' : 'ml-0'}`}>
+        <div className="p-4 sm:p-6">{children}</div>
       </main>
     </div>
   );

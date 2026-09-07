@@ -3,6 +3,7 @@ import { Toaster } from 'sonner';
 import AuthScreen from './components/AuthScreen';
 import CadastrosBase from './components/CadastrosBase';
 import Comercial from './components/Comercial';
+import VendedorExterno from './components/VendedorExterno';
 import Compras from './components/Compras';
 import Dashboard from './components/Dashboard';
 import Financeiro from './components/Financeiro';
@@ -47,6 +48,7 @@ function AccessDenied({ onGoHome }: { onGoHome: () => void }) {
 
 // ─── Page key mapping ───────────────────────────────────────
 function getPageKey(currentPage: string): string {
+  if (currentPage === 'vendedor-externo') return 'comercial';
   if (currentPage.startsWith('cadastros')) return 'cadastros';
   return currentPage;
 }
@@ -59,6 +61,7 @@ const ORDERED_PAGES = [
   'lotes',
   'producao',
   'custos',
+  'vendedor-externo',
   'comercial',
   'faturamento',
   'compras',
@@ -84,7 +87,7 @@ function AppInner() {
 
     if (isGestaoBlocked || isNormalPageBlocked) {
       // Find the first page they have access to
-      const firstAllowed = ORDERED_PAGES.find(key => canViewPage(key));
+      const firstAllowed = ORDERED_PAGES.find(key => canViewPage(getPageKey(key)));
       if (firstAllowed && firstAllowed !== currentPage) {
         setCurrentPage(firstAllowed);
       }
@@ -125,6 +128,8 @@ function AppInner() {
         return <RelatoriosOperacionais />;
       case 'comercial':
         return <Comercial />;
+      case 'vendedor-externo':
+        return <VendedorExterno />;
       case 'faturamento':
         return <FaturamentoNfe />;
       case 'compras':
