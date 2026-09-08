@@ -92,8 +92,17 @@ export class ReportsService {
       const milkRows = milkConsumptionsByOrder.get(orderId) ?? [];
       const milkLiters = milkRows.reduce((sum, consumption) => sum + Number(consumption.liters_consumed ?? 0), 0);
       const milkCost = milkRows.reduce((sum, consumption) => {
+        const milkLot = milkLotMap.get(String(consumption.milk_lot_id));
         const pricing = pricingByMilkLot.get(String(consumption.milk_lot_id));
-        return sum + Number(consumption.liters_consumed ?? 0) * Number(pricing?.final_price ?? 0);
+        // `unit_cost` is a snapshot of the cost when the milk was consumed.
+        // Older orders did not have this snapshot, so use the amount recorded
+        // on the milk lot. `milk_lot_pricing` is only a legacy fallback for
+        // lots created before the reception-level price was introduced.
+        const unitCost = consumption.unit_cost
+          ?? milkLot?.cost_per_liter
+          ?? pricing?.final_price
+          ?? 0;
+        return sum + Number(consumption.liters_consumed ?? 0) * Number(unitCost);
       }, 0);
 
       let suppliesCost = 0;

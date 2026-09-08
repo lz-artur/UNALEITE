@@ -250,6 +250,10 @@ export class ProductionService {
       production_order_id: order.id,
       milk_lot_id: payload.milkLotId,
       liters_consumed: payload.litersToUse,
+      // A consumption must retain the amount actually paid for the milk at the
+      // time the production order was opened.  Editing the reception later must
+      // never rewrite the cost of a completed production.
+      unit_cost: milkLot.cost_per_liter,
       created_by: user?.id ?? null,
       updated_by: user?.id ?? null,
     });
