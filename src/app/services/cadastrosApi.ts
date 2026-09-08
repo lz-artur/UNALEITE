@@ -124,6 +124,9 @@ function mapMilkType(row: any): MilkTypeRecord {
     maxUsageHours: row.max_usage_hours,
     idealReceptionTemperature: row.ideal_reception_temperature ?? undefined,
     maxReceptionTemperature: row.max_reception_temperature,
+    accountingCategoryId: row.accounting_category_id ?? undefined,
+    accountingSubcategoryId: row.accounting_subcategory_id ?? undefined,
+    costCenterId: row.cost_center_id ?? undefined,
     active: row.active,
   };
 }
