@@ -106,6 +106,19 @@ export default function Producao() {
  [lotes],
  );
 
+ // A OP finalizada pode ter consumido todo o lote. Nesse caso ele deixa de
+ // estar disponível para novas OPs, mas ainda precisa aparecer como o lote
+ // registrado quando a ordem é aberta para edição.
+ const lotesParaFormulario = useMemo(() => {
+ const loteSelecionado = lotes.find((lote) => lote.id === formState.milkLotId);
+
+ if (!loteSelecionado || lotesAprovados.some((lote) => lote.id === loteSelecionado.id)) {
+ return lotesAprovados;
+ }
+
+ return [loteSelecionado, ...lotesAprovados];
+ }, [formState.milkLotId, lotes, lotesAprovados]);
+
  const activeProducts = useMemo(
  () => finishedProducts.filter((product) => product.active),
  [finishedProducts],
@@ -547,18 +560,22 @@ export default function Producao() {
  <label className="mb-1 block text-sm font-medium text-gray-700">Lote de leite *</label>
  <select
  value={formState.milkLotId}
+ disabled={editingOrder?.status === 'Finalizada'}
  onChange={(event) =>
  setFormState((current) => ({ ...current, milkLotId: event.target.value }))
  }
- className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+ className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500"
  >
  <option value="">Selecione...</option>
- {lotesAprovados.map((lote) => (
+ {lotesParaFormulario.map((lote) => (
  <option key={lote.id} value={lote.id}>
  {lote.codigo} - {(lote.volumeDisponivel ?? 0).toLocaleString('pt-BR')} L disponiveis
  </option>
  ))}
  </select>
+ {editingOrder?.status === 'Finalizada' ? (
+ <p className="mt-1 text-xs text-gray-500">O lote de leite não pode ser alterado após a finalização da OP.</p>
+ ) : null}
  </div>
  <div>
  <label className="mb-1 block text-sm font-medium text-gray-700">Produto *</label>

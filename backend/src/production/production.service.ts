@@ -790,6 +790,26 @@ export class ProductionService {
       updated_by: user?.id ?? null,
     };
 
+    const nextLitersPlanned = payload.litersToUse ?? Number(order.liters_planned);
+    const isMilkLotChanging =
+      payload.milkLotId != null && payload.milkLotId !== String(order.milk_lot_id);
+
+    if (isMilkLotChanging) {
+      if (order.status !== PRODUCTION_ORDER_STATUS.IN_PROGRESS) {
+        throw new BadRequestException('Não é possível alterar o lote de leite de uma OP finalizada.');
+      }
+
+      const milkLot = await this.getById('milk_lots', payload.milkLotId!);
+      if (!([MILK_LOT_STATUS.APPROVED, MILK_LOT_STATUS.PARTIALLY_USED] as string[]).includes(String(milkLot.status))) {
+        throw new BadRequestException('O lote de leite selecionado não está disponível para produção.');
+      }
+      if (Number(milkLot.available_volume_liters) < nextLitersPlanned) {
+        throw new BadRequestException('O lote de leite selecionado não possui volume disponível suficiente.');
+      }
+
+      updateData.milk_lot_id = payload.milkLotId;
+    }
+
     if (payload.actualQuantityProduced != null) {
       updateData.actual_quantity_produced = payload.actualQuantityProduced;
       updateData.actual_yield = Number((Number(order.liters_planned) / payload.actualQuantityProduced).toFixed(3));
@@ -803,6 +823,29 @@ export class ProductionService {
         Number(product.theoretical_yield),
       );
       updateData.expected_yield = expectedYield;
+    }
+
+    // A tabela de consumos é a trilha de rastreabilidade da OP. Ela é criada
+    // junto com a ordem e deve acompanhar qualquer alteração feita antes da
+    // finalização, inclusive a troca de lote.
+    if (order.status === PRODUCTION_ORDER_STATUS.IN_PROGRESS && (isMilkLotChanging || payload.litersToUse != null)) {
+      const milkLotId = payload.milkLotId ?? String(order.milk_lot_id);
+      const milkLot = isMilkLotChanging
+        ? await this.getById('milk_lots', milkLotId)
+        : await this.getById('milk_lots', String(order.milk_lot_id));
+      const { error: milkConsumptionError } = await this.supabaseService.admin
+        .from('production_order_milk_consumptions')
+        .update({
+          milk_lot_id: milkLotId,
+          liters_consumed: nextLitersPlanned,
+          unit_cost: milkLot.cost_per_liter,
+          updated_by: user?.id ?? null,
+        })
+        .eq('production_order_id', orderId);
+
+      if (milkConsumptionError) {
+        throw new BadRequestException(milkConsumptionError.message);
+      }
     }
 
     if (payload.supplyConsumptions !== undefined) {
