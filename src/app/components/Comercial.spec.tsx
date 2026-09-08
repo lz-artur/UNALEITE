@@ -21,6 +21,8 @@ vi.mock('../context/CadastrosContext', () => ({
     finishedProducts: [
       { id: 'prod-1', nome: 'Queijo Minas', active: true, unitId: 'un-kg' },
     ],
+    bankAccounts: [],
+    getUnitSymbol: vi.fn().mockReturnValue('kg'),
     getProducerById: vi.fn(),
     getRouteById: vi.fn(),
   }),
@@ -101,6 +103,68 @@ vi.mock('./ui/alert-dialog', () => ({
 describe('Comercial - ModalShell component integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('starts a fulfillment with blank quantities and submits only the informed partial quantity', async () => {
+    const operationsApi = await import('../services/operationsApi');
+    const openOrder: any = {
+      id: 'order-partial',
+      number: 'VEN-2026-2',
+      clientId: 'client-1',
+      clientName: 'Cliente Teste',
+      clientDocument: '12345678000100',
+      orderDate: new Date('2026-01-10'),
+      dueDate: new Date('2026-02-10'),
+      status: 'Aberto',
+      totalAmount: 500,
+      hasReturn: false,
+      items: [{
+        id: 'item-partial',
+        productId: 'prod-1',
+        productName: 'Queijo Minas',
+        unitId: 'un-kg',
+        orderedQuantity: 10,
+        fulfilledQuantity: 0,
+        pendingQuantity: 10,
+        unitPrice: 50,
+        totalValue: 500,
+        status: 'Aberto',
+        fulfillments: [],
+      }],
+    };
+
+    (operationsApi.loadSalesOrders as any).mockResolvedValue([openOrder]);
+    (operationsApi.loadSalesOrderDetail as any).mockResolvedValue(openOrder);
+    (operationsApi.loadFinishedProductLots as any).mockResolvedValue([
+      { id: 'lot-1', produtoId: 'prod-1', lote: 'LOTE-001', disponivel: 10 },
+    ]);
+    (operationsApi.fulfillSalesOrder as any).mockResolvedValue({
+      ...openOrder,
+      status: 'Parcialmente Atendido',
+    });
+
+    const { default: Comercial } = await import('./Comercial');
+    render(React.createElement(Comercial));
+
+    await screen.findByText('VEN-2026-2');
+    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Atender' }));
+
+    await screen.findByText('Atendimento do pedido VEN-2026-2');
+    const quantityInput = screen.getByText('Quantidade atendida').parentElement?.querySelector('input') as HTMLInputElement;
+    const lotSelect = screen.getByText('Lote acabado').parentElement?.querySelector('select') as HTMLSelectElement;
+    expect(quantityInput.value).toBe('');
+
+    fireEvent.change(lotSelect, { target: { value: 'lot-1' } });
+    fireEvent.change(quantityInput, { target: { value: '4' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar atendimento' }));
+
+    await waitFor(() => expect(operationsApi.fulfillSalesOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        salesOrderId: 'order-partial',
+        items: [{ salesOrderItemId: 'item-partial', finishedProductLotId: 'lot-1', quantity: 4 }],
+      }),
+    ));
   });
 
   describe('ModalShell prop destructuring fix', () => {

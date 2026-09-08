@@ -378,34 +378,14 @@ export default function Comercial() {
       const nextItems = detail.items.reduce<Record<string, Array<{ localId: string; finishedProductLotId: string; quantity: string }>>>(
         (accumulator, item) => {
           if (item.pendingQuantity <= 0) return accumulator;
-          
-          let remaining = item.pendingQuantity;
-          const assignedLots = [];
-          
-          const itemAvailableLots = finishedLots.filter(
-            (lot) => lot.productId === item.productId && lot.disponivel > 0,
-          );
-
-          for (const lot of itemAvailableLots) {
-            if (remaining <= 0) break;
-            const take = Math.min(lot.disponivel, remaining);
-            assignedLots.push({
-              localId: `lot-${Date.now()}-${assignedLots.length}`,
-              finishedProductLotId: lot.id,
-              quantity: Number(take.toFixed(4)).toString(),
-            });
-            remaining = Number((remaining - take).toFixed(4));
-          }
-
-          if (assignedLots.length === 0) {
-            assignedLots.push({
-              localId: `lot-${Date.now()}-0`,
-              finishedProductLotId: '',
-              quantity: '',
-            });
-          }
-
-          accumulator[item.id] = assignedLots;
+          // Nunca preencher o saldo pendente automaticamente: isso faria um
+          // atendimento parcial ser salvo como integral caso o usuário não
+          // removesse todas as quantidades sugeridas.
+          accumulator[item.id] = [{
+            localId: `lot-${Date.now()}-0`,
+            finishedProductLotId: '',
+            quantity: '',
+          }];
           return accumulator;
         },
         {},
@@ -1215,6 +1195,9 @@ export default function Comercial() {
           </div>
 
           <h3 className="mb-3 font-bold text-gray-900">Itens a Atender</h3>
+          <p className="mb-4 text-sm text-gray-600">
+            Informe somente as quantidades que serão atendidas agora. Nenhuma quantidade é preenchida automaticamente.
+          </p>
           <div className="space-y-4">
             {selectedOrder.items
               .filter((item) => item.pendingQuantity > 0)
