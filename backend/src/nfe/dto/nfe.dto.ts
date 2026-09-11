@@ -92,6 +92,8 @@ export class UpdateNfeConfigDto {
   @IsOptional() @IsString() countryName?: string;
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsIn(['homologacao', 'producao']) environment?: string;
+  /** Required only for the irreversible switch from homologation to production. */
+  @IsOptional() @IsString() productionActivation?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(999) series?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) initialNumber?: number;
   @IsOptional() @IsString() applicationVersion?: string;

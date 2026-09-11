@@ -47,7 +47,7 @@ export class NfeConfigService {
   async updateConfig(payload: UpdateNfeConfigDto, user?: AuthenticatedUser) {
     const current = await this.getRawConfig();
     if (payload.environment === 'producao' && current.environment !== 'producao') {
-      throw new BadRequestException('A mudança para produção deve ser liberada após os testes de homologação.');
+      await this.assertReadyForProduction(current, payload.productionActivation);
     }
     const update: Record<string, unknown> = { updated_at: new Date().toISOString(), updated_by: user?.id ?? null };
     for (const [key, column] of Object.entries(CONFIG_FIELDS)) {
@@ -57,6 +57,51 @@ export class NfeConfigService {
     const { error } = await this.supabaseService.admin.from('nfe_configs').update(update).eq('id', current.id);
     if (error) throw new BadRequestException(error.message);
     return this.getConfig();
+  }
+
+  private async assertReadyForProduction(config: Record<string, any>, confirmation?: string) {
+    if (confirmation !== 'ATIVAR PRODUCAO') {
+      throw new BadRequestException('Para ativar a produção, confirme digitando exatamente: ATIVAR PRODUCAO.');
+    }
+
+    const requiredFields: Array<[string, string]> = [
+      ['legal_name', 'razão social'], ['cnpj', 'CNPJ'], ['state_registration', 'inscrição estadual'],
+      ['tax_regime', 'regime tributário'], ['address', 'logradouro'], ['address_number', 'número'],
+      ['neighborhood', 'bairro'], ['city_code', 'código IBGE'], ['city_name', 'município'],
+      ['state', 'UF'], ['cep', 'CEP'], ['series', 'série'], ['initial_number', 'número inicial'],
+    ];
+    const missing = requiredFields
+      .filter(([field]) => config[field] === undefined || config[field] === null || String(config[field]).trim() === '')
+      .map(([, label]) => label);
+    if (missing.length) throw new BadRequestException(`Complete a configuração de produção: ${missing.join(', ')}.`);
+    if (!this.isValidCnpj(String(config.cnpj))) {
+      throw new BadRequestException('O CNPJ do emitente é inválido; a produção não foi ativada.');
+    }
+    if (!config.certificate_path || !config.certificate_password_encrypted) {
+      throw new BadRequestException('Configure o certificado A1 antes de ativar a produção.');
+    }
+    if (!config.certificate_expires_at || new Date(config.certificate_expires_at) <= new Date()) {
+      throw new BadRequestException('O certificado A1 está vencido ou não tem validade registrada.');
+    }
+
+    // Also verifies that the encrypted password and the stored certificate still open together.
+    await this.getCertificateMaterial();
+  }
+
+  private isValidCnpj(value: string) {
+    const digits = value.replace(/\D/g, '');
+    if (!/^\d{14}$/.test(digits) || /^(\d)\1{13}$/.test(digits)) return false;
+    const digit = (length: number) => {
+      let weight = length - 7;
+      let sum = 0;
+      for (let index = 0; index < length; index += 1) {
+        sum += Number(digits[index]) * weight;
+        weight = weight === 2 ? 9 : weight - 1;
+      }
+      const remainder = sum % 11;
+      return remainder < 2 ? 0 : 11 - remainder;
+    };
+    return digit(12) === Number(digits[12]) && digit(13) === Number(digits[13]);
   }
 
   async uploadCertificate(file: { buffer: Buffer; originalname?: string }, password: string, user?: AuthenticatedUser) {
