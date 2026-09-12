@@ -7,6 +7,7 @@ import {
   createClient,
   createSalesOrder,
   fulfillSalesOrder,
+  cancelAttendance,
   loadClients,
   loadFinishedProductLots,
   loadSalesOrderDetail,
@@ -98,6 +99,7 @@ export default function Comercial() {
     items: [{ localId: 'order-item-1', productId: '', quantity: '', unitPrice: '' }],
   });
   const [fulfillForm, setFulfillForm] = useState<{
+    idempotencyKey: string;
     fulfilledAt: string;
     paymentMethod: string;
     installments: string;
@@ -106,6 +108,7 @@ export default function Comercial() {
     bankAccountId: string;
     items: Record<string, Array<{ localId: string; finishedProductLotId: string; quantity: string }>>;
   }>({
+    idempotencyKey: crypto.randomUUID(),
     fulfilledAt: getToday(),
     paymentMethod: '',
     installments: '',
@@ -391,6 +394,7 @@ export default function Comercial() {
         {},
       );
       setFulfillForm({
+        idempotencyKey: crypto.randomUUID(),
         fulfilledAt: getToday(),
         paymentMethod: '',
         installments: '',
@@ -409,6 +413,16 @@ export default function Comercial() {
 
   const handleFulfillOrder = async () => {
     if (!selectedOrder) {
+      return;
+    }
+
+    if (!fulfillForm.paymentMethod) {
+      setErrorMessage('Selecione a forma de pagamento para atender o pedido.');
+      return;
+    }
+
+    if (!fulfillForm.bankAccountId) {
+      setErrorMessage('Selecione a conta de recebimento para atender o pedido.');
       return;
     }
 
@@ -443,8 +457,9 @@ export default function Comercial() {
     try {
       const updatedOrder = await fulfillSalesOrder({
         salesOrderId: selectedOrder.id,
+        idempotencyKey: fulfillForm.idempotencyKey,
         fulfilledAt: new Date(fulfillForm.fulfilledAt).toISOString(),
-        paymentMethod: fulfillForm.paymentMethod || undefined,
+        paymentMethod: fulfillForm.paymentMethod,
         installments: fulfillForm.installments ? Number(fulfillForm.installments) : undefined,
         installmentEntries: fulfillForm.isParcelado 
           ? fulfillForm.parcelas.map(p => ({ 
@@ -452,7 +467,7 @@ export default function Comercial() {
               dueDate: new Date(p.dueDate + 'T12:00:00').toISOString() 
             }))
           : undefined,
-        bankAccountId: fulfillForm.bankAccountId || undefined,
+        bankAccountId: fulfillForm.bankAccountId,
         items: items.map(({ item, values }) => ({
           salesOrderItemId: item.id,
           finishedProductLotId: values.finishedProductLotId,
@@ -600,6 +615,8 @@ export default function Comercial() {
 
   const hasFulfillmentErrors = useMemo(() => {
     if (!selectedOrder || !showFulfillModal) return false;
+    if (!fulfillForm.paymentMethod || !fulfillForm.bankAccountId) return true;
+
     for (const item of selectedOrder.items) {
       if (item.pendingQuantity <= 0) continue;
       const itemLots = fulfillForm.items[item.id] || [];
@@ -1100,7 +1117,7 @@ export default function Comercial() {
               onChange={(value) => setFulfillForm((current) => ({ ...current, fulfilledAt: value }))}
             />
             <SelectField
-              label="Forma de pagamento"
+              label="Forma de pagamento *"
               value={fulfillForm.paymentMethod}
               onChange={(value) => setFulfillForm((current) => ({ ...current, paymentMethod: value }))}
               options={[
@@ -1113,7 +1130,7 @@ export default function Comercial() {
               ]}
             />
             <SelectField
-              label="Conta de recebimento"
+              label="Conta de recebimento *"
               value={fulfillForm.bankAccountId}
               onChange={(value) => setFulfillForm((current) => ({ ...current, bankAccountId: value }))}
               options={[
@@ -1346,7 +1363,7 @@ export default function Comercial() {
                   className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-white hover:bg-green-700 transition-colors disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
                 >
                   {loadingDetail ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  Atender
+                  Realizar Atendimento
                 </button>
               )}
             </div>
@@ -1380,6 +1397,29 @@ export default function Comercial() {
               <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl p-5 shadow-md text-white flex flex-col justify-center relative">
                 <p className="text-blue-100 text-sm font-medium mb-1">Valor Total</p>
                 <h2 className="text-3xl font-bold tracking-tight">R$ {selectedOrder.totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h2>
+              </div>
+            </div>
+
+            {/* Financial Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+                <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Valor Total</p>
+                <p className="text-lg font-bold text-gray-900 mt-1">R$ {selectedOrder.totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              </div>
+              <div className="bg-white rounded-xl border border-emerald-100 p-4 shadow-sm">
+                <p className="text-xs text-emerald-600 font-semibold uppercase tracking-wide">Valor Atendido</p>
+                <p className="text-lg font-bold text-emerald-700 mt-1">R$ {selectedOrder.totalFulfilled.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              </div>
+              <div className="bg-white rounded-xl border border-amber-100 p-4 shadow-sm">
+                <p className="text-xs text-amber-600 font-semibold uppercase tracking-wide">Saldo a Atender</p>
+                <p className="text-lg font-bold text-amber-700 mt-1">R$ {selectedOrder.remainingAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              </div>
+              <div className="bg-white rounded-xl border border-blue-100 p-4 shadow-sm">
+                <p className="text-xs text-blue-600 font-semibold uppercase tracking-wide">% Atendido</p>
+                <p className="text-lg font-bold text-blue-700 mt-1">{selectedOrder.fulfilledPercent.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}%</p>
+                <div className="mt-2 h-2 w-full rounded-full bg-gray-100 overflow-hidden">
+                  <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-500" style={{ width: `${Math.min(100, selectedOrder.fulfilledPercent)}%` }} />
+                </div>
               </div>
             </div>
 
@@ -1480,6 +1520,108 @@ export default function Comercial() {
                   </tbody>
                 </table>
               </div>
+            </div>
+
+            {/* Attendance History */}
+            <div className="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+              <div className="bg-gray-50/80 px-6 py-4 border-b border-gray-200 flex items-center gap-2">
+                <History className="h-5 w-5 text-gray-500" />
+                <h4 className="font-semibold text-gray-800">Histórico de Atendimentos</h4>
+              </div>
+              {selectedOrder.attendances.length === 0 ? (
+                <div className="p-10 text-center text-sm text-gray-500">Nenhum atendimento realizado para este pedido.</div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {selectedOrder.attendances.map((attendance) => (
+                    <div key={attendance.id} className={`p-5 ${attendance.status === 'Cancelado' ? 'bg-gray-50/50 opacity-70' : 'hover:bg-blue-50/20'} transition-colors`}>
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className={`h-10 w-10 rounded-lg flex items-center justify-center text-sm font-bold ${
+                            attendance.status === 'Cancelado'
+                              ? 'bg-gray-100 text-gray-500'
+                              : 'bg-emerald-50 text-emerald-700'
+                          }`}>
+                            {attendance.attendanceNumber.replace('ATD-', '#')}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h5 className="font-bold text-gray-900 text-sm">Atendimento {attendance.attendanceNumber}</h5>
+                              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                                attendance.status === 'Cancelado'
+                                  ? 'bg-gray-100 text-gray-600'
+                                  : 'bg-emerald-100 text-emerald-800'
+                              }`}>
+                                {attendance.status}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              Data: {new Date(attendance.fulfilledAt).toLocaleDateString('pt-BR')}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <p className="text-lg font-bold text-gray-900">
+                            R$ {attendance.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </p>
+                          {attendance.status === 'Concluído' && (
+                            <button
+                              onClick={async () => {
+                                if (!confirm('Deseja cancelar este atendimento? Isso reverterá quantidades e excluirá as contas a receber não pagas.')) return;
+                                setSaving(true);
+                                try {
+                                  const updated = await cancelAttendance(selectedOrder.id, attendance.id);
+                                  setSalesOrders((cur) => cur.map((o) => o.id === updated.id ? updated : o));
+                                  setSelectedOrder(updated);
+                                  toast.success('Atendimento cancelado com sucesso.');
+                                  const refreshedLots = await loadFinishedProductLots();
+                                  setFinishedLots(refreshedLots.map((lot) => ({ id: lot.id, productId: lot.produtoId, lote: lot.lote, disponivel: lot.disponivel })));
+                                } catch (err) {
+                                  setErrorMessage(getErrorMessage(err));
+                                } finally {
+                                  setSaving(false);
+                                }
+                              }}
+                              disabled={saving}
+                              className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50"
+                              title="Cancelar atendimento"
+                            >
+                              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="border border-gray-100 rounded-lg overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Produto</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qtd</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Preço Unit.</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Valor</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50">
+                            {attendance.items.map((ai) => (
+                              <tr key={ai.id}>
+                                <td className="px-4 py-2 font-medium text-gray-900">{ai.productName}</td>
+                                <td className="px-4 py-2 text-right text-gray-700">{ai.quantity.toLocaleString('pt-BR')}</td>
+                                <td className="px-4 py-2 text-right text-gray-500">R$ {ai.unitPrice.toFixed(2)}</td>
+                                <td className="px-4 py-2 text-right font-medium text-gray-900">R$ {ai.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="p-4 bg-gray-50/80 flex justify-between items-center">
+                    <span className="text-sm font-semibold text-gray-700">Total atendido:</span>
+                    <span className="text-lg font-bold text-gray-900">
+                      R$ {selectedOrder.totalFulfilled.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </ModalShell>

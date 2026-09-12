@@ -140,7 +140,7 @@ describe('SalesService', () => {
       const result = await service.deleteOrder('order-1');
       expect(result).toEqual({ success: true });
       expect(supabaseMock.updateMock).toHaveBeenCalled();
-      expect(supabaseMock.deleteMock).toHaveBeenCalledTimes(5);
+      expect(supabaseMock.deleteMock).toHaveBeenCalledTimes(6);
     });
 
     it('should clear quantities returned by the deleted sale while restoring its fulfilled stock', async () => {
@@ -203,128 +203,119 @@ describe('SalesService', () => {
   // ─── fulfillSalesOrder ──────────────────────────────────────────────────────
 
   describe('fulfillSalesOrder', () => {
-    let bundle: ReturnType<typeof baseSalesBundle>;
-
-    beforeEach(() => {
-      bundle = baseSalesBundle();
-      bundle.salesOrders[0].status = 'Aberto';
-      bundle.salesOrderItems[0].status = 'Aberto';
-      bundle.salesOrderItems[0].ordered_quantity = 10;
-      bundle.salesOrderItems[0].fulfilled_quantity = 0;
-      bundle.salesOrderItems[0].unit_price = 50;
-      bundle.salesOrderItems[0].total_value = 500;
-      bundle.fulfillments = [];
-    });
-
-    it('should create a receivable entry for each fulfillment without a provision entry', async () => {
-      const updates: Array<{ table: string; data: any }> = [];
-      const inserts: Array<{ table: string; data: any }> = [];
-
-      supabaseMock.fromMock.mockImplementation((table: string) => {
-        return {
-          select: jest.fn().mockImplementation(() => {
-            const tableMap: Record<string, any[]> = {
-              sales_orders: bundle.salesOrders,
-              sales_order_items: bundle.salesOrderItems,
-              sales_order_fulfillments: bundle.fulfillments,
-              clients: bundle.clients,
-              finished_products: bundle.finishedProducts,
-              finished_product_lots: bundle.finishedProductLots,
-              sales_returns: bundle.salesReturns,
-            };
-
-            const data = tableMap[table] ?? [];
-            return Object.assign(Promise.resolve({ data, error: null }), {
-              eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockResolvedValue({ data: [], error: null }),
-              }),
-            });
-          }),
-          update: jest.fn().mockImplementation((data: any) => {
-            updates.push({ table, data });
-            return { eq: jest.fn().mockResolvedValue({ error: null }) };
-          }),
-          insert: jest.fn().mockImplementation((data: any) => {
-            inserts.push({ table, data });
-            return {
-              select: jest.fn().mockResolvedValue({ data: Array.isArray(data) ? data.map((d, i) => ({ id: `new-fe-${i}`, amount: d.amount })) : [{ id: 'new-fe-1', amount: data.amount }], error: null })
-            };
-          }),
-          delete: jest.fn().mockReturnValue({
-            eq: jest.fn().mockResolvedValue({ error: null }),
-          }),
-        };
-      });
-
+    it('should call create_sale_attendance rpc successfully', async () => {
+      supabaseMock.rpcMock.mockResolvedValue({ data: 'new-attendance-id', error: null });
       jest.spyOn(service, 'getSalesOrder').mockImplementation(() => Promise.resolve({} as any));
 
       const payload = {
+        idempotencyKey: 'test-key',
         fulfilledAt: '2026-09-07T10:00:00Z',
+        paymentMethod: 'Pix',
+        bankAccountId: '00000000-0000-4000-8000-000000000002',
         items: [{
           salesOrderItemId: 'item-1',
           finishedProductLotId: 'lot-1',
-          quantity: 4 // 4 * 50 = 200
+          quantity: 4
         }]
       };
 
       await service.fulfillSalesOrder('order-1', payload);
-      await service.fulfillSalesOrder('order-1', {
-        fulfilledAt: '2026-09-08T10:00:00Z',
-        items: [{
-          salesOrderItemId: 'item-1',
-          finishedProductLotId: 'lot-1',
-          quantity: 6,
-        }],
-      });
 
-      const financialEntryInserts = inserts.filter(i => i.table === 'financial_entries');
-      expect(financialEntryInserts).toHaveLength(2);
-      expect(financialEntryInserts.map(i => i.data[0].amount)).toEqual([200, 300]);
-      expect(financialEntryInserts.reduce((sum, insert) => sum + insert.data[0].amount, 0)).toBe(500);
-      expect(financialEntryInserts[0].data[0]).toMatchObject({
-        reference_table: 'sales_orders',
-        reference_id: 'order-1',
-        installment_number: 1,
-        installments: 1,
+      expect(supabaseMock.rpcMock).toHaveBeenCalledWith('create_sale_attendance', {
+        p_sales_order_id: 'order-1',
+        p_user_id: null,
+        p_fulfilled_at: '2026-09-07T10:00:00Z',
+        p_idempotency_key: 'test-key',
+        p_items: payload.items,
+        p_payment_method: 'Pix',
+        p_bank_account_id: '00000000-0000-4000-8000-000000000002',
+        p_installment_entries: null,
+        p_notes: null,
       });
-      expect(financialEntryInserts[0].data[0].installment_group_id).toBeTruthy();
-      expect(financialEntryInserts[0].data[0].installment_group_id)
-        .not.toBe(financialEntryInserts[1].data[0].installment_group_id);
-      expect(financialEntryInserts[0].data[0].description).toContain('atendimento 07/09/2026');
-      expect(updates.some(u => u.table === 'financial_entries')).toBe(false);
-
-      const rateioInserts = inserts.filter(i => i.table === 'financial_entry_items');
-      expect(rateioInserts.length).toBeGreaterThan(0);
+      expect(service.getSalesOrder).toHaveBeenCalledWith('order-1');
     });
 
-    it('should reject installments whose total differs from the fulfilled value', async () => {
-      const tableMap: Record<string, any[]> = {
-        sales_orders: bundle.salesOrders,
-        sales_order_items: bundle.salesOrderItems,
-        sales_order_fulfillments: bundle.fulfillments,
-        clients: bundle.clients,
-        finished_products: bundle.finishedProducts,
-        finished_product_lots: bundle.finishedProductLots,
-        sales_returns: bundle.salesReturns,
-      };
-      supabaseMock.fromMock.mockImplementation((table: string) => ({
-        select: jest.fn().mockResolvedValue({ data: tableMap[table] ?? [], error: null }),
-      }));
+    it('should throw BadRequestException if rpc fails', async () => {
+      supabaseMock.rpcMock.mockResolvedValue({ data: null, error: { message: 'Erro no banco' } });
 
       const payload = {
-        fulfilledAt: '2026-09-07T10:00:00Z',
-        installmentEntries: [{ amount: 150, dueDate: '2026-10-07T12:00:00Z' }],
+        idempotencyKey: 'test-key',
+        paymentMethod: 'Pix',
+        bankAccountId: '00000000-0000-4000-8000-000000000002',
         items: [{
           salesOrderItemId: 'item-1',
           finishedProductLotId: 'lot-1',
-          quantity: 4,
-        }],
+          quantity: 4
+        }]
       };
 
-      await expect(service.fulfillSalesOrder('order-1', payload)).rejects.toThrow(
-        'O total das parcelas deve ser igual ao valor atendido nesta etapa.',
-      );
+      await expect(service.fulfillSalesOrder('order-1', payload)).rejects.toThrow('Erro no banco');
+    });
+
+    it('should reject an attendance without a payment method', async () => {
+      await expect(service.fulfillSalesOrder('order-1', {
+        idempotencyKey: 'test-key',
+        bankAccountId: '00000000-0000-4000-8000-000000000002',
+        items: [{ salesOrderItemId: 'item-1', finishedProductLotId: 'lot-1', quantity: 4 }],
+      } as any)).rejects.toThrow('Informe a forma de pagamento');
+
       expect(supabaseMock.rpcMock).not.toHaveBeenCalled();
+    });
+
+    it('should reject an attendance without a receiving account', async () => {
+      await expect(service.fulfillSalesOrder('order-1', {
+        idempotencyKey: 'test-key',
+        paymentMethod: 'Pix',
+        items: [{ salesOrderItemId: 'item-1', finishedProductLotId: 'lot-1', quantity: 4 }],
+      } as any)).rejects.toThrow('Informe a conta de recebimento');
+
+      expect(supabaseMock.rpcMock).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── cancelAttendance ─────────────────────────────────────────────────────
+
+  describe('cancelAttendance', () => {
+    it('should call cancel_sale_attendance rpc successfully', async () => {
+      supabaseMock.fromMock.mockImplementation(() => ({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({
+                data: { id: 'att-1', sales_order_id: 'order-1' },
+                error: null
+              })
+            })
+          })
+        })
+      }));
+      supabaseMock.rpcMock.mockResolvedValue({ data: null, error: null });
+      jest.spyOn(service, 'getSalesOrder').mockImplementation(() => Promise.resolve({} as any));
+
+      await service.cancelAttendance('order-1', 'att-1');
+
+      expect(supabaseMock.rpcMock).toHaveBeenCalledWith('cancel_sale_attendance', {
+        p_attendance_id: 'att-1',
+        p_user_id: null,
+      });
+      expect(service.getSalesOrder).toHaveBeenCalledWith('order-1');
+    });
+
+    it('should throw NotFoundException if attendance does not exist', async () => {
+      supabaseMock.fromMock.mockImplementation(() => ({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({
+                data: null,
+                error: null
+              })
+            })
+          })
+        })
+      }));
+
+      await expect(service.cancelAttendance('order-1', 'att-1')).rejects.toThrow(NotFoundException);
     });
   });
 

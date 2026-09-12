@@ -2,9 +2,11 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -32,21 +34,23 @@ export class InstallmentEntryDto {
 }
 
 export class FulfillSalesOrderDto {
+  @IsUUID()
+  idempotencyKey!: string;
+
   @IsOptional()
   @IsDateString()
   fulfilledAt?: string;
 
-  @IsOptional()
   @IsString()
-  paymentMethod?: string;
+  @IsNotEmpty()
+  paymentMethod!: string;
 
   @IsOptional()
   @IsNumber()
   installments?: number;
 
-  @IsOptional()
-  @IsString()
-  bankAccountId?: string;
+  @IsUUID()
+  bankAccountId!: string;
 
   @IsArray()
   @ArrayMinSize(1)
@@ -59,4 +63,8 @@ export class FulfillSalesOrderDto {
   @ValidateNested({ each: true })
   @Type(() => InstallmentEntryDto)
   installmentEntries?: InstallmentEntryDto[];
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }

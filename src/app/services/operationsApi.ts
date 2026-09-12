@@ -155,6 +155,7 @@ export interface SalesOrderItemFulfillmentRecord {
   quantity: number;
   returnedQuantity?: number;
   fulfilledAt: Date;
+  attendanceId?: string | null;
 }
 
 export interface SalesOrderItemRecord {
@@ -171,6 +172,25 @@ export interface SalesOrderItemRecord {
   fulfillments: SalesOrderItemFulfillmentRecord[];
 }
 
+export interface AttendanceItemRecord {
+  id: string;
+  salesOrderItemId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  totalValue: number;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  attendanceNumber: string;
+  fulfilledAt: Date;
+  totalValue: number;
+  status: string;
+  notes?: string | null;
+  items: AttendanceItemRecord[];
+}
+
 export interface SalesOrderRecord {
   id: string;
   number: string;
@@ -185,6 +205,10 @@ export interface SalesOrderRecord {
   notes?: string;
   hasReturn?: boolean;
   items: SalesOrderItemRecord[];
+  attendances: AttendanceRecord[];
+  totalFulfilled: number;
+  remainingAmount: number;
+  fulfilledPercent: number;
 }
 
 export interface SalesOrderFilters {
@@ -710,8 +734,28 @@ function mapSalesOrder(row: any): SalesOrderRecord {
         quantity: Number(fulfillment.quantity),
         returnedQuantity: Number(fulfillment.returnedQuantity || 0),
         fulfilledAt: new Date(fulfillment.fulfilledAt),
+        attendanceId: fulfillment.attendanceId ?? null,
       })),
     })),
+    attendances: (row.attendances ?? []).map((a: any) => ({
+      id: a.id,
+      attendanceNumber: a.attendanceNumber,
+      fulfilledAt: new Date(a.fulfilledAt),
+      totalValue: Number(a.totalValue),
+      status: a.status,
+      notes: a.notes ?? null,
+      items: (a.items ?? []).map((ai: any) => ({
+        id: ai.id,
+        salesOrderItemId: ai.salesOrderItemId,
+        productName: ai.productName,
+        quantity: Number(ai.quantity),
+        unitPrice: Number(ai.unitPrice),
+        totalValue: Number(ai.totalValue),
+      })),
+    })),
+    totalFulfilled: Number(row.totalFulfilled ?? 0),
+    remainingAmount: Number(row.remainingAmount ?? 0),
+    fulfilledPercent: Number(row.fulfilledPercent ?? 0),
   };
 }
 
@@ -1627,28 +1671,43 @@ export async function createSalesOrder(payload: {
 
 export async function fulfillSalesOrder(payload: {
   salesOrderId: string;
+  idempotencyKey: string;
   fulfilledAt?: string;
-  paymentMethod?: string;
+  paymentMethod: string;
   installments?: number;
   installmentEntries?: Array<{ amount: number; dueDate: string }>;
-  bankAccountId?: string;
+  bankAccountId: string;
   items: Array<{
     salesOrderItemId: string;
     finishedProductLotId: string;
     quantity: number;
   }>;
+  notes?: string;
 }) {
   const salesOrder = await apiRequest<any>(`/sales-orders/${payload.salesOrderId}/fulfill`, {
     method: 'POST',
     body: JSON.stringify({
+      idempotencyKey: payload.idempotencyKey,
       fulfilledAt: payload.fulfilledAt,
       paymentMethod: payload.paymentMethod,
       installments: payload.installments,
       installmentEntries: payload.installmentEntries,
       bankAccountId: payload.bankAccountId,
       items: payload.items,
+      notes: payload.notes,
     }),
   });
+  return mapSalesOrder(salesOrder);
+}
+
+export async function cancelAttendance(salesOrderId: string, attendanceId: string) {
+  const salesOrder = await apiRequest<any>(
+    `/sales-orders/${salesOrderId}/attendances/${attendanceId}/cancel`,
+    {
+      method: 'POST',
+      body: JSON.stringify({}),
+    },
+  );
   return mapSalesOrder(salesOrder);
 }
 

@@ -100,69 +100,101 @@ export class SalesService {
     return this.getSalesOrder(String(salesOrder.id));
   }
 
+  /**
+   * Realiza um atendimento parcial ou total de uma venda.
+   *
+   * Toda a lógica roda dentro de uma única transação no banco via RPC
+   * `create_sale_attendance`, garantindo:
+   * - Concorrência (FOR UPDATE nos itens e lotes)
+   * - Idempotência (idempotency_key)
+   * - Atomicidade (tudo ou nada — fulfillments, stock, financeiro)
+   */
   async fulfillSalesOrder(
     salesOrderId: string,
     payload: FulfillSalesOrderDto,
     user?: AuthenticatedUser,
   ) {
-    const bundle = await this.loadSalesBundle();
-    const salesOrder = bundle.salesOrders.find((entry) => String(entry.id) === salesOrderId);
-    const orderItems = bundle.salesOrderItems.filter((entry) => String(entry.sales_order_id) === salesOrderId);
-
-    if (!salesOrder) {
-      throw new NotFoundException('Pedido de venda não encontrado');
+    if (!payload.paymentMethod?.trim()) {
+      throw new BadRequestException('Informe a forma de pagamento para atender o pedido.');
     }
 
-    if (
-      String(salesOrder.status) === SALES_ORDER_STATUS.FULFILLED ||
-      String(salesOrder.status) === SALES_ORDER_STATUS.CANCELED
-    ) {
-      throw new BadRequestException('O pedido de venda não pode ser atendido');
-    }
-
-    let fulfilledValue = 0;
-    let fullOrderAmount = 0;
-
-    for (const item of orderItems) {
-      fullOrderAmount += Number(item.total_value) || (Number(item.ordered_quantity) * Number(item.unit_price));
-    }
-
-    for (const item of payload.items) {
-      const orderItem = orderItems.find(i => String(i.id) === item.salesOrderItemId);
-      if (orderItem) {
-        fulfilledValue += item.quantity * Number(orderItem.unit_price);
-      }
+    if (!payload.bankAccountId?.trim()) {
+      throw new BadRequestException('Informe a conta de recebimento para atender o pedido.');
     }
 
     const fulfilledAt = payload.fulfilledAt ?? new Date().toISOString();
-    const installmentEntries = this.resolveFulfillmentInstallments(
-      payload,
-      fulfilledValue,
-      String(salesOrder.due_date),
-    );
 
-    const { error: rpcError } = await this.supabaseService.admin.rpc('fulfill_sales_order_items', {
-      p_sales_order_id: salesOrderId,
-      p_user_id: user?.id ?? null,
-      p_fulfilled_at: fulfilledAt,
-      p_items: payload.items,
-    });
+    // Prepare installment entries for the RPC
+    let installmentEntries: Array<{ amount: number; dueDate: string }> | null = null;
+    if (payload.installmentEntries?.length) {
+      installmentEntries = payload.installmentEntries.map((entry) => ({
+        amount: Number(entry.amount),
+        dueDate: entry.dueDate,
+      }));
+    }
+
+    const { data: attendanceId, error: rpcError } = await this.supabaseService.admin.rpc(
+      'create_sale_attendance',
+      {
+        p_sales_order_id: salesOrderId,
+        p_user_id: user?.id ?? null,
+        p_fulfilled_at: fulfilledAt,
+        p_idempotency_key: payload.idempotencyKey,
+        p_items: payload.items,
+        p_payment_method: payload.paymentMethod.trim(),
+        p_bank_account_id: payload.bankAccountId,
+        p_installment_entries: installmentEntries,
+        p_notes: payload.notes ?? null,
+      },
+    );
 
     if (rpcError) {
       throw new BadRequestException(rpcError.message);
     }
 
-    if (fulfilledValue > 0) {
-      await this.createFinancialEntriesForFulfillment({
-        salesOrder,
-        salesOrderId,
-        fulfilledAt,
-        installments: installmentEntries,
-        paymentMethod: payload.paymentMethod,
-        bankAccountId: payload.bankAccountId,
-        fullOrderAmount,
-        user,
-      });
+    return this.getSalesOrder(salesOrderId);
+  }
+
+  /**
+   * Cancela um atendimento específico.
+   *
+   * - Restaura saldo dos lotes
+   * - Reverte quantidades atendidas
+   * - Recalcula status da venda
+   * - Remove contas a receber não pagas
+   * - Bloqueia se houver recebimentos vinculados
+   */
+  async cancelAttendance(
+    salesOrderId: string,
+    attendanceId: string,
+    user?: AuthenticatedUser,
+  ) {
+    // Verify attendance belongs to the order
+    const { data: attendance, error: fetchError } = await this.supabaseService.admin
+      .from('sale_attendances')
+      .select('*')
+      .eq('id', attendanceId)
+      .eq('sales_order_id', salesOrderId)
+      .maybeSingle();
+
+    if (fetchError) {
+      throw new BadRequestException(fetchError.message);
+    }
+
+    if (!attendance) {
+      throw new NotFoundException('Atendimento não encontrado para este pedido.');
+    }
+
+    const { error: rpcError } = await this.supabaseService.admin.rpc(
+      'cancel_sale_attendance',
+      {
+        p_attendance_id: attendanceId,
+        p_user_id: user?.id ?? null,
+      },
+    );
+
+    if (rpcError) {
+      throw new BadRequestException(rpcError.message);
     }
 
     return this.getSalesOrder(salesOrderId);
@@ -363,7 +395,7 @@ export class SalesService {
   }
 
   private async loadSalesBundle() {
-    const [salesOrders, salesOrderItems, fulfillments, clients, finishedProducts, finishedProductLots, salesReturns] =
+    const [salesOrders, salesOrderItems, fulfillments, clients, finishedProducts, finishedProductLots, salesReturns, attendances, attendanceItems] =
       await Promise.all([
         this.selectMany('sales_orders'),
         this.selectMany('sales_order_items'),
@@ -372,6 +404,8 @@ export class SalesService {
         this.selectMany('finished_products'),
         this.selectMany('finished_product_lots'),
         this.selectMany('sales_returns'),
+        this.selectMany('sale_attendances'),
+        this.selectMany('sale_attendance_items'),
       ]);
 
     return {
@@ -382,6 +416,8 @@ export class SalesService {
       finishedProducts,
       finishedProductLots,
       salesReturns,
+      attendances,
+      attendanceItems,
     };
   }
 
@@ -395,6 +431,8 @@ export class SalesService {
       finishedProducts: Array<Record<string, unknown>>;
       finishedProductLots: Array<Record<string, unknown>>;
       salesReturns?: Array<Record<string, unknown>>;
+      attendances?: Array<Record<string, unknown>>;
+      attendanceItems?: Array<Record<string, unknown>>;
     },
   ) {
     const client = payload.clients.find(
@@ -428,6 +466,7 @@ export class SalesService {
               quantity: Number(fulfillment.quantity),
               returnedQuantity: alreadyReturned,
               fulfilledAt: String(fulfillment.fulfilled_at),
+              attendanceId: fulfillment.attendance_id ? String(fulfillment.attendance_id) : null,
             };
           });
 
@@ -447,6 +486,48 @@ export class SalesService {
       })
       .sort((a, b) => a.productName.localeCompare(b.productName));
 
+    // ── Hydrate attendances ──────────────────────────────────────────────────
+    const attendances = (payload.attendances ?? [])
+      .filter((a) => String(a.sales_order_id) === String(salesOrder.id))
+      .map((a) => {
+        const attItems = (payload.attendanceItems ?? [])
+          .filter((ai) => String(ai.attendance_id) === String(a.id))
+          .map((ai) => {
+            const soi = payload.salesOrderItems.find((s) => String(s.id) === String(ai.sales_order_item_id));
+            const product = soi
+              ? payload.finishedProducts.find((p) => String(p.id) === String(soi.product_id))
+              : null;
+
+            return {
+              id: String(ai.id),
+              salesOrderItemId: String(ai.sales_order_item_id),
+              productName: String(product?.name ?? '-'),
+              quantity: Number(ai.quantity),
+              unitPrice: Number(ai.unit_price),
+              totalValue: Number(ai.total_value),
+            };
+          });
+
+        return {
+          id: String(a.id),
+          attendanceNumber: String(a.attendance_number),
+          fulfilledAt: String(a.fulfilled_at),
+          totalValue: Number(a.total_value),
+          status: String(a.status),
+          notes: a.notes ? String(a.notes) : null,
+          items: attItems,
+        };
+      })
+      .sort((a, b) => a.fulfilledAt.localeCompare(b.fulfilledAt));
+
+    // ── Calculate summary ────────────────────────────────────────────────────
+    const totalAmount = Number(salesOrder.total_amount ?? 0);
+    const totalFulfilled = attendances
+      .filter((a) => a.status === 'Concluído')
+      .reduce((sum, a) => sum + a.totalValue, 0);
+    const remainingAmount = Math.max(0, totalAmount - totalFulfilled);
+    const fulfilledPercent = totalAmount > 0 ? Math.min(100, (totalFulfilled / totalAmount) * 100) : 0;
+
     return {
       id: String(salesOrder.id),
       number: String(salesOrder.order_number),
@@ -456,10 +537,14 @@ export class SalesService {
       orderDate: String(salesOrder.order_date),
       dueDate: String(salesOrder.due_date),
       status: String(salesOrder.status),
-      totalAmount: Number(salesOrder.total_amount ?? 0),
+      totalAmount,
       notes: salesOrder.notes ? String(salesOrder.notes) : '',
       hasReturn: Boolean(salesOrder.has_return),
       items,
+      attendances,
+      totalFulfilled,
+      remainingAmount,
+      fulfilledPercent: Number(fulfilledPercent.toFixed(2)),
     };
   }
 
@@ -562,132 +647,6 @@ export class SalesService {
     }
   }
 
-  private resolveFulfillmentInstallments(
-    payload: FulfillSalesOrderDto,
-    fulfilledValue: number,
-    defaultDueDate: string,
-  ) {
-    const installments = payload.installmentEntries?.length
-      ? payload.installmentEntries.map((entry) => ({
-          amount: Number(entry.amount),
-          dueDate: entry.dueDate,
-        }))
-      : [{ amount: fulfilledValue, dueDate: defaultDueDate }];
-
-    const installmentsTotal = installments.reduce((sum, entry) => sum + entry.amount, 0);
-    if (Math.abs(installmentsTotal - fulfilledValue) > 0.01) {
-      throw new BadRequestException(
-        'O total das parcelas deve ser igual ao valor atendido nesta etapa.',
-      );
-    }
-
-    return installments;
-  }
-
-  private async createFinancialEntriesForFulfillment({
-    salesOrder,
-    salesOrderId,
-    fulfilledAt,
-    installments,
-    paymentMethod,
-    bankAccountId,
-    fullOrderAmount,
-    user,
-  }: {
-    salesOrder: Record<string, unknown>;
-    salesOrderId: string;
-    fulfilledAt: string;
-    installments: Array<{ amount: number; dueDate: string }>;
-    paymentMethod?: string;
-    bankAccountId?: string;
-    fullOrderAmount: number;
-    user?: AuthenticatedUser;
-  }) {
-    const groupId = require('crypto').randomUUID();
-    const fulfilledDate = new Date(fulfilledAt).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-    const installmentLabel = installments.length > 1 ? 'Parcela' : 'Fatura';
-    const entries = installments.map((installment, index) => ({
-      entry_type: 'Receber',
-      description: `Venda ${String(salesOrder.order_number)} (${installmentLabel} ${index + 1}/${installments.length} - atendimento ${fulfilledDate})`,
-      amount: installment.amount,
-      due_date: installment.dueDate,
-      status: 'Aberto',
-      category: 'Vendas',
-      client_id: salesOrder.client_id,
-      reference_table: 'sales_orders',
-      reference_id: salesOrderId,
-      payment_method: paymentMethod ?? null,
-      installments: installments.length,
-      installment_group_id: groupId,
-      installment_number: index + 1,
-      bank_account_id: bankAccountId ?? null,
-      created_by: user?.id ?? null,
-      updated_by: user?.id ?? null,
-    }));
-
-    const { data: insertedEntries, error } = await this.supabaseService.admin
-      .from('financial_entries')
-      .insert(entries)
-      .select('id, amount');
-
-    if (error) {
-      throw new BadRequestException(error.message);
-    }
-
-    if (insertedEntries?.length) {
-      await this.generateRateio(insertedEntries, salesOrderId, fullOrderAmount, user);
-    }
-  }
-
-  private async generateRateio(entries: any[], salesOrderId: string, totalAmount: number, user?: AuthenticatedUser) {
-    const bundle = await this.loadSalesBundle();
-    const orderItems = bundle.salesOrderItems.filter(item => String(item.sales_order_id) === salesOrderId);
-    const products = bundle.finishedProducts;
-
-    if (entries.length > 0 && totalAmount > 0 && orderItems.length > 0) {
-      const rateioItemsToInsert: any[] = [];
-
-      for (const entry of entries) {
-        let remainingAmount = Number(entry.amount);
-
-        orderItems.forEach((item, index) => {
-          const product = products.find((p) => String(p.id) === String(item.product_id));
-          const itemTotal = Number(item.total_value) || (Number(item.ordered_quantity) * Number(item.unit_price));
-          const proportion = itemTotal / totalAmount;
-          
-          let rateioAmount = Number((Number(entry.amount) * proportion).toFixed(4));
-          
-          if (index === orderItems.length - 1) {
-            rateioAmount = remainingAmount;
-          } else {
-            remainingAmount -= rateioAmount;
-          }
-
-          rateioItemsToInsert.push({
-            financial_entry_id: entry.id,
-            amount: rateioAmount,
-            cost_center_id: product?.cost_center_id ?? null,
-            accounting_category_id: product?.accounting_category_id ?? null,
-            accounting_subcategory_id: product?.accounting_subcategory_id ?? null,
-            cost_type: product?.cost_type ?? null,
-            created_by: user?.id ?? null,
-            updated_by: user?.id ?? null,
-          });
-        });
-      }
-
-      if (rateioItemsToInsert.length > 0) {
-        const { error: itemsError } = await this.supabaseService.admin
-          .from('financial_entry_items')
-          .insert(rateioItemsToInsert);
-
-        if (itemsError) {
-          console.error(`Erro ao inserir itens de rateio de venda: ${itemsError.message}`);
-        }
-      }
-    }
-  }
-
   private async selectMany(table: string) {
     const { data, error } = await this.supabaseService.admin.from(table).select('*');
 
@@ -765,6 +724,12 @@ export class SalesService {
       .delete()
       .eq('reference_table', 'sales_orders')
       .eq('reference_id', id);
+
+    // Delete attendances (cascade will handle attendance_items)
+    await this.supabaseService.admin
+      .from('sale_attendances')
+      .delete()
+      .eq('sales_order_id', id);
 
     await this.supabaseService.admin
       .from('sales_order_items')
