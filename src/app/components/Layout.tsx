@@ -32,7 +32,15 @@ const menuItems = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
   { id: 'recepcao', label: 'Recepcao de Leite', icon: Milk },
   { id: 'analise', label: 'Analise Laboratorial', icon: FlaskConical },
-  { id: 'lotes', label: 'Lotes e Estoque', icon: Package },
+  {
+    id: 'lotes',
+    label: 'Estoque',
+    icon: Package,
+    subItems: [
+      { id: 'lotes', label: 'Consulta de estoque' },
+      { id: 'inventario', label: 'Inventário' },
+    ],
+  },
   { id: 'producao', label: 'Producao', icon: Factory },
   { id: 'custos', label: 'Relatorios', icon: DollarSign },
   { id: 'comercial', label: 'Comercial', icon: TruckIcon },
@@ -87,6 +95,7 @@ const menuItems = [
 function getPageKeyForItem(id: string): string {
   if (id === 'vendedor-externo') return 'comercial';
   if (id.startsWith('cadastros')) return 'cadastros';
+  if (id === 'lotes') return 'lotes';
   if (id === 'financeiro') return 'contas-receber'; // parent entry
   return id;
 }
@@ -98,6 +107,7 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
     if (window.innerWidth < 768) setSidebarOpen(false);
   };
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
+    lotes: currentPage === 'lotes' || currentPage === 'inventario',
     financeiro: currentPage === 'contas-receber' || currentPage === 'contas-pagar' || currentPage === 'contas-bancarias' || currentPage === 'financeiro',
     cadastros: currentPage.startsWith('cadastros'),
   });
@@ -105,13 +115,17 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
   const { isAdmin, canViewPage } = usePermissions();
 
   // Filter menu items based on permissions
-  const visibleMenuItems = menuItems.filter((item) => {
-    // Admin-only items
-    if ('adminOnly' in item && item.adminOnly) return isAdmin;
-    // Check permission
-    const pageKey = getPageKeyForItem(item.id);
-    return canViewPage(pageKey);
-  });
+  const visibleMenuItems = (menuItems as any[])
+    .map((item) => item.subItems
+      ? { ...item, subItems: item.subItems.filter((sub: { id: string }) => canViewPage(getPageKeyForItem(sub.id))) }
+      : item)
+    .filter((item) => {
+      if (item.adminOnly) return isAdmin;
+      // Um grupo aparece quando há pelo menos um submenu permitido. Assim, um
+      // estoquista pode acessar Inventário sem precisar da tela de consulta.
+      if (item.subItems) return item.subItems.length > 0;
+      return canViewPage(getPageKeyForItem(item.id));
+    });
 
   return (
     <div className="min-h-screen bg-gray-50">

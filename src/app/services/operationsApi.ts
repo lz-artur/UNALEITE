@@ -57,6 +57,59 @@ export interface SupplyLotInventoryItem {
   unitId?: string;
 }
 
+export type InventorySessionStatus = 'em_contagem' | 'aguardando_aprovacao' | 'concluido';
+export type InventoryCountItemStatus = 'nao_contado' | 'confere' | 'aguardando_aprovacao' | 'aprovado' | 'recusado';
+
+export interface InventoryCountItem {
+  id: string;
+  inventory_session_id: string;
+  lot_type: 'Insumo' | 'Produto Acabado';
+  lot_id: string;
+  product_id: string;
+  product_name: string;
+  product_code?: string | null;
+  lot_code: string;
+  unit_symbol?: string | null;
+  system_quantity: number;
+  counted_quantity?: number | null;
+  difference_quantity?: number | null;
+  notes?: string | null;
+  status: InventoryCountItemStatus;
+  submitted_at?: string | null;
+  reviewed_at?: string | null;
+  reviewed_by_name?: string | null;
+  review_note?: string | null;
+}
+
+export interface InventoryAuditLog {
+  id: string;
+  inventory_session_id: string;
+  inventory_count_item_id?: string | null;
+  action: string;
+  actor_name: string;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface InventorySessionSummary {
+  id: string;
+  title: string;
+  status: InventorySessionStatus;
+  created_by: string;
+  created_by_name: string;
+  started_at: string;
+  submitted_at?: string | null;
+  completed_at?: string | null;
+  total_items: number;
+  pending_items: number;
+  divergent_items: number;
+}
+
+export interface InventorySession extends Omit<InventorySessionSummary, 'total_items' | 'pending_items' | 'divergent_items'> {
+  items: InventoryCountItem[];
+  logs: InventoryAuditLog[];
+}
+
 export interface PurchaseItemRecord {
   id: string;
   supplyItemId: string;
@@ -1059,6 +1112,55 @@ export async function loadFinishedProductLots(options?: { requireLive?: boolean 
     return lots.map(mapFinishedProductLot);
   };
   return options?.requireLive ? loader() : withFallback(loader, () => mockEstoquesProdutos);
+}
+
+export function loadInventorySessions(): Promise<InventorySessionSummary[]> {
+  return apiRequest<InventorySessionSummary[]>('/inventory/counts');
+}
+
+export function loadInventorySession(id: string): Promise<InventorySession> {
+  return apiRequest<InventorySession>(`/inventory/counts/${id}`);
+}
+
+export function createInventorySession(title?: string): Promise<InventorySession> {
+  return apiRequest<InventorySession>('/inventory/counts', {
+    method: 'POST',
+    body: JSON.stringify({ title: title?.trim() || undefined }),
+  });
+}
+
+export function saveInventoryCounts(
+  sessionId: string,
+  items: Array<{ id: string; countedQuantity: number; notes?: string }>,
+): Promise<InventorySession> {
+  return apiRequest<InventorySession>(`/inventory/counts/${sessionId}/save`, {
+    method: 'POST',
+    body: JSON.stringify({ items }),
+  });
+}
+
+export function submitInventorySession(
+  sessionId: string,
+  items: Array<{ id: string; countedQuantity: number; notes?: string }>,
+): Promise<InventorySession> {
+  return apiRequest<InventorySession>(`/inventory/counts/${sessionId}/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ items }),
+  });
+}
+
+export function approveInventoryCountItem(sessionId: string, itemId: string, note?: string) {
+  return apiRequest<{ session: InventorySession }>(`/inventory/counts/${sessionId}/items/${itemId}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ note: note?.trim() || undefined }),
+  });
+}
+
+export function rejectInventoryCountItem(sessionId: string, itemId: string, note?: string): Promise<InventorySession> {
+  return apiRequest<InventorySession>(`/inventory/counts/${sessionId}/items/${itemId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ note: note?.trim() || undefined }),
+  });
 }
 
 export async function loadFinancialEntries(filters?: FinancialEntryFilters) {

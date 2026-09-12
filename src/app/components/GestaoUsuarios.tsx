@@ -44,6 +44,7 @@ const PAGE_DEFINITIONS = [
   { key: 'comercial', label: 'Comercial', actions: ['view', 'create', 'edit', 'delete'] },
   { key: 'faturamento', label: 'Faturamento NF-e', actions: ['view', 'create', 'edit', 'delete', 'authorize', 'cancel', 'configure'] },
   { key: 'compras', label: 'Compras', actions: ['view', 'create', 'edit', 'delete'] },
+  { key: 'inventario', label: 'Inventário', actions: ['view', 'create', 'edit'] },
   { key: 'contas-receber', label: 'Contas a Receber', actions: ['view', 'create', 'edit', 'delete'] },
   { key: 'contas-pagar', label: 'Contas a Pagar', actions: ['view', 'create', 'edit', 'delete'] },
   { key: 'folha-leite', label: 'Folha do Leite', actions: ['view', 'create'] },

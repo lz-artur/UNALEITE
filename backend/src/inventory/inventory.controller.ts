@@ -4,6 +4,10 @@ import { SupabaseAuthGuard } from '../common/guards/supabase-auth.guard';
 import { InventoryService } from './inventory.service';
 import { CreateManualExitDto } from './dto/create-manual-exit.dto';
 import { CurrentUser, type AuthenticatedUser } from '../common/decorators/current-user.decorator';
+import { AdminGuard } from '../common/guards/admin.guard';
+import { CreateInventorySessionDto } from './dto/create-inventory-session.dto';
+import { SaveInventoryCountsDto } from './dto/save-inventory-counts.dto';
+import { ReviewInventoryCountDto } from './dto/review-inventory-count.dto';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
@@ -48,5 +52,66 @@ export class InventoryController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.inventoryService.createManualExit(payload, user);
+  }
+
+  @Get('counts')
+  listCountSessions(@CurrentUser() user: AuthenticatedUser) {
+    return this.inventoryService.listInventorySessions(user);
+  }
+
+  @Post('counts')
+  createCountSession(
+    @Body() payload: CreateInventorySessionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.createInventorySession(payload, user);
+  }
+
+  @Post('counts/:sessionId/save')
+  saveCounts(
+    @Param('sessionId') sessionId: string,
+    @Body() payload: SaveInventoryCountsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.saveInventoryCounts(sessionId, payload, user);
+  }
+
+  @Post('counts/:sessionId/submit')
+  submitCounts(
+    @Param('sessionId') sessionId: string,
+    @Body() payload: SaveInventoryCountsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.submitInventorySession(sessionId, payload, user);
+  }
+
+  @Post('counts/:sessionId/items/:itemId/approve')
+  @UseGuards(AdminGuard)
+  approveCountItem(
+    @Param('sessionId') sessionId: string,
+    @Param('itemId') itemId: string,
+    @Body() payload: ReviewInventoryCountDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.approveInventoryCountItem(sessionId, itemId, payload, user);
+  }
+
+  @Post('counts/:sessionId/items/:itemId/reject')
+  @UseGuards(AdminGuard)
+  rejectCountItem(
+    @Param('sessionId') sessionId: string,
+    @Param('itemId') itemId: string,
+    @Body() payload: ReviewInventoryCountDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.rejectInventoryCountItem(sessionId, itemId, payload, user);
+  }
+
+  @Get('counts/:sessionId')
+  getCountSession(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.getInventorySession(sessionId, user);
   }
 }
