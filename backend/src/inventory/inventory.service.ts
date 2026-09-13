@@ -6,6 +6,7 @@ import { UsersService } from '../users/users.service';
 import { CreateInventorySessionDto } from './dto/create-inventory-session.dto';
 import { SaveInventoryCountsDto } from './dto/save-inventory-counts.dto';
 import { ReviewInventoryCountDto } from './dto/review-inventory-count.dto';
+import { CreateExpeditionWeighingDto } from './dto/create-expedition-weighing.dto';
 
 @Injectable()
 export class InventoryService {
@@ -469,6 +470,215 @@ export class InventoryService {
       if (completeError) throw new BadRequestException(completeError.message);
     }
     return this.getInventorySession(sessionId, user);
+  }
+
+  async listSaleExpeditions(user: AuthenticatedUser) {
+    await this.getActor(user);
+    const { data, error } = await this.supabaseService.admin
+      .from('sale_expeditions')
+      .select('*, sales_orders(order_number, clients(name))')
+      .order('created_at', { ascending: false });
+    if (error) throw new BadRequestException(error.message);
+    return (data ?? []).map((entry: any) => {
+      const order = Array.isArray(entry.sales_orders) ? entry.sales_orders[0] : entry.sales_orders;
+      const client = Array.isArray(order?.clients) ? order.clients[0] : order?.clients;
+      return {
+        ...entry,
+        order_number: order?.order_number ?? '-',
+        client_name: client?.name ?? '-',
+        sales_orders: undefined,
+      };
+    });
+  }
+
+  async createSaleExpedition(salesOrderId: string, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const { data: order, error: orderError } = await this.supabaseService.admin
+      .from('sales_orders')
+      .select('id, status')
+      .eq('id', salesOrderId)
+      .maybeSingle();
+    if (orderError) throw new BadRequestException(orderError.message);
+    if (!order || ['Atendido', 'Cancelado'].includes(order.status)) {
+      throw new BadRequestException('Este pedido não está disponível para expedição.');
+    }
+
+    const { data, error } = await this.supabaseService.admin
+      .from('sale_expeditions')
+      .insert({
+        sales_order_id: salesOrderId,
+        expedition_number: `EXP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        created_by: actor.id,
+        updated_by: actor.id,
+      })
+      .select('id')
+      .single();
+    if (error) {
+      if (error.code === '23505') throw new BadRequestException('Já existe uma expedição em pesagem para este pedido.');
+      throw new BadRequestException(error.message);
+    }
+    await this.insertExpeditionLog(data.id, 'expedicao_iniciada', actor, { sales_order_id: salesOrderId });
+    return this.getSaleExpedition(data.id, user);
+  }
+
+  async getSaleExpedition(expeditionId: string, user: AuthenticatedUser) {
+    await this.getActor(user);
+    const { data: expedition, error: expeditionError } = await this.supabaseService.admin
+      .from('sale_expeditions')
+      .select('*')
+      .eq('id', expeditionId)
+      .maybeSingle();
+    if (expeditionError) throw new BadRequestException(expeditionError.message);
+    if (!expedition) throw new NotFoundException('Expedição não encontrada');
+
+    const [{ data: order, error: orderError }, { data: orderItems, error: itemError }, { data: lines, error: lineError }, { data: logs, error: logError }] = await Promise.all([
+      this.supabaseService.admin.from('sales_orders').select('*').eq('id', expedition.sales_order_id).single(),
+      this.supabaseService.admin.from('sales_order_items').select('*').eq('sales_order_id', expedition.sales_order_id),
+      this.supabaseService.admin.from('sale_expedition_lines').select('*').eq('expedition_id', expeditionId),
+      this.supabaseService.admin.from('sale_expedition_logs').select('*').eq('expedition_id', expeditionId).order('created_at', { ascending: false }),
+    ]);
+    if (orderError) throw new BadRequestException(orderError.message);
+    if (itemError) throw new BadRequestException(itemError.message);
+    if (lineError) throw new BadRequestException(lineError.message);
+    if (logError) throw new BadRequestException(logError.message);
+
+    const productIds = [...new Set((orderItems ?? []).map((item: any) => item.product_id))];
+    const lineIds = (lines ?? []).map((line: any) => line.id);
+    const lotIds = [...new Set((lines ?? []).map((line: any) => line.finished_product_lot_id))];
+    const [{ data: products, error: productError }, { data: lots, error: lotError }, { data: weighings, error: weighingError }, { data: client, error: clientError }] = await Promise.all([
+      productIds.length ? this.supabaseService.admin.from('finished_products').select('id, name, code, unit_id').in('id', productIds) : Promise.resolve({ data: [], error: null }),
+      lotIds.length ? this.supabaseService.admin.from('finished_product_lots').select('id, lot_code, product_id, available_quantity').in('id', lotIds) : Promise.resolve({ data: [], error: null }),
+      lineIds.length ? this.supabaseService.admin.from('sale_expedition_weighings').select('*').in('expedition_line_id', lineIds).order('weighed_at') : Promise.resolve({ data: [], error: null }),
+      this.supabaseService.admin.from('clients').select('id, name').eq('id', order.client_id).maybeSingle(),
+    ]);
+    if (productError || lotError || weighingError || clientError) {
+      throw new BadRequestException(productError?.message || lotError?.message || weighingError?.message || clientError?.message || 'Erro ao carregar expedição');
+    }
+
+    const productById = new Map((products ?? []).map((product: any) => [product.id, product]));
+    const lotById = new Map((lots ?? []).map((lot: any) => [lot.id, lot]));
+    const weighingsByLine = new Map<string, any[]>();
+    (weighings ?? []).forEach((weighing: any) => {
+      const collection = weighingsByLine.get(weighing.expedition_line_id) ?? [];
+      collection.push(weighing);
+      weighingsByLine.set(weighing.expedition_line_id, collection);
+    });
+    const linesByItem = new Map<string, any[]>();
+    (lines ?? []).forEach((line: any) => {
+      const collection = linesByItem.get(line.sales_order_item_id) ?? [];
+      collection.push({
+        ...line,
+        lot: lotById.get(line.finished_product_lot_id),
+        weighings: weighingsByLine.get(line.id) ?? [],
+        weighed_quantity: (weighingsByLine.get(line.id) ?? []).reduce((sum, weighing) => sum + Number(weighing.quantity), 0),
+      });
+      linesByItem.set(line.sales_order_item_id, collection);
+    });
+
+    return {
+      ...expedition,
+      order: {
+        id: order.id,
+        number: order.order_number,
+        client_name: client?.name ?? '-',
+        status: order.status,
+        items: (orderItems ?? []).map((item: any) => {
+          const product = productById.get(item.product_id);
+          return {
+            id: item.id,
+            product_id: item.product_id,
+            product_name: product?.name ?? '-',
+            product_code: product?.code ?? null,
+            unit_id: product?.unit_id ?? null,
+            ordered_quantity: Number(item.ordered_quantity),
+            fulfilled_quantity: Number(item.fulfilled_quantity),
+            pending_quantity: Math.max(0, Number(item.ordered_quantity) - Number(item.fulfilled_quantity)),
+            lines: linesByItem.get(item.id) ?? [],
+          };
+        }),
+      },
+      logs: logs ?? [],
+    };
+  }
+
+  async createExpeditionWeighing(expeditionId: string, payload: CreateExpeditionWeighingDto, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const { data: expedition, error: expeditionError } = await this.supabaseService.admin
+      .from('sale_expeditions').select('*').eq('id', expeditionId).maybeSingle();
+    if (expeditionError) throw new BadRequestException(expeditionError.message);
+    if (!expedition || expedition.status !== 'em_pesagem') throw new BadRequestException('Esta expedição não está aberta para pesagem.');
+
+    const [{ data: orderItem, error: itemError }, { data: lot, error: lotError }] = await Promise.all([
+      this.supabaseService.admin.from('sales_order_items').select('*').eq('id', payload.salesOrderItemId).eq('sales_order_id', expedition.sales_order_id).maybeSingle(),
+      this.supabaseService.admin.from('finished_product_lots').select('*').eq('id', payload.finishedProductLotId).maybeSingle(),
+    ]);
+    if (itemError || lotError) throw new BadRequestException(itemError?.message || lotError?.message || 'Erro ao validar pesagem');
+    if (!orderItem || !lot || orderItem.product_id !== lot.product_id) throw new BadRequestException('Selecione um lote correspondente ao produto do pedido.');
+
+    const { data: expeditionLines, error: linesError } = await this.supabaseService.admin
+      .from('sale_expedition_lines').select('*').eq('expedition_id', expeditionId).eq('sales_order_item_id', payload.salesOrderItemId);
+    if (linesError) throw new BadRequestException(linesError.message);
+    const lineIds = (expeditionLines ?? []).map((line: any) => line.id);
+    const { data: existingWeighings, error: weighingsError } = lineIds.length
+      ? await this.supabaseService.admin.from('sale_expedition_weighings').select('expedition_line_id, quantity').in('expedition_line_id', lineIds)
+      : { data: [], error: null };
+    if (weighingsError) throw new BadRequestException(weighingsError.message);
+    const itemTotal = (existingWeighings ?? []).reduce((sum: number, weighing: any) => sum + Number(weighing.quantity), 0);
+    const pending = Number(orderItem.ordered_quantity) - Number(orderItem.fulfilled_quantity);
+    if (itemTotal + payload.quantity > pending + 0.0001) throw new BadRequestException(`A pesagem excede o saldo pendente do pedido (${pending}).`);
+
+    let line = (expeditionLines ?? []).find((entry: any) => entry.finished_product_lot_id === payload.finishedProductLotId);
+    if (!line) {
+      const { data, error } = await this.supabaseService.admin.from('sale_expedition_lines').insert({
+        expedition_id: expeditionId, sales_order_item_id: payload.salesOrderItemId, finished_product_lot_id: payload.finishedProductLotId, created_by: actor.id,
+      }).select('*').single();
+      if (error) throw new BadRequestException(error.message);
+      line = data;
+    }
+    const lineCurrent = (existingWeighings ?? []).filter((weighing: any) => weighing.expedition_line_id === line.id).reduce((sum: number, weighing: any) => sum + Number(weighing.quantity), 0);
+    if (lineCurrent + payload.quantity > Number(lot.available_quantity) + 0.0001) throw new BadRequestException(`A pesagem excede o saldo disponível do lote (${lot.available_quantity}).`);
+
+    const { error: insertError } = await this.supabaseService.admin.from('sale_expedition_weighings').insert({
+      expedition_line_id: line.id, quantity: payload.quantity, notes: payload.notes?.trim() || null, created_by: actor.id,
+    });
+    if (insertError) throw new BadRequestException(insertError.message);
+    await this.insertExpeditionLog(expeditionId, 'pesagem_registrada', actor, { item_id: payload.salesOrderItemId, lot_id: payload.finishedProductLotId, quantidade: payload.quantity });
+    return this.getSaleExpedition(expeditionId, user);
+  }
+
+  async deleteExpeditionWeighing(expeditionId: string, weighingId: string, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const { data: expedition, error: expeditionError } = await this.supabaseService.admin
+      .from('sale_expeditions').select('status').eq('id', expeditionId).maybeSingle();
+    if (expeditionError) throw new BadRequestException(expeditionError.message);
+    if (!expedition || expedition.status !== 'em_pesagem') throw new BadRequestException('Esta expedição não está aberta para alteração.');
+    const { data: lines, error: lineError } = await this.supabaseService.admin.from('sale_expedition_lines').select('id').eq('expedition_id', expeditionId);
+    if (lineError) throw new BadRequestException(lineError.message);
+    const lineIds = (lines ?? []).map((line: any) => line.id);
+    const { data: weighing, error: weighingError } = await this.supabaseService.admin.from('sale_expedition_weighings').select('*').eq('id', weighingId).in('expedition_line_id', lineIds).maybeSingle();
+    if (weighingError) throw new BadRequestException(weighingError.message);
+    if (!weighing) throw new NotFoundException('Pesagem não encontrada');
+    const { error: deleteError } = await this.supabaseService.admin.from('sale_expedition_weighings').delete().eq('id', weighingId);
+    if (deleteError) throw new BadRequestException(deleteError.message);
+    await this.insertExpeditionLog(expeditionId, 'pesagem_removida', actor, { quantidade: weighing.quantity });
+    return this.getSaleExpedition(expeditionId, user);
+  }
+
+  async confirmSaleExpedition(expeditionId: string, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const { data: attendanceId, error } = await this.supabaseService.admin.rpc('confirm_sale_expedition', {
+      p_expedition_id: expeditionId, p_user_id: actor.id,
+    });
+    if (error) throw new BadRequestException(error.message);
+    await this.insertExpeditionLog(expeditionId, 'expedicao_confirmada', actor, { attendance_id: attendanceId });
+    return this.getSaleExpedition(expeditionId, user);
+  }
+
+  private async insertExpeditionLog(expeditionId: string, action: string, actor: { id: string; name: string }, details: Record<string, unknown>) {
+    const { error } = await this.supabaseService.admin.from('sale_expedition_logs').insert({
+      expedition_id: expeditionId, action, actor_id: actor.id, actor_name: actor.name, details,
+    });
+    if (error) throw new BadRequestException(error.message);
   }
 
   private async insertAuditLog(

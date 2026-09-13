@@ -20,6 +20,7 @@ import ContasPagar from './components/financeiro/ContasPagar';
 import ContasBancarias from './components/financeiro/ContasBancarias';
 import GestaoUsuarios from './components/GestaoUsuarios';
 import Inventario from './components/Inventario';
+import Expedicao from './components/Expedicao';
 import FaturamentoNfe from './components/FaturamentoNfe';
 import { useAuth } from './context/AuthContext';
 import { CadastrosProvider } from './context/CadastrosContext';
@@ -67,6 +68,7 @@ const ORDERED_PAGES = [
   'faturamento',
   'compras',
   'inventario',
+  'expedicao',
   'contas-receber',
   'contas-pagar',
   'contas-bancarias',
@@ -126,6 +128,8 @@ function AppInner() {
         return <LotesEstoqueDetalhado />;
       case 'inventario':
         return <Inventario />;
+      case 'expedicao':
+        return <Expedicao />;
       case 'producao':
         return <Producao />;
       case 'custos':

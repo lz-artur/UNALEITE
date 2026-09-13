@@ -8,6 +8,8 @@ import { AdminGuard } from '../common/guards/admin.guard';
 import { CreateInventorySessionDto } from './dto/create-inventory-session.dto';
 import { SaveInventoryCountsDto } from './dto/save-inventory-counts.dto';
 import { ReviewInventoryCountDto } from './dto/review-inventory-count.dto';
+import { CreateSaleExpeditionDto } from './dto/create-sale-expedition.dto';
+import { CreateExpeditionWeighingDto } from './dto/create-expedition-weighing.dto';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
@@ -113,5 +115,52 @@ export class InventoryController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.inventoryService.getInventorySession(sessionId, user);
+  }
+
+  @Get('expeditions')
+  listExpeditions(@CurrentUser() user: AuthenticatedUser) {
+    return this.inventoryService.listSaleExpeditions(user);
+  }
+
+  @Post('expeditions')
+  createExpedition(
+    @Body() payload: CreateSaleExpeditionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.createSaleExpedition(payload.salesOrderId, user);
+  }
+
+  @Post('expeditions/:expeditionId/weighings')
+  createExpeditionWeighing(
+    @Param('expeditionId') expeditionId: string,
+    @Body() payload: CreateExpeditionWeighingDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.createExpeditionWeighing(expeditionId, payload, user);
+  }
+
+  @Delete('expeditions/:expeditionId/weighings/:weighingId')
+  deleteExpeditionWeighing(
+    @Param('expeditionId') expeditionId: string,
+    @Param('weighingId') weighingId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.deleteExpeditionWeighing(expeditionId, weighingId, user);
+  }
+
+  @Post('expeditions/:expeditionId/confirm')
+  confirmExpedition(
+    @Param('expeditionId') expeditionId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.confirmSaleExpedition(expeditionId, user);
+  }
+
+  @Get('expeditions/:expeditionId')
+  getExpedition(
+    @Param('expeditionId') expeditionId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inventoryService.getSaleExpedition(expeditionId, user);
   }
 }

@@ -110,6 +110,50 @@ export interface InventorySession extends Omit<InventorySessionSummary, 'total_i
   logs: InventoryAuditLog[];
 }
 
+export interface SaleExpeditionSummary {
+  id: string;
+  sales_order_id: string;
+  expedition_number: string;
+  status: 'em_pesagem' | 'expedida' | 'cancelada';
+  created_at: string;
+  dispatched_at?: string | null;
+  order_number: string;
+  client_name: string;
+}
+
+export interface SaleExpedition {
+  id: string;
+  sales_order_id: string;
+  expedition_number: string;
+  status: 'em_pesagem' | 'expedida' | 'cancelada';
+  created_at: string;
+  dispatched_at?: string | null;
+  order: {
+    id: string;
+    number: string;
+    client_name: string;
+    status: string;
+    items: Array<{
+      id: string;
+      product_id: string;
+      product_name: string;
+      product_code?: string | null;
+      unit_id?: string | null;
+      ordered_quantity: number;
+      fulfilled_quantity: number;
+      pending_quantity: number;
+      lines: Array<{
+        id: string;
+        finished_product_lot_id: string;
+        lot?: { id: string; lot_code: string; available_quantity: number };
+        weighed_quantity: number;
+        weighings: Array<{ id: string; quantity: number; weighed_at: string; notes?: string | null }>;
+      }>;
+    }>;
+  };
+  logs: Array<{ id: string; action: string; actor_name: string; created_at: string }>;
+}
+
 export interface PurchaseItemRecord {
   id: string;
   supplyItemId: string;
@@ -1161,6 +1205,33 @@ export function rejectInventoryCountItem(sessionId: string, itemId: string, note
     method: 'POST',
     body: JSON.stringify({ note: note?.trim() || undefined }),
   });
+}
+
+export function loadSaleExpeditions(): Promise<SaleExpeditionSummary[]> {
+  return apiRequest<SaleExpeditionSummary[]>('/inventory/expeditions');
+}
+
+export function loadSaleExpedition(id: string): Promise<SaleExpedition> {
+  return apiRequest<SaleExpedition>(`/inventory/expeditions/${id}`);
+}
+
+export function createSaleExpedition(salesOrderId: string): Promise<SaleExpedition> {
+  return apiRequest<SaleExpedition>('/inventory/expeditions', { method: 'POST', body: JSON.stringify({ salesOrderId }) });
+}
+
+export function addExpeditionWeighing(payload: { expeditionId: string; salesOrderItemId: string; finishedProductLotId: string; quantity: number; notes?: string }): Promise<SaleExpedition> {
+  return apiRequest<SaleExpedition>(`/inventory/expeditions/${payload.expeditionId}/weighings`, {
+    method: 'POST',
+    body: JSON.stringify({ salesOrderItemId: payload.salesOrderItemId, finishedProductLotId: payload.finishedProductLotId, quantity: payload.quantity, notes: payload.notes }),
+  });
+}
+
+export function deleteExpeditionWeighing(expeditionId: string, weighingId: string): Promise<SaleExpedition> {
+  return apiRequest<SaleExpedition>(`/inventory/expeditions/${expeditionId}/weighings/${weighingId}`, { method: 'DELETE' });
+}
+
+export function confirmSaleExpedition(expeditionId: string): Promise<SaleExpedition> {
+  return apiRequest<SaleExpedition>(`/inventory/expeditions/${expeditionId}/confirm`, { method: 'POST', body: JSON.stringify({}) });
 }
 
 export async function loadFinancialEntries(filters?: FinancialEntryFilters) {

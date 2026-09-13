@@ -39,6 +39,7 @@ const menuItems = [
     subItems: [
       { id: 'lotes', label: 'Consulta de estoque' },
       { id: 'inventario', label: 'Inventário' },
+      { id: 'expedicao', label: 'Expedição' },
     ],
   },
   { id: 'producao', label: 'Producao', icon: Factory },
@@ -107,7 +108,7 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
     if (window.innerWidth < 768) setSidebarOpen(false);
   };
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
-    lotes: currentPage === 'lotes' || currentPage === 'inventario',
+    lotes: currentPage === 'lotes' || currentPage === 'inventario' || currentPage === 'expedicao',
     financeiro: currentPage === 'contas-receber' || currentPage === 'contas-pagar' || currentPage === 'contas-bancarias' || currentPage === 'financeiro',
     cadastros: currentPage.startsWith('cadastros'),
   });

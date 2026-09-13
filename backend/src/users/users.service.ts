@@ -42,6 +42,7 @@ export const ALL_PAGE_KEYS = [
   'faturamento',
   'compras',
   'inventario',
+  'expedicao',
   'contas-receber',
   'contas-pagar',
   'folha-leite',
