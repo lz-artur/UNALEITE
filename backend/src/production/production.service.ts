@@ -30,11 +30,13 @@ type ResolvedSupplyConsumption = {
 type FinishedProductConsumptionInput = {
   finishedProductLotId?: string;
   finishedProductId?: string;
+  source?: 'Disponivel' | 'Devolucao';
   quantity: number;
 };
 
 type ResolvedFinishedProductConsumption = {
   finishedProductLotId: string;
+  source?: 'Disponivel' | 'Devolucao';
   quantity: number;
 };
 
@@ -144,19 +146,24 @@ export class ProductionService {
     const resolved: ResolvedFinishedProductConsumption[] = [];
 
     for (const consumption of consumptions) {
+      const source = consumption.source ?? 'Disponivel';
       if (!consumption.finishedProductId) {
         if (!consumption.finishedProductLotId) {
           throw new BadRequestException('Informe o produto acabado a ser consumido.');
         }
-        resolved.push({ finishedProductLotId: consumption.finishedProductLotId, quantity: consumption.quantity });
+        resolved.push({
+          finishedProductLotId: consumption.finishedProductLotId,
+          ...(consumption.source ? { source } : {}),
+          quantity: consumption.quantity,
+        });
         continue;
       }
 
       const { data: lots, error } = await this.supabaseService.admin
         .from('finished_product_lots')
-        .select('id, available_quantity')
+        .select('id, available_quantity, returned_quantity')
         .eq('product_id', consumption.finishedProductId)
-        .gt('available_quantity', 0)
+        .gt(source === 'Devolucao' ? 'returned_quantity' : 'available_quantity', 0)
         .order('produced_at', { ascending: true })
         .order('created_at', { ascending: true })
         .order('id', { ascending: true });
@@ -168,8 +175,13 @@ export class ProductionService {
       let remaining = consumption.quantity;
       for (const lot of lots ?? []) {
         if (remaining <= 0) break;
-        const quantity = Math.min(Number(lot.available_quantity), remaining);
-        resolved.push({ finishedProductLotId: String(lot.id), quantity });
+        const balance = source === 'Devolucao' ? Number(lot.returned_quantity) : Number(lot.available_quantity);
+        const quantity = Math.min(balance, remaining);
+        resolved.push({
+          finishedProductLotId: String(lot.id),
+          ...(consumption.source ? { source } : {}),
+          quantity,
+        });
         remaining = Number((remaining - quantity).toFixed(4));
       }
 
@@ -322,9 +334,10 @@ export class ProductionService {
       const finishedProductConsumptions = await this.resolveFinishedProductConsumptions(payload.finishedProductConsumptions);
       for (const consumption of finishedProductConsumptions) {
         const productLot = await this.getById('finished_product_lots', consumption.finishedProductLotId);
-        const nextAvailable = Number(productLot.available_quantity) - consumption.quantity;
+        const balanceField = consumption.source === 'Devolucao' ? 'returned_quantity' : 'available_quantity';
+        const nextBalance = Number(productLot[balanceField]) - consumption.quantity;
 
-        if (nextAvailable < 0) {
+        if (nextBalance < 0) {
           throw new BadRequestException(`Finished product lot ${productLot.lot_code} would become negative`);
         }
 
@@ -332,6 +345,7 @@ export class ProductionService {
           production_order_id: order.id,
           finished_product_lot_id: consumption.finishedProductLotId,
           quantity_consumed: consumption.quantity,
+          ...(consumption.source ? { consumption_source: consumption.source } : {}),
           created_by: user?.id ?? null,
           updated_by: user?.id ?? null,
         });
@@ -339,7 +353,7 @@ export class ProductionService {
         await this.supabaseService.admin
           .from('finished_product_lots')
           .update({
-            available_quantity: nextAvailable,
+            [balanceField]: nextBalance,
             updated_by: user?.id ?? null,
           })
           .eq('id', consumption.finishedProductLotId);
@@ -413,12 +427,13 @@ export class ProductionService {
     if (!finishedProductConsumptions?.length) {
       const { data: existingFPConsumptions } = await this.supabaseService.admin
         .from('production_order_finished_product_consumptions')
-        .select('finished_product_lot_id, quantity_consumed')
+        .select('finished_product_lot_id, quantity_consumed, consumption_source')
         .eq('production_order_id', orderId);
 
       if (existingFPConsumptions && existingFPConsumptions.length > 0) {
         finishedProductConsumptions = existingFPConsumptions.map(c => ({
           finishedProductLotId: c.finished_product_lot_id,
+          source: c.consumption_source === 'Devolucao' ? 'Devolucao' : 'Disponivel',
           quantity: c.quantity_consumed,
         }));
       } else {
@@ -458,7 +473,7 @@ export class ProductionService {
     if (deductStockForFPConsumptions && resolvedFinishedProductConsumptions.length > 0) {
       for (const consumption of resolvedFinishedProductConsumptions) {
         const productLot = await this.getById('finished_product_lots', consumption.finishedProductLotId);
-        const availableQuantity = Number(productLot.available_quantity);
+        const availableQuantity = Number(productLot[consumption.source === 'Devolucao' ? 'returned_quantity' : 'available_quantity']);
 
         if (availableQuantity < consumption.quantity) {
           throw new BadRequestException(`Finished product lot ${productLot.lot_code} has insufficient stock`);
@@ -618,22 +633,23 @@ export class ProductionService {
     if (deductStockForFPConsumptions && resolvedFinishedProductConsumptions.length > 0) {
       const { data: oldFPConsumptions } = await this.supabaseService.admin
         .from('production_order_finished_product_consumptions')
-        .select('finished_product_lot_id, quantity_consumed')
+        .select('finished_product_lot_id, quantity_consumed, consumption_source')
         .eq('production_order_id', orderId);
 
       if (oldFPConsumptions && oldFPConsumptions.length > 0) {
         for (const sc of oldFPConsumptions) {
           const { data: productLot } = await this.supabaseService.admin
             .from('finished_product_lots')
-            .select('available_quantity')
+            .select('available_quantity, returned_quantity')
             .eq('id', sc.finished_product_lot_id)
             .single();
 
           if (productLot) {
-            const restoredVolume = Number(productLot.available_quantity) + Number(sc.quantity_consumed);
+            const balanceField = sc.consumption_source === 'Devolucao' ? 'returned_quantity' : 'available_quantity';
+            const restoredVolume = Number(productLot[balanceField]) + Number(sc.quantity_consumed);
             await this.supabaseService.admin
               .from('finished_product_lots')
-              .update({ available_quantity: restoredVolume })
+              .update({ [balanceField]: restoredVolume })
               .eq('id', sc.finished_product_lot_id);
           }
         }
@@ -646,7 +662,8 @@ export class ProductionService {
 
       for (const consumption of resolvedFinishedProductConsumptions) {
         const productLot = await this.getById('finished_product_lots', consumption.finishedProductLotId);
-        const nextAvailable = Number(productLot.available_quantity) - consumption.quantity;
+        const balanceField = consumption.source === 'Devolucao' ? 'returned_quantity' : 'available_quantity';
+        const nextAvailable = Number(productLot[balanceField]) - consumption.quantity;
 
         if (nextAvailable < 0) {
           throw new BadRequestException(`Finished product lot ${productLot.lot_code} would become negative`);
@@ -656,6 +673,7 @@ export class ProductionService {
           production_order_id: orderId,
           finished_product_lot_id: consumption.finishedProductLotId,
           quantity_consumed: consumption.quantity,
+          ...(consumption.source ? { consumption_source: consumption.source } : {}),
           created_by: user?.id ?? null,
           updated_by: user?.id ?? null,
         });
@@ -663,7 +681,7 @@ export class ProductionService {
         await this.supabaseService.admin
           .from('finished_product_lots')
           .update({
-            available_quantity: nextAvailable,
+            [balanceField]: nextAvailable,
             updated_by: user?.id ?? null,
           })
           .eq('id', consumption.finishedProductLotId);
@@ -960,22 +978,23 @@ export class ProductionService {
       const finishedProductConsumptions = await this.resolveFinishedProductConsumptions(payload.finishedProductConsumptions);
       const { data: oldFPConsumptions } = await this.supabaseService.admin
         .from('production_order_finished_product_consumptions')
-        .select('finished_product_lot_id, quantity_consumed')
+        .select('finished_product_lot_id, quantity_consumed, consumption_source')
         .eq('production_order_id', orderId);
 
       if (oldFPConsumptions && oldFPConsumptions.length > 0) {
         for (const sc of oldFPConsumptions) {
           const { data: productLot } = await this.supabaseService.admin
             .from('finished_product_lots')
-            .select('available_quantity')
+            .select('available_quantity, returned_quantity')
             .eq('id', sc.finished_product_lot_id)
             .single();
 
           if (productLot) {
-            const restoredVolume = Number(productLot.available_quantity) + Number(sc.quantity_consumed);
+            const balanceField = sc.consumption_source === 'Devolucao' ? 'returned_quantity' : 'available_quantity';
+            const restoredVolume = Number(productLot[balanceField]) + Number(sc.quantity_consumed);
             await this.supabaseService.admin
               .from('finished_product_lots')
-              .update({ available_quantity: restoredVolume })
+              .update({ [balanceField]: restoredVolume })
               .eq('id', sc.finished_product_lot_id);
           }
         }
@@ -989,7 +1008,7 @@ export class ProductionService {
       for (const consumption of finishedProductConsumptions) {
         const { data: productLot } = await this.supabaseService.admin
           .from('finished_product_lots')
-          .select('available_quantity, lot_code')
+          .select('available_quantity, returned_quantity, lot_code')
           .eq('id', consumption.finishedProductLotId)
           .single();
 
@@ -997,7 +1016,8 @@ export class ProductionService {
           throw new BadRequestException(`Finished product lot not found: ${consumption.finishedProductLotId}`);
         }
 
-        const nextAvailable = Number(productLot.available_quantity) - consumption.quantity;
+        const balanceField = consumption.source === 'Devolucao' ? 'returned_quantity' : 'available_quantity';
+        const nextAvailable = Number(productLot[balanceField]) - consumption.quantity;
         if (nextAvailable < 0) {
           throw new BadRequestException(`Finished product lot ${productLot.lot_code} would become negative`);
         }
@@ -1006,6 +1026,7 @@ export class ProductionService {
           production_order_id: orderId,
           finished_product_lot_id: consumption.finishedProductLotId,
           quantity_consumed: consumption.quantity,
+          ...(consumption.source ? { consumption_source: consumption.source } : {}),
           created_by: user?.id ?? null,
           updated_by: user?.id ?? null,
         });
@@ -1013,7 +1034,7 @@ export class ProductionService {
         await this.supabaseService.admin
           .from('finished_product_lots')
           .update({
-            available_quantity: nextAvailable,
+            [balanceField]: nextAvailable,
             updated_by: user?.id ?? null,
           })
           .eq('id', consumption.finishedProductLotId);
@@ -1431,7 +1452,7 @@ export class ProductionService {
 
     const { data: fpConsumptions, error: fpError } = await this.supabaseService.admin
       .from('production_order_finished_product_consumptions')
-      .select('finished_product_lot_id, quantity_consumed')
+      .select('finished_product_lot_id, quantity_consumed, consumption_source')
       .eq('production_order_id', id);
 
     if (fpError) throw new BadRequestException(fpError.message);
@@ -1440,15 +1461,16 @@ export class ProductionService {
       for (const fpc of fpConsumptions) {
         const { data: productLot } = await this.supabaseService.admin
           .from('finished_product_lots')
-          .select('available_quantity')
+          .select('available_quantity, returned_quantity')
           .eq('id', fpc.finished_product_lot_id)
           .single();
 
         if (productLot) {
-          const restoredVolume = Number(productLot.available_quantity) + Number(fpc.quantity_consumed);
+          const balanceField = fpc.consumption_source === 'Devolucao' ? 'returned_quantity' : 'available_quantity';
+          const restoredVolume = Number(productLot[balanceField]) + Number(fpc.quantity_consumed);
           await this.supabaseService.admin
             .from('finished_product_lots')
-            .update({ available_quantity: restoredVolume })
+            .update({ [balanceField]: restoredVolume })
             .eq('id', fpc.finished_product_lot_id);
         }
       }

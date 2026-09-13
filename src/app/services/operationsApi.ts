@@ -693,11 +693,21 @@ function mapProductionOrder(row: any): OrdemProducao {
       supplyLotId: c.supply_lot_id,
       quantidade: Number(c.quantity_consumed),
     })),
-    produtosAcabadosConsumidos: (row.production_order_finished_product_consumptions ?? []).map((c: any) => ({
-      finishedProductLotId: c.finished_product_lot_id,
-      produtoId: c.finished_product_lots?.product_id,
-      quantidade: Number(c.quantity_consumed),
-    })),
+    produtosAcabadosConsumidos: (row.production_order_finished_product_consumptions ?? []).map((c: any) => {
+      // Supabase returns a related row as an object, but some relation settings
+      // return it as a one-item array. Supporting both preserves the product
+      // when an existing OP is opened again for editing.
+      const productLot = Array.isArray(c.finished_product_lots)
+        ? c.finished_product_lots[0]
+        : c.finished_product_lots;
+
+      return {
+        finishedProductLotId: c.finished_product_lot_id,
+        produtoId: productLot?.product_id,
+        quantidade: Number(c.quantity_consumed),
+        origem: c.consumption_source === 'Devolucao' ? 'Devolucao' : 'Disponivel',
+      };
+    }),
   };
 }
 
@@ -1057,7 +1067,7 @@ export async function createProductionOrder(payload: {
   productId: string;
   litersToUse: number;
   supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
-  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; quantity: number }>;
+  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number }>;
 }) {
   return apiRequest<{ order: any }>('/production-orders', {
     method: 'POST',
@@ -1071,7 +1081,7 @@ export async function updateProductionOrder(orderId: string, payload: {
   litersToUse?: number;
   actualQuantityProduced?: number;
   supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
-  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; quantity: number }>;
+  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number }>;
 }) {
   return apiRequest<{ order: any }>(`/production-orders/${orderId}`, {
     method: 'PATCH',
@@ -1083,7 +1093,7 @@ export async function completeProductionOrder(payload: {
   orderId: string;
   actualQuantityProduced: number;
   supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
-  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; quantity: number }>;
+  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number }>;
   generatedCoProducts?: Array<{ productId: string; quantity: number }>;
 }) {
   return apiRequest<{ order: any; productLot: any }>(`/production-orders/${payload.orderId}/complete`, {

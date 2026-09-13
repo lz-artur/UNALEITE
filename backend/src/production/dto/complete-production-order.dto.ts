@@ -3,6 +3,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsIn,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -30,6 +31,10 @@ class FinishedProductConsumptionDto {
   @IsOptional()
   @IsString()
   finishedProductId?: string;
+
+  @IsOptional()
+  @IsIn(['Disponivel', 'Devolucao'])
+  source?: 'Disponivel' | 'Devolucao';
 
   @IsNumber()
   @Min(0.0001)
