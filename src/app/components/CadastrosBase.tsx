@@ -1196,7 +1196,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  );
  case 'supplyItems':
  return (
- <TableShell headers={['Código', 'Insumo', 'Categoria', 'Almoxarifado', 'Estoque', 'Fornecedor', 'Status', 'Ações']}>
+ <TableShell headers={['Código', 'Insumo', 'Categoria', 'Estoque', 'Fornecedor', 'Status', 'Ações']}>
  {filteredRecords.map((record) => {
  const item = record as SupplyItemRecord;
  const symbol = getUnitSymbol(item.unitId);
@@ -1205,7 +1205,6 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  <Td strong>{item.code}</Td>
  <Td>{item.name}</Td>
  <Td>{item.category}</Td>
- <Td>{item.isWarehouseItem ? 'Sim' : 'Não'}</Td>
  <Td>{`${item.currentStock} ${symbol} / mín ${item.minimumStock} ${symbol}`}</Td>
  <Td>{getSupplierById(item.defaultSupplierId)?.name || '-'}</Td>
  <Td><ActiveBadge active={item.active} /></Td>
@@ -1743,7 +1742,6 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  />
  <ToggleSelect label="Controla validade" value={Boolean(formState.tracksExpiration)} onChange={(value) => updateField('tracksExpiration', value)} />
  <ToggleSelect label="Controla lote" value={Boolean(formState.tracksLot)} onChange={(value) => updateField('tracksLot', value)} />
- <ToggleSelect label="Item do almoxarifado" value={Boolean(formState.isWarehouseItem)} onChange={(value) => updateField('isWarehouseItem', value)} />
  <ToggleSelect label="Ativo" value={Boolean(formState.active)} onChange={(value) => updateField('active', value)} />
  </div>
  );

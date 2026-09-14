@@ -23,6 +23,7 @@ import Inventario from './components/Inventario';
 import Expedicao from './components/Expedicao';
 import FaturamentoNfe from './components/FaturamentoNfe';
 import Almoxarifado from './components/Almoxarifado';
+import CadastroAlmoxarifado from './components/CadastroAlmoxarifado';
 import { useAuth } from './context/AuthContext';
 import { CadastrosProvider } from './context/CadastrosContext';
 import { PermissionsProvider, usePermissions } from './context/PermissionsContext';
@@ -113,6 +114,10 @@ function AppInner() {
     // Permission check (skip during loading for graceful UX)
     if (!permLoading && !canViewPage(pageKey)) {
       return <AccessDenied onGoHome={() => setCurrentPage('dashboard')} />;
+    }
+
+    if (currentPage === 'cadastros-almoxarifado') {
+      return <CadastroAlmoxarifado />;
     }
 
     if (currentPage.startsWith('cadastros')) {
