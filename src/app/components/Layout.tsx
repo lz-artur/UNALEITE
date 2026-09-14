@@ -32,7 +32,17 @@ const menuItems = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
   { id: 'recepcao', label: 'Recepcao de Leite', icon: Milk },
   { id: 'analise', label: 'Analise Laboratorial', icon: FlaskConical },
-  { id: 'lotes', label: 'Lotes e Estoque', icon: Package },
+  {
+    id: 'lotes',
+    label: 'Estoque',
+    icon: Package,
+    subItems: [
+      { id: 'lotes', label: 'Consulta de estoque' },
+      { id: 'inventario', label: 'Inventário' },
+      { id: 'almoxarifado', label: 'Almoxarifado' },
+      { id: 'expedicao', label: 'Expedição' },
+    ],
+  },
   { id: 'producao', label: 'Producao', icon: Factory },
   { id: 'custos', label: 'Relatorios', icon: DollarSign },
   { id: 'comercial', label: 'Comercial', icon: TruckIcon },
@@ -56,24 +66,25 @@ const menuItems = [
     label: 'Cadastros',
     icon: Users,
     subItems: [
-      { id: 'cadastros-producers', label: 'Produtores' },
-      { id: 'cadastros-routes', label: 'Rotas' },
-      { id: 'cadastros-transporters', label: 'Transportadores' },
-      { id: 'cadastros-milkTypes', label: 'Tipos de Matéria-prima' },
-      { id: 'cadastros-qualityParameters', label: 'Parâmetros de Qualidade' },
-      { id: 'cadastros-milkPriceRules', label: 'Regras de Preço do Leite' },
-      { id: 'cadastros-supplyItems', label: 'Insumos' },
-      { id: 'cadastros-suppliers', label: 'Fornecedores' },
-      { id: 'cadastros-finishedProducts', label: 'Produtos Acabados' },
-      { id: 'cadastros-productSpecs', label: 'Ficha Técnica' },
-      { id: 'cadastros-supplyLots', label: 'Lotes de Insumos' },
-      { id: 'cadastros-blockReasons', label: 'Motivos de Bloqueio' },
-      { id: 'cadastros-units', label: 'Unidades de Medida' },
-      { id: 'cadastros-stockLocations', label: 'Locais de Estoque' },
+      { id: 'cadastros-almoxarifado', label: 'Almoxarifado' },
+      { id: 'cadastros-accountingCategories', label: 'Categorias Financeiras' },
       { id: 'cadastros-costCenters', label: 'Centros de Custo' },
       { id: 'cadastros-bankAccounts', label: 'Contas Bancárias' },
-      { id: 'cadastros-accountingCategories', label: 'Categorias Financeiras' },
+      { id: 'cadastros-productSpecs', label: 'Ficha Técnica' },
+      { id: 'cadastros-suppliers', label: 'Fornecedores' },
+      { id: 'cadastros-supplyItems', label: 'Insumos' },
+      { id: 'cadastros-stockLocations', label: 'Locais de Estoque' },
+      { id: 'cadastros-supplyLots', label: 'Lotes de Insumos' },
+      { id: 'cadastros-blockReasons', label: 'Motivos de Bloqueio' },
+      { id: 'cadastros-qualityParameters', label: 'Parâmetros de Qualidade' },
+      { id: 'cadastros-finishedProducts', label: 'Produtos Acabados' },
+      { id: 'cadastros-producers', label: 'Produtores' },
+      { id: 'cadastros-milkPriceRules', label: 'Regras de Preço do Leite' },
+      { id: 'cadastros-routes', label: 'Rotas' },
       { id: 'cadastros-accountingSubcategories', label: 'Subcategorias' },
+      { id: 'cadastros-milkTypes', label: 'Tipos de Matéria-prima' },
+      { id: 'cadastros-transporters', label: 'Transportadores' },
+      { id: 'cadastros-units', label: 'Unidades de Medida' },
     ],
   },
   // Admin-only menu item — filtered below by permissions
@@ -87,6 +98,8 @@ const menuItems = [
 function getPageKeyForItem(id: string): string {
   if (id === 'vendedor-externo') return 'comercial';
   if (id.startsWith('cadastros')) return 'cadastros';
+  if (id === 'lotes') return 'lotes';
+  if (id === 'almoxarifado') return 'inventario';
   if (id === 'financeiro') return 'contas-receber'; // parent entry
   return id;
 }
@@ -98,6 +111,7 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
     if (window.innerWidth < 768) setSidebarOpen(false);
   };
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
+    lotes: currentPage === 'lotes' || currentPage === 'inventario' || currentPage === 'expedicao' || currentPage === 'almoxarifado',
     financeiro: currentPage === 'contas-receber' || currentPage === 'contas-pagar' || currentPage === 'contas-bancarias' || currentPage === 'financeiro',
     cadastros: currentPage.startsWith('cadastros'),
   });
@@ -105,13 +119,17 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
   const { isAdmin, canViewPage } = usePermissions();
 
   // Filter menu items based on permissions
-  const visibleMenuItems = menuItems.filter((item) => {
-    // Admin-only items
-    if ('adminOnly' in item && item.adminOnly) return isAdmin;
-    // Check permission
-    const pageKey = getPageKeyForItem(item.id);
-    return canViewPage(pageKey);
-  });
+  const visibleMenuItems = (menuItems as any[])
+    .map((item) => item.subItems
+      ? { ...item, subItems: item.subItems.filter((sub: { id: string }) => canViewPage(getPageKeyForItem(sub.id))) }
+      : item)
+    .filter((item) => {
+      if (item.adminOnly) return isAdmin;
+      // Um grupo aparece quando há pelo menos um submenu permitido. Assim, um
+      // estoquista pode acessar Inventário sem precisar da tela de consulta.
+      if (item.subItems) return item.subItems.length > 0;
+      return canViewPage(getPageKeyForItem(item.id));
+    });
 
   return (
     <div className="min-h-screen bg-gray-50">

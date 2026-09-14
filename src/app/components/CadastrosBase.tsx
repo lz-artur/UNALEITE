@@ -615,6 +615,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  tracksLot: true,
  defaultCost: 0,
  currentStock: 0,
+ isWarehouseItem: false,
  active: true,
  };
  case 'finishedProducts':

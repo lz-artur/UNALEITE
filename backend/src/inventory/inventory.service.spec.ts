@@ -5,6 +5,7 @@ import { SupabaseService } from '../supabase/supabase.service';
 describe('InventoryService', () => {
   let service: InventoryService;
   let supabaseServiceMock: any;
+  let usersServiceMock: any;
 
   beforeEach(() => {
     supabaseServiceMock = {
@@ -12,8 +13,9 @@ describe('InventoryService', () => {
         from: jest.fn(),
       },
     };
+    usersServiceMock = { ensureAppUser: jest.fn() };
 
-    service = new InventoryService(supabaseServiceMock as SupabaseService);
+    service = new InventoryService(supabaseServiceMock as SupabaseService, usersServiceMock);
   });
 
   describe('deleteSupplyLot', () => {

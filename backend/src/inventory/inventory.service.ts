@@ -2,10 +2,45 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { SupabaseService } from '../supabase/supabase.service';
 import { CreateManualExitDto } from './dto/create-manual-exit.dto';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
+import { UsersService } from '../users/users.service';
+import { CreateInventorySessionDto } from './dto/create-inventory-session.dto';
+import { SaveInventoryCountsDto } from './dto/save-inventory-counts.dto';
+import { ReviewInventoryCountDto } from './dto/review-inventory-count.dto';
+import { CreateExpeditionWeighingDto } from './dto/create-expedition-weighing.dto';
+import { CreateWarehouseWithdrawalDto } from './dto/create-warehouse-withdrawal.dto';
 
 @Injectable()
 export class InventoryService {
-  constructor(private readonly supabaseService: SupabaseService) {}
+  constructor(
+    private readonly supabaseService: SupabaseService,
+    private readonly usersService: UsersService,
+  ) {}
+
+  private async getActor(user: AuthenticatedUser) {
+    const profile = await this.usersService.ensureAppUser(user);
+    return {
+      id: user.id,
+      name: profile.display_name || profile.email || user.email || 'Usuário',
+      isAdmin: profile.role === 'admin',
+    };
+  }
+
+  private async getSessionForUser(sessionId: string, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const { data: session, error } = await this.supabaseService.admin
+      .from('inventory_sessions')
+      .select('*')
+      .eq('id', sessionId)
+      .maybeSingle();
+
+    if (error) throw new BadRequestException(error.message);
+    if (!session) throw new NotFoundException('Sessão de inventário não encontrada');
+    if (!actor.isAdmin && session.created_by !== actor.id) {
+      throw new NotFoundException('Sessão de inventário não encontrada');
+    }
+
+    return { actor, session };
+  }
 
   async getSummary() {
     const [milkLots, supplyLots, finishedProductLots] = await Promise.all([
@@ -48,6 +83,33 @@ export class InventoryService {
     }
 
     return data ?? [];
+  }
+
+  async listWarehouseWithdrawals() {
+    const { data, error } = await this.supabaseService.admin
+      .from('warehouse_withdrawals')
+      .select('*, warehouse_withdrawal_items(*, supply_items(name, code, units(symbol)))')
+      .order('withdrawal_date', { ascending: false });
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
+  }
+
+  async createWarehouseWithdrawal(payload: CreateWarehouseWithdrawalDto, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const { data: id, error } = await this.supabaseService.admin.rpc('create_warehouse_withdrawal', {
+      p_sector: payload.sector,
+      p_notes: payload.notes ?? null,
+      p_withdrawal_date: payload.withdrawalDate ?? new Date().toISOString(),
+      p_created_by: actor.id,
+      p_items: payload.items,
+    });
+    if (error) throw new BadRequestException(error.message);
+    const { data: withdrawal, error: loadError } = await this.supabaseService.admin
+      .from('warehouse_withdrawals')
+      .select('*, warehouse_withdrawal_items(*, supply_items(name, code, units(symbol)))')
+      .eq('id', id).single();
+    if (loadError) throw new BadRequestException(loadError.message);
+    return withdrawal;
   }
 
   async getFinishedProductLots() {
@@ -173,5 +235,465 @@ export class InventoryService {
     }
 
     return { success: true, exitRecord };
+  }
+
+  async listInventorySessions(user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    let query = this.supabaseService.admin
+      .from('inventory_sessions')
+      .select('*, inventory_count_items(id, status, difference_quantity)')
+      .order('started_at', { ascending: false });
+
+    if (!actor.isAdmin) query = query.eq('created_by', actor.id);
+    const { data, error } = await query;
+    if (error) throw new BadRequestException(error.message);
+
+    return (data ?? []).map((session: any) => {
+      const items = session.inventory_count_items ?? [];
+      return {
+        ...session,
+        total_items: items.length,
+        pending_items: items.filter((item: any) => item.status === 'aguardando_aprovacao').length,
+        divergent_items: items.filter((item: any) => Number(item.difference_quantity) !== 0).length,
+        inventory_count_items: undefined,
+      };
+    });
+  }
+
+  async createInventorySession(payload: CreateInventorySessionDto, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const title = payload.title?.trim() || `Inventário de ${new Date().toLocaleDateString('pt-BR')}`;
+
+    const [{ data: supplyLots, error: supplyError }, { data: finishedLots, error: finishedError }] = await Promise.all([
+      this.supabaseService.admin
+        .from('supply_lots_with_item')
+        .select('id, supply_item_id, internal_lot_code, available_quantity, supply_item_name, unit_id'),
+      this.supabaseService.admin
+        .from('finished_product_lots')
+        .select('id, product_id, lot_code, available_quantity, finished_products(name, code, unit_id, units(symbol))'),
+    ]);
+
+    if (supplyError) throw new BadRequestException(supplyError.message);
+    if (finishedError) throw new BadRequestException(finishedError.message);
+
+    const { data: session, error: sessionError } = await this.supabaseService.admin
+      .from('inventory_sessions')
+      .insert({ title, created_by: actor.id, created_by_name: actor.name })
+      .select('*')
+      .single();
+    if (sessionError || !session) throw new BadRequestException(sessionError?.message || 'Não foi possível iniciar o inventário');
+
+    const supplyItems = (supplyLots ?? []).map((lot: any) => ({
+      inventory_session_id: session.id,
+      lot_type: 'Insumo',
+      lot_id: lot.id,
+      product_id: lot.supply_item_id,
+      product_name: lot.supply_item_name,
+      lot_code: lot.internal_lot_code,
+      unit_symbol: null,
+      system_quantity: Number(lot.available_quantity),
+    }));
+    const productItems = (finishedLots ?? []).map((lot: any) => {
+      const product = Array.isArray(lot.finished_products) ? lot.finished_products[0] : lot.finished_products;
+      const unit = Array.isArray(product?.units) ? product.units[0] : product?.units;
+      return {
+        inventory_session_id: session.id,
+        lot_type: 'Produto Acabado',
+        lot_id: lot.id,
+        product_id: lot.product_id,
+        product_name: product?.name ?? 'Produto sem nome',
+        product_code: product?.code ?? null,
+        lot_code: lot.lot_code,
+        unit_symbol: unit?.symbol ?? null,
+        system_quantity: Number(lot.available_quantity),
+      };
+    });
+
+    const snapshotItems = [...supplyItems, ...productItems];
+    if (snapshotItems.length) {
+      const { error: itemError } = await this.supabaseService.admin
+        .from('inventory_count_items')
+        .insert(snapshotItems);
+      if (itemError) throw new BadRequestException(itemError.message);
+    }
+
+    await this.insertAuditLog(session.id, null, 'inventario_iniciado', actor, {
+      itens: snapshotItems.length,
+      insumos: supplyItems.length,
+      produtos_acabados: productItems.length,
+    });
+
+    return this.getInventorySession(session.id, user);
+  }
+
+  private async saveCountValues(sessionId: string, payload: SaveInventoryCountsDto, user: AuthenticatedUser) {
+    const { actor, session } = await this.getSessionForUser(sessionId, user);
+    if (session.status !== 'em_contagem') {
+      throw new BadRequestException('Esta contagem já foi enviada para aprovação e não pode mais ser alterada.');
+    }
+    if (!payload.items.length) return { actor, session, items: [] };
+
+    const ids = [...new Set(payload.items.map((item) => item.id))];
+    if (ids.length !== payload.items.length) {
+      throw new BadRequestException('Há itens duplicados na contagem.');
+    }
+    const { data: existingItems, error } = await this.supabaseService.admin
+      .from('inventory_count_items')
+      .select('id, system_quantity')
+      .eq('inventory_session_id', sessionId)
+      .in('id', ids);
+    if (error) throw new BadRequestException(error.message);
+    if ((existingItems ?? []).length !== ids.length) {
+      throw new BadRequestException('Um ou mais itens não pertencem a este inventário.');
+    }
+
+    const quantityById = new Map(payload.items.map((item) => [item.id, item]));
+    await Promise.all((existingItems ?? []).map(async (item: any) => {
+      const value = quantityById.get(item.id)!;
+      const { error: updateError } = await this.supabaseService.admin
+        .from('inventory_count_items')
+        .update({
+          counted_quantity: value.countedQuantity,
+          difference_quantity: value.countedQuantity - Number(item.system_quantity),
+          notes: value.notes?.trim() || null,
+          status: 'nao_contado',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', item.id);
+      if (updateError) throw new BadRequestException(updateError.message);
+    }));
+    return { actor, session, items: existingItems ?? [] };
+  }
+
+  async saveInventoryCounts(sessionId: string, payload: SaveInventoryCountsDto, user: AuthenticatedUser) {
+    await this.saveCountValues(sessionId, payload, user);
+    return this.getInventorySession(sessionId, user);
+  }
+
+  async submitInventorySession(sessionId: string, payload: SaveInventoryCountsDto, user: AuthenticatedUser) {
+    const { actor } = await this.saveCountValues(sessionId, payload, user);
+    const { data: items, error: itemsError } = await this.supabaseService.admin
+      .from('inventory_count_items')
+      .select('id, counted_quantity, difference_quantity')
+      .eq('inventory_session_id', sessionId);
+    if (itemsError) throw new BadRequestException(itemsError.message);
+    if ((items ?? []).some((item: any) => item.counted_quantity === null)) {
+      throw new BadRequestException('Informe a quantidade física de todos os itens antes de enviar.');
+    }
+
+    const divergentItems = (items ?? []).filter((item: any) => Number(item.difference_quantity) !== 0);
+    const now = new Date().toISOString();
+    const { error: itemUpdateError } = await this.supabaseService.admin
+      .from('inventory_count_items')
+      .update({ status: 'confere', submitted_at: now, updated_at: now })
+      .eq('inventory_session_id', sessionId)
+      .eq('status', 'nao_contado');
+    if (itemUpdateError) throw new BadRequestException(itemUpdateError.message);
+
+    if (divergentItems.length) {
+      const { error: divergenceUpdateError } = await this.supabaseService.admin
+        .from('inventory_count_items')
+        .update({ status: 'aguardando_aprovacao', submitted_at: now, updated_at: now })
+        .eq('inventory_session_id', sessionId)
+        .in('id', divergentItems.map((item: any) => item.id));
+      if (divergenceUpdateError) throw new BadRequestException(divergenceUpdateError.message);
+    }
+
+    const nextStatus = divergentItems.length ? 'aguardando_aprovacao' : 'concluido';
+    const { error: sessionError } = await this.supabaseService.admin
+      .from('inventory_sessions')
+      .update({
+        status: nextStatus,
+        submitted_at: now,
+        completed_at: divergentItems.length ? null : now,
+        updated_at: now,
+      })
+      .eq('id', sessionId);
+    if (sessionError) throw new BadRequestException(sessionError.message);
+
+    await this.insertAuditLog(sessionId, null, 'contagem_enviada', actor, {
+      itens_contados: items?.length ?? 0,
+      divergencias: divergentItems.length,
+      status: nextStatus,
+    });
+    return this.getInventorySession(sessionId, user);
+  }
+
+  async getInventorySession(sessionId: string, user: AuthenticatedUser) {
+    await this.getSessionForUser(sessionId, user);
+    const [sessionResult, itemsResult, logsResult] = await Promise.all([
+      this.supabaseService.admin.from('inventory_sessions').select('*').eq('id', sessionId).single(),
+      this.supabaseService.admin.from('inventory_count_items').select('*').eq('inventory_session_id', sessionId).order('product_name'),
+      this.supabaseService.admin.from('inventory_audit_logs').select('*').eq('inventory_session_id', sessionId).order('created_at', { ascending: false }),
+    ]);
+    if (sessionResult.error) throw new BadRequestException(sessionResult.error.message);
+    if (itemsResult.error) throw new BadRequestException(itemsResult.error.message);
+    if (logsResult.error) throw new BadRequestException(logsResult.error.message);
+    return { ...sessionResult.data, items: itemsResult.data ?? [], logs: logsResult.data ?? [] };
+  }
+
+  async approveInventoryCountItem(
+    sessionId: string,
+    itemId: string,
+    payload: ReviewInventoryCountDto,
+    user: AuthenticatedUser,
+  ) {
+    const { actor } = await this.getSessionForUser(sessionId, user);
+    const { data, error } = await this.supabaseService.admin.rpc('approve_inventory_count_item', {
+      p_item_id: itemId,
+      p_approver_id: actor.id,
+      p_approver_name: actor.name,
+      p_review_note: payload.note?.trim() || null,
+    });
+    if (error) throw new BadRequestException(error.message);
+    return { ...(data ?? {}), session: await this.getInventorySession(sessionId, user) };
+  }
+
+  async rejectInventoryCountItem(
+    sessionId: string,
+    itemId: string,
+    payload: ReviewInventoryCountDto,
+    user: AuthenticatedUser,
+  ) {
+    const { actor } = await this.getSessionForUser(sessionId, user);
+    const { data: item, error: findError } = await this.supabaseService.admin
+      .from('inventory_count_items')
+      .select('*')
+      .eq('id', itemId)
+      .eq('inventory_session_id', sessionId)
+      .maybeSingle();
+    if (findError) throw new BadRequestException(findError.message);
+    if (!item) throw new NotFoundException('Item de inventário não encontrado');
+    if (item.status !== 'aguardando_aprovacao') {
+      throw new BadRequestException('Este item não está aguardando aprovação.');
+    }
+
+    const now = new Date().toISOString();
+    const { error: updateError } = await this.supabaseService.admin
+      .from('inventory_count_items')
+      .update({
+        status: 'recusado', reviewed_at: now, reviewed_by: actor.id,
+        reviewed_by_name: actor.name, review_note: payload.note?.trim() || null, updated_at: now,
+      })
+      .eq('id', itemId);
+    if (updateError) throw new BadRequestException(updateError.message);
+
+    await this.insertAuditLog(sessionId, itemId, 'ajuste_recusado', actor, {
+      quantidade_sistema: item.system_quantity,
+      quantidade_fisica: item.counted_quantity,
+      diferenca: item.difference_quantity,
+      observacao: payload.note?.trim() || null,
+    });
+    const { count, error: pendingError } = await this.supabaseService.admin
+      .from('inventory_count_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('inventory_session_id', sessionId)
+      .eq('status', 'aguardando_aprovacao');
+    if (pendingError) throw new BadRequestException(pendingError.message);
+    if (!count) {
+      const { error: completeError } = await this.supabaseService.admin
+        .from('inventory_sessions')
+        .update({ status: 'concluido', completed_at: now, updated_at: now })
+        .eq('id', sessionId);
+      if (completeError) throw new BadRequestException(completeError.message);
+    }
+    return this.getInventorySession(sessionId, user);
+  }
+
+  async listSaleExpeditions(user: AuthenticatedUser) {
+    await this.getActor(user);
+    const { data, error } = await this.supabaseService.admin
+      .from('sale_expeditions')
+      .select('*, sales_orders(order_number, clients(name))')
+      .order('created_at', { ascending: false });
+    if (error) throw new BadRequestException(error.message);
+    return (data ?? []).map((entry: any) => {
+      const order = Array.isArray(entry.sales_orders) ? entry.sales_orders[0] : entry.sales_orders;
+      const client = Array.isArray(order?.clients) ? order.clients[0] : order?.clients;
+      return {
+        ...entry,
+        order_number: order?.order_number ?? '-',
+        client_name: client?.name ?? '-',
+        sales_orders: undefined,
+      };
+    });
+  }
+
+  async createSaleExpedition(salesOrderId: string, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const { data: order, error: orderError } = await this.supabaseService.admin
+      .from('sales_orders')
+      .select('id, status')
+      .eq('id', salesOrderId)
+      .maybeSingle();
+    if (orderError) throw new BadRequestException(orderError.message);
+    if (!order || ['Atendido', 'Conferido', 'Cancelado'].includes(order.status)) {
+      throw new BadRequestException('Este pedido não está disponível para expedição.');
+    }
+
+    const { data, error } = await this.supabaseService.admin
+      .from('sale_expeditions')
+      .insert({
+        sales_order_id: salesOrderId,
+        expedition_number: `EXP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        created_by: actor.id,
+        updated_by: actor.id,
+      })
+      .select('id')
+      .single();
+    if (error) {
+      if (error.code === '23505') throw new BadRequestException('Já existe uma expedição em pesagem para este pedido.');
+      throw new BadRequestException(error.message);
+    }
+    await this.insertExpeditionLog(data.id, 'expedicao_iniciada', actor, { sales_order_id: salesOrderId });
+    return this.getSaleExpedition(data.id, user);
+  }
+
+  async getSaleExpedition(expeditionId: string, user: AuthenticatedUser) {
+    await this.getActor(user);
+    const { data: expedition, error: expeditionError } = await this.supabaseService.admin
+      .from('sale_expeditions')
+      .select('*')
+      .eq('id', expeditionId)
+      .maybeSingle();
+    if (expeditionError) throw new BadRequestException(expeditionError.message);
+    if (!expedition) throw new NotFoundException('Expedição não encontrada');
+
+    const [{ data: order, error: orderError }, { data: orderItems, error: itemError }, { data: lines, error: lineError }, { data: logs, error: logError }] = await Promise.all([
+      this.supabaseService.admin.from('sales_orders').select('*').eq('id', expedition.sales_order_id).single(),
+      this.supabaseService.admin.from('sales_order_items').select('*').eq('sales_order_id', expedition.sales_order_id),
+      this.supabaseService.admin.from('sale_expedition_lines').select('*').eq('expedition_id', expeditionId),
+      this.supabaseService.admin.from('sale_expedition_logs').select('*').eq('expedition_id', expeditionId).order('created_at', { ascending: false }),
+    ]);
+    if (orderError) throw new BadRequestException(orderError.message);
+    if (itemError) throw new BadRequestException(itemError.message);
+    if (lineError) throw new BadRequestException(lineError.message);
+    if (logError) throw new BadRequestException(logError.message);
+
+    const productIds = [...new Set((orderItems ?? []).map((item: any) => item.product_id))];
+    const lineIds = (lines ?? []).map((line: any) => line.id);
+    const lotIds = [...new Set((lines ?? []).map((line: any) => line.finished_product_lot_id))];
+    const [{ data: products, error: productError }, { data: lots, error: lotError }, { data: weighings, error: weighingError }, { data: client, error: clientError }] = await Promise.all([
+      productIds.length ? this.supabaseService.admin.from('finished_products').select('id, name, code, unit_id').in('id', productIds) : Promise.resolve({ data: [], error: null }),
+      lotIds.length ? this.supabaseService.admin.from('finished_product_lots').select('id, lot_code, product_id, available_quantity').in('id', lotIds) : Promise.resolve({ data: [], error: null }),
+      lineIds.length ? this.supabaseService.admin.from('sale_expedition_weighings').select('*').in('expedition_line_id', lineIds).order('weighed_at') : Promise.resolve({ data: [], error: null }),
+      this.supabaseService.admin.from('clients').select('id, name').eq('id', order.client_id).maybeSingle(),
+    ]);
+    if (productError || lotError || weighingError || clientError) {
+      throw new BadRequestException(productError?.message || lotError?.message || weighingError?.message || clientError?.message || 'Erro ao carregar expedição');
+    }
+
+    const productById = new Map((products ?? []).map((product: any) => [product.id, product]));
+    const lotById = new Map((lots ?? []).map((lot: any) => [lot.id, lot]));
+    const weighingsByLine = new Map<string, any[]>();
+    (weighings ?? []).forEach((weighing: any) => {
+      const collection = weighingsByLine.get(weighing.expedition_line_id) ?? [];
+      collection.push(weighing);
+      weighingsByLine.set(weighing.expedition_line_id, collection);
+    });
+    const linesByItem = new Map<string, any[]>();
+    (lines ?? []).forEach((line: any) => {
+      const collection = linesByItem.get(line.sales_order_item_id) ?? [];
+      collection.push({
+        ...line,
+        lot: lotById.get(line.finished_product_lot_id),
+        weighings: weighingsByLine.get(line.id) ?? [],
+        weighed_quantity: (weighingsByLine.get(line.id) ?? []).reduce((sum, weighing) => sum + Number(weighing.quantity), 0),
+      });
+      linesByItem.set(line.sales_order_item_id, collection);
+    });
+
+    return {
+      ...expedition,
+      order: {
+        id: order.id,
+        number: order.order_number,
+        client_name: client?.name ?? '-',
+        status: order.status,
+        items: (orderItems ?? []).map((item: any) => {
+          const product = productById.get(item.product_id);
+          return {
+            id: item.id,
+            product_id: item.product_id,
+            product_name: product?.name ?? '-',
+            product_code: product?.code ?? null,
+            unit_id: product?.unit_id ?? null,
+            ordered_quantity: Number(item.ordered_quantity),
+            fulfilled_quantity: Number(item.fulfilled_quantity),
+            pending_quantity: Math.max(0, Number(item.ordered_quantity) - Number(item.fulfilled_quantity)),
+            lines: linesByItem.get(item.id) ?? [],
+          };
+        }),
+      },
+      logs: logs ?? [],
+    };
+  }
+
+  async createExpeditionWeighing(expeditionId: string, payload: CreateExpeditionWeighingDto, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const { error } = await this.supabaseService.admin.rpc('register_sale_expedition_weighing', {
+      p_expedition_id: expeditionId,
+      p_sales_order_item_id: payload.salesOrderItemId,
+      p_finished_product_lot_id: payload.finishedProductLotId,
+      p_quantity: payload.quantity,
+      p_notes: payload.notes?.trim() || null,
+      p_user_id: actor.id,
+    });
+    if (error) throw new BadRequestException(error.message);
+    await this.insertExpeditionLog(expeditionId, 'pesagem_registrada', actor, { item_id: payload.salesOrderItemId, lot_id: payload.finishedProductLotId, quantidade: payload.quantity });
+    return this.getSaleExpedition(expeditionId, user);
+  }
+
+  async deleteExpeditionWeighing(expeditionId: string, weighingId: string, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const { data: expedition, error: expeditionError } = await this.supabaseService.admin
+      .from('sale_expeditions').select('status').eq('id', expeditionId).maybeSingle();
+    if (expeditionError) throw new BadRequestException(expeditionError.message);
+    if (!expedition || expedition.status !== 'em_pesagem') throw new BadRequestException('Esta expedição não está aberta para alteração.');
+    const { data: lines, error: lineError } = await this.supabaseService.admin.from('sale_expedition_lines').select('id').eq('expedition_id', expeditionId);
+    if (lineError) throw new BadRequestException(lineError.message);
+    const lineIds = (lines ?? []).map((line: any) => line.id);
+    const { data: weighing, error: weighingError } = await this.supabaseService.admin.from('sale_expedition_weighings').select('*').eq('id', weighingId).in('expedition_line_id', lineIds).maybeSingle();
+    if (weighingError) throw new BadRequestException(weighingError.message);
+    if (!weighing) throw new NotFoundException('Pesagem não encontrada');
+    const { error: deleteError } = await this.supabaseService.admin.from('sale_expedition_weighings').delete().eq('id', weighingId);
+    if (deleteError) throw new BadRequestException(deleteError.message);
+    await this.insertExpeditionLog(expeditionId, 'pesagem_removida', actor, { quantidade: weighing.quantity });
+    return this.getSaleExpedition(expeditionId, user);
+  }
+
+  async confirmSaleExpedition(expeditionId: string, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const { data: attendanceId, error } = await this.supabaseService.admin.rpc('confirm_sale_expedition', {
+      p_expedition_id: expeditionId, p_user_id: actor.id,
+    });
+    if (error) throw new BadRequestException(error.message);
+    await this.insertExpeditionLog(expeditionId, 'expedicao_confirmada', actor, { attendance_id: attendanceId });
+    return this.getSaleExpedition(expeditionId, user);
+  }
+
+  private async insertExpeditionLog(expeditionId: string, action: string, actor: { id: string; name: string }, details: Record<string, unknown>) {
+    const { error } = await this.supabaseService.admin.from('sale_expedition_logs').insert({
+      expedition_id: expeditionId, action, actor_id: actor.id, actor_name: actor.name, details,
+    });
+    if (error) throw new BadRequestException(error.message);
+  }
+
+  private async insertAuditLog(
+    sessionId: string,
+    itemId: string | null,
+    action: string,
+    actor: { id: string; name: string },
+    details: Record<string, unknown>,
+  ) {
+    const { error } = await this.supabaseService.admin.from('inventory_audit_logs').insert({
+      inventory_session_id: sessionId,
+      inventory_count_item_id: itemId,
+      action,
+      actor_id: actor.id,
+      actor_name: actor.name,
+      details,
+    });
+    if (error) throw new BadRequestException(error.message);
   }
 }

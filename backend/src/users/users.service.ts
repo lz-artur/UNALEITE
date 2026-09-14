@@ -41,6 +41,8 @@ export const ALL_PAGE_KEYS = [
   'comercial',
   'faturamento',
   'compras',
+  'inventario',
+  'expedicao',
   'contas-receber',
   'contas-pagar',
   'folha-leite',
@@ -83,11 +85,30 @@ export class UsersService {
       .select('*')
       .single();
 
-    if (error) {
-      throw new ConflictException(`Failed to create app user: ${error.message}`);
+    if (created) {
+      return created as AppUser;
     }
 
-    return created as AppUser;
+    // Two authenticated requests can arrive at the same time on first access.
+    // The unique constraint correctly lets only one insert win; the other one
+    // must reuse that profile instead of exposing a duplicate-key error.
+    if (error?.code === '23505') {
+      const { data: concurrentlyCreated, error: lookupError } = await sb
+        .from('app_users')
+        .select('*')
+        .eq('auth_user_id', authUser.id)
+        .maybeSingle();
+
+      if (concurrentlyCreated) {
+        return concurrentlyCreated as AppUser;
+      }
+
+      if (lookupError) {
+        throw new ConflictException(`Failed to load concurrently created app user: ${lookupError.message}`);
+      }
+    }
+
+    throw new ConflictException(`Failed to create app user: ${error?.message ?? 'Unknown error'}`);
   }
 
   /**

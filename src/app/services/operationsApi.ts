@@ -57,6 +57,119 @@ export interface SupplyLotInventoryItem {
   unitId?: string;
 }
 
+export interface WarehouseWithdrawal {
+  id: string;
+  withdrawal_number: string;
+  sector: string;
+  notes?: string | null;
+  withdrawal_date: string;
+  warehouse_withdrawal_items: Array<{
+    id: string;
+    supply_item_id: string;
+    quantity: number;
+    unit_cost: number;
+    total_value: number;
+    supply_items?: { name: string; code: string; units?: { symbol: string } | null } | null;
+  }>;
+}
+
+export type InventorySessionStatus = 'em_contagem' | 'aguardando_aprovacao' | 'concluido';
+export type InventoryCountItemStatus = 'nao_contado' | 'confere' | 'aguardando_aprovacao' | 'aprovado' | 'recusado';
+
+export interface InventoryCountItem {
+  id: string;
+  inventory_session_id: string;
+  lot_type: 'Insumo' | 'Produto Acabado';
+  lot_id: string;
+  product_id: string;
+  product_name: string;
+  product_code?: string | null;
+  lot_code: string;
+  unit_symbol?: string | null;
+  system_quantity: number;
+  counted_quantity?: number | null;
+  difference_quantity?: number | null;
+  notes?: string | null;
+  status: InventoryCountItemStatus;
+  submitted_at?: string | null;
+  reviewed_at?: string | null;
+  reviewed_by_name?: string | null;
+  review_note?: string | null;
+}
+
+export interface InventoryAuditLog {
+  id: string;
+  inventory_session_id: string;
+  inventory_count_item_id?: string | null;
+  action: string;
+  actor_name: string;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface InventorySessionSummary {
+  id: string;
+  title: string;
+  status: InventorySessionStatus;
+  created_by: string;
+  created_by_name: string;
+  started_at: string;
+  submitted_at?: string | null;
+  completed_at?: string | null;
+  total_items: number;
+  pending_items: number;
+  divergent_items: number;
+}
+
+export interface InventorySession extends Omit<InventorySessionSummary, 'total_items' | 'pending_items' | 'divergent_items'> {
+  items: InventoryCountItem[];
+  logs: InventoryAuditLog[];
+}
+
+export interface SaleExpeditionSummary {
+  id: string;
+  sales_order_id: string;
+  expedition_number: string;
+  status: 'em_pesagem' | 'expedida' | 'cancelada';
+  created_at: string;
+  dispatched_at?: string | null;
+  order_number: string;
+  client_name: string;
+}
+
+export interface SaleExpedition {
+  id: string;
+  sales_order_id: string;
+  expedition_number: string;
+  status: 'em_pesagem' | 'expedida' | 'cancelada';
+  created_at: string;
+  dispatched_at?: string | null;
+  order: {
+    id: string;
+    number: string;
+    client_name: string;
+    status: string;
+    items: Array<{
+      id: string;
+      product_id: string;
+      product_name: string;
+      product_code?: string | null;
+      unit_id?: string | null;
+      ordered_quantity: number;
+      fulfilled_quantity: number;
+      pending_quantity: number;
+      lines: Array<{
+        id: string;
+        finished_product_lot_id: string;
+        lot?: { id: string; lot_code: string; available_quantity: number };
+        weighed_quantity: number;
+        weighings: Array<{ id: string; quantity: number; weighed_at: string; notes?: string | null }>;
+      }>;
+    }>;
+  };
+  logs: Array<{ id: string; action: string; actor_name: string; created_at: string }>;
+}
+
 export interface PurchaseItemRecord {
   id: string;
   supplyItemId: string;
@@ -155,6 +268,7 @@ export interface SalesOrderItemFulfillmentRecord {
   quantity: number;
   returnedQuantity?: number;
   fulfilledAt: Date;
+  attendanceId?: string | null;
 }
 
 export interface SalesOrderItemRecord {
@@ -171,6 +285,25 @@ export interface SalesOrderItemRecord {
   fulfillments: SalesOrderItemFulfillmentRecord[];
 }
 
+export interface AttendanceItemRecord {
+  id: string;
+  salesOrderItemId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  totalValue: number;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  attendanceNumber: string;
+  fulfilledAt: Date;
+  totalValue: number;
+  status: string;
+  notes?: string | null;
+  items: AttendanceItemRecord[];
+}
+
 export interface SalesOrderRecord {
   id: string;
   number: string;
@@ -185,6 +318,10 @@ export interface SalesOrderRecord {
   notes?: string;
   hasReturn?: boolean;
   items: SalesOrderItemRecord[];
+  attendances: AttendanceRecord[];
+  totalFulfilled: number;
+  remainingAmount: number;
+  fulfilledPercent: number;
 }
 
 export interface SalesOrderFilters {
@@ -572,11 +709,21 @@ function mapProductionOrder(row: any): OrdemProducao {
       supplyLotId: c.supply_lot_id,
       quantidade: Number(c.quantity_consumed),
     })),
-    produtosAcabadosConsumidos: (row.production_order_finished_product_consumptions ?? []).map((c: any) => ({
-      finishedProductLotId: c.finished_product_lot_id,
-      produtoId: c.finished_product_lots?.product_id,
-      quantidade: Number(c.quantity_consumed),
-    })),
+    produtosAcabadosConsumidos: (row.production_order_finished_product_consumptions ?? []).map((c: any) => {
+      // Supabase returns a related row as an object, but some relation settings
+      // return it as a one-item array. Supporting both preserves the product
+      // when an existing OP is opened again for editing.
+      const productLot = Array.isArray(c.finished_product_lots)
+        ? c.finished_product_lots[0]
+        : c.finished_product_lots;
+
+      return {
+        finishedProductLotId: c.finished_product_lot_id,
+        produtoId: productLot?.product_id,
+        quantidade: Number(c.quantity_consumed),
+        origem: c.consumption_source === 'Devolucao' ? 'Devolucao' : 'Disponivel',
+      };
+    }),
   };
 }
 
@@ -710,8 +857,28 @@ function mapSalesOrder(row: any): SalesOrderRecord {
         quantity: Number(fulfillment.quantity),
         returnedQuantity: Number(fulfillment.returnedQuantity || 0),
         fulfilledAt: new Date(fulfillment.fulfilledAt),
+        attendanceId: fulfillment.attendanceId ?? null,
       })),
     })),
+    attendances: (row.attendances ?? []).map((a: any) => ({
+      id: a.id,
+      attendanceNumber: a.attendanceNumber,
+      fulfilledAt: new Date(a.fulfilledAt),
+      totalValue: Number(a.totalValue),
+      status: a.status,
+      notes: a.notes ?? null,
+      items: (a.items ?? []).map((ai: any) => ({
+        id: ai.id,
+        salesOrderItemId: ai.salesOrderItemId,
+        productName: ai.productName,
+        quantity: Number(ai.quantity),
+        unitPrice: Number(ai.unitPrice),
+        totalValue: Number(ai.totalValue),
+      })),
+    })),
+    totalFulfilled: Number(row.totalFulfilled ?? 0),
+    remainingAmount: Number(row.remainingAmount ?? 0),
+    fulfilledPercent: Number(row.fulfilledPercent ?? 0),
   };
 }
 
@@ -916,7 +1083,7 @@ export async function createProductionOrder(payload: {
   productId: string;
   litersToUse: number;
   supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
-  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; quantity: number }>;
+  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number }>;
 }) {
   return apiRequest<{ order: any }>('/production-orders', {
     method: 'POST',
@@ -930,7 +1097,7 @@ export async function updateProductionOrder(orderId: string, payload: {
   litersToUse?: number;
   actualQuantityProduced?: number;
   supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
-  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; quantity: number }>;
+  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number }>;
 }) {
   return apiRequest<{ order: any }>(`/production-orders/${orderId}`, {
     method: 'PATCH',
@@ -942,7 +1109,7 @@ export async function completeProductionOrder(payload: {
   orderId: string;
   actualQuantityProduced: number;
   supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
-  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; quantity: number }>;
+  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number }>;
   generatedCoProducts?: Array<{ productId: string; quantity: number }>;
 }) {
   return apiRequest<{ order: any; productLot: any }>(`/production-orders/${payload.orderId}/complete`, {
@@ -988,6 +1155,22 @@ export async function loadSupplyLots() {
   return lots;
 }
 
+export async function loadWarehouseWithdrawals() {
+  return apiRequest<WarehouseWithdrawal[]>('/inventory/warehouse-withdrawals');
+}
+
+export async function createWarehouseWithdrawal(payload: {
+  sector: string;
+  notes?: string;
+  withdrawalDate?: string;
+  items: Array<{ supplyItemId: string; quantity: number }>;
+}) {
+  return apiRequest<WarehouseWithdrawal>('/inventory/warehouse-withdrawals', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function adjustSupplyLotStock(id: string, newAvailableQuantity: number, oldAvailableQuantity: number, oldReceivedQuantity: number) {
   const difference = newAvailableQuantity - oldAvailableQuantity;
   const newReceivedQuantity = oldReceivedQuantity + difference;
@@ -1015,6 +1198,82 @@ export async function loadFinishedProductLots(options?: { requireLive?: boolean 
     return lots.map(mapFinishedProductLot);
   };
   return options?.requireLive ? loader() : withFallback(loader, () => mockEstoquesProdutos);
+}
+
+export function loadInventorySessions(): Promise<InventorySessionSummary[]> {
+  return apiRequest<InventorySessionSummary[]>('/inventory/counts');
+}
+
+export function loadInventorySession(id: string): Promise<InventorySession> {
+  return apiRequest<InventorySession>(`/inventory/counts/${id}`);
+}
+
+export function createInventorySession(title?: string): Promise<InventorySession> {
+  return apiRequest<InventorySession>('/inventory/counts', {
+    method: 'POST',
+    body: JSON.stringify({ title: title?.trim() || undefined }),
+  });
+}
+
+export function saveInventoryCounts(
+  sessionId: string,
+  items: Array<{ id: string; countedQuantity: number; notes?: string }>,
+): Promise<InventorySession> {
+  return apiRequest<InventorySession>(`/inventory/counts/${sessionId}/save`, {
+    method: 'POST',
+    body: JSON.stringify({ items }),
+  });
+}
+
+export function submitInventorySession(
+  sessionId: string,
+  items: Array<{ id: string; countedQuantity: number; notes?: string }>,
+): Promise<InventorySession> {
+  return apiRequest<InventorySession>(`/inventory/counts/${sessionId}/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ items }),
+  });
+}
+
+export function approveInventoryCountItem(sessionId: string, itemId: string, note?: string) {
+  return apiRequest<{ session: InventorySession }>(`/inventory/counts/${sessionId}/items/${itemId}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ note: note?.trim() || undefined }),
+  });
+}
+
+export function rejectInventoryCountItem(sessionId: string, itemId: string, note?: string): Promise<InventorySession> {
+  return apiRequest<InventorySession>(`/inventory/counts/${sessionId}/items/${itemId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ note: note?.trim() || undefined }),
+  });
+}
+
+export function loadSaleExpeditions(): Promise<SaleExpeditionSummary[]> {
+  return apiRequest<SaleExpeditionSummary[]>('/inventory/expeditions');
+}
+
+export function loadSaleExpedition(id: string): Promise<SaleExpedition> {
+  return apiRequest<SaleExpedition>(`/inventory/expeditions/${id}`);
+}
+
+export function createSaleExpedition(salesOrderId: string): Promise<SaleExpedition> {
+  return apiRequest<SaleExpedition>('/inventory/expeditions', { method: 'POST', body: JSON.stringify({ salesOrderId }) });
+}
+
+export function addExpeditionWeighing(payload: { expeditionId: string; salesOrderItemId: string; finishedProductLotId: string; quantity: number; notes?: string }): Promise<SaleExpedition> {
+  return apiRequest<SaleExpedition>(`/inventory/expeditions/${payload.expeditionId}/weighings`, {
+    method: 'POST',
+    body: JSON.stringify({ salesOrderItemId: payload.salesOrderItemId, finishedProductLotId: payload.finishedProductLotId, quantity: payload.quantity, notes: payload.notes }),
+  });
+}
+
+export function deleteExpeditionWeighing(expeditionId: string, weighingId: string): Promise<SaleExpedition> {
+  return apiRequest<SaleExpedition>(`/inventory/expeditions/${expeditionId}/weighings/${weighingId}`, { method: 'DELETE' });
+}
+
+export function confirmSaleExpedition(expeditionId: string): Promise<SaleExpedition> {
+  return apiRequest<SaleExpedition>(`/inventory/expeditions/${expeditionId}/confirm`, { method: 'POST', body: JSON.stringify({}) });
 }
 
 export async function loadFinancialEntries(filters?: FinancialEntryFilters) {
@@ -1627,28 +1886,56 @@ export async function createSalesOrder(payload: {
 
 export async function fulfillSalesOrder(payload: {
   salesOrderId: string;
+  idempotencyKey: string;
   fulfilledAt?: string;
-  paymentMethod?: string;
+  paymentMethod: string;
   installments?: number;
   installmentEntries?: Array<{ amount: number; dueDate: string }>;
-  bankAccountId?: string;
+  bankAccountId: string;
   items: Array<{
     salesOrderItemId: string;
     finishedProductLotId: string;
     quantity: number;
   }>;
+  notes?: string;
 }) {
   const salesOrder = await apiRequest<any>(`/sales-orders/${payload.salesOrderId}/fulfill`, {
     method: 'POST',
     body: JSON.stringify({
+      idempotencyKey: payload.idempotencyKey,
       fulfilledAt: payload.fulfilledAt,
       paymentMethod: payload.paymentMethod,
       installments: payload.installments,
       installmentEntries: payload.installmentEntries,
       bankAccountId: payload.bankAccountId,
       items: payload.items,
+      notes: payload.notes,
     }),
   });
+  return mapSalesOrder(salesOrder);
+}
+
+export async function finalizeConferredSalesOrder(payload: {
+  salesOrderId: string;
+  paymentMethod: string;
+  bankAccountId: string;
+  installmentEntries?: Array<{ amount: number; dueDate: string }>;
+}) {
+  const salesOrder = await apiRequest<any>(`/sales-orders/${payload.salesOrderId}/finalize`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return mapSalesOrder(salesOrder);
+}
+
+export async function cancelAttendance(salesOrderId: string, attendanceId: string) {
+  const salesOrder = await apiRequest<any>(
+    `/sales-orders/${salesOrderId}/attendances/${attendanceId}/cancel`,
+    {
+      method: 'POST',
+      body: JSON.stringify({}),
+    },
+  );
   return mapSalesOrder(salesOrder);
 }
 

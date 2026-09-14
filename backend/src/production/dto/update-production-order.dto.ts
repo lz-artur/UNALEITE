@@ -1,4 +1,4 @@
-import { IsArray, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsIn, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class SupplyConsumptionDto {
@@ -23,6 +23,10 @@ class FinishedProductConsumptionDto {
   @IsOptional()
   @IsString()
   finishedProductId?: string;
+
+  @IsOptional()
+  @IsIn(['Disponivel', 'Devolucao'])
+  source?: 'Disponivel' | 'Devolucao';
 
   @IsNumber()
   @Min(0.0001)

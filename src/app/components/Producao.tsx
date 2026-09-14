@@ -31,7 +31,7 @@ const emptyCreateForm = {
  litersToUse: '',
  actualQuantityProduced: '',
  supplyConsumptions: [] as { supplyItemId: string; quantity: string }[],
- finishedProductConsumptions: [] as { finishedProductId: string; quantity: string }[],
+ finishedProductConsumptions: [] as { finishedProductId: string; source: 'Disponivel' | 'Devolucao'; quantity: string }[],
 };
 
 const emptyCompleteForm = {
@@ -162,6 +162,23 @@ export default function Producao() {
    return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
  }, [finishedProductLots, getFinishedProductById, getUnitSymbol]);
 
+ const returnedFinishedProducts = useMemo(() => {
+   const grouped = new Map<string, { id: string; name: string; availableQuantity: number; unit: string }>();
+   finishedProductLots
+     .filter((lot) => (lot.devolvido ?? 0) > 0)
+     .forEach((lot) => {
+       const current = grouped.get(lot.produtoId);
+       const product = getFinishedProductById(lot.produtoId);
+       grouped.set(lot.produtoId, {
+         id: lot.produtoId,
+         name: product?.name || 'Produto acabado sem nome',
+         availableQuantity: (current?.availableQuantity ?? 0) + (lot.devolvido ?? 0),
+         unit: getUnitSymbol(product?.unitId),
+       });
+     });
+   return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+ }, [finishedProductLots, getFinishedProductById, getUnitSymbol]);
+
  const selectedLot = lotes.find((lote) => lote.id === formState.milkLotId);
  const selectedProduct = getFinishedProductById(formState.productId);
  const finishedOrders = ordensProducao.filter((op) => op.status === 'Finalizada');
@@ -193,7 +210,7 @@ export default function Producao() {
 
  const payloadFinishedProductConsumptions = formState.finishedProductConsumptions
    .filter(c => c.finishedProductId && Number(c.quantity) > 0)
-   .map(c => ({ finishedProductId: c.finishedProductId, quantity: Number(c.quantity) }));
+   .map(c => ({ finishedProductId: c.finishedProductId, source: c.source, quantity: Number(c.quantity) }));
 
  if (editingOrder) {
    await updateProductionOrder(editingOrder.id, {
@@ -493,16 +510,19 @@ export default function Producao() {
                   .reduce((consumptions, item) => {
                     const productId = item.produtoId || finishedProductLots.find((lot) => lot.id === item.finishedProductLotId)?.produtoId;
                     if (!productId) return consumptions;
-                    const existing = consumptions.find((consumption) => consumption.finishedProductId === productId);
+                    const source = item.origem ?? 'Disponivel';
+                    const existing = consumptions.find((consumption) => consumption.finishedProductId === productId && consumption.source === source);
                     if (existing) {
                       existing.quantity = String(Number(existing.quantity) + item.quantidade);
                     } else {
-                      consumptions.push({ finishedProductId: productId, quantity: String(item.quantidade) });
+                      consumptions.push({ finishedProductId: productId, source, quantity: String(item.quantidade) });
                     }
                     return consumptions;
-                  }, [] as { finishedProductId: string; quantity: string }[]),
+                  }, [] as { finishedProductId: string; source: 'Disponivel' | 'Devolucao'; quantity: string }[]),
               });
               setShowCreateModal(true);
+              setFinishedProductSearchTerms({});
+              setOpenFinishedProductSearch(null);
               setOpenDropdownId(null);
             }}
             className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
@@ -740,7 +760,7 @@ export default function Producao() {
  <h4 className="text-sm font-semibold text-gray-900">Produtos Acabados Planejados (Ex: Creme)</h4>
  <button
  type="button"
- onClick={() => setFormState(prev => ({ ...prev, finishedProductConsumptions: [...prev.finishedProductConsumptions, { finishedProductId: '', quantity: '' }] }))}
+ onClick={() => setFormState(prev => ({ ...prev, finishedProductConsumptions: [...prev.finishedProductConsumptions, { finishedProductId: '', source: 'Disponivel', quantity: '' }] }))}
  className="text-sm flex items-center text-blue-600 hover:text-blue-700"
  >
  <Plus className="h-4 w-4 mr-1" /> Adicionar produto acabado
@@ -750,10 +770,24 @@ export default function Producao() {
  <div className="space-y-3">
  {formState.finishedProductConsumptions.map((consumption, index) => (
  <div key={index} className="flex gap-2 items-start">
+ <select
+ value={consumption.source}
+ onChange={(event) => {
+   const newCons = [...formState.finishedProductConsumptions];
+   newCons[index] = { ...newCons[index], source: event.target.value as 'Disponivel' | 'Devolucao', finishedProductId: '' };
+   setFormState((prev) => ({ ...prev, finishedProductConsumptions: newCons }));
+   setFinishedProductSearchTerms((terms) => ({ ...terms, [index]: '' }));
+ }}
+ className="w-36 rounded-lg border border-gray-300 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+ aria-label="Origem do produto acabado"
+ >
+   <option value="Disponivel">Disponível</option>
+   <option value="Devolucao">Devolução</option>
+ </select>
  <div className="relative flex-1">
  <input
  type="search"
- value={finishedProductSearchTerms[index] ?? availableFinishedProducts.find((item) => item.id === consumption.finishedProductId)?.name ?? ''}
+ value={finishedProductSearchTerms[index] ?? (consumption.source === 'Devolucao' ? returnedFinishedProducts : availableFinishedProducts).find((item) => item.id === consumption.finishedProductId)?.name ?? ''}
  onFocus={() => setOpenFinishedProductSearch(index)}
  onChange={(event) => {
    const newCons = [...formState.finishedProductConsumptions];
@@ -769,7 +803,7 @@ export default function Producao() {
  />
  {openFinishedProductSearch === index ? (
  <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
- {availableFinishedProducts
+ {(consumption.source === 'Devolucao' ? returnedFinishedProducts : availableFinishedProducts)
    .filter((item) => item.name.toLocaleLowerCase('pt-BR').includes((finishedProductSearchTerms[index] ?? '').trim().toLocaleLowerCase('pt-BR')))
    .map((item) => (
      <button
@@ -786,11 +820,11 @@ export default function Producao() {
        className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
      >
        <span className="block font-medium text-gray-900">{item.name}</span>
-       <span className="block text-xs text-gray-500">Saldo total: {item.availableQuantity.toLocaleString('pt-BR')} {item.unit}</span>
+       <span className="block text-xs text-gray-500">Saldo {consumption.source === 'Devolucao' ? 'devolvido' : 'disponível'}: {item.availableQuantity.toLocaleString('pt-BR')} {item.unit}</span>
      </button>
    ))}
- {availableFinishedProducts.filter((item) => item.name.toLocaleLowerCase('pt-BR').includes((finishedProductSearchTerms[index] ?? '').trim().toLocaleLowerCase('pt-BR'))).length === 0 ? (
-   <p className="px-3 py-2 text-sm text-gray-500">Nenhum produto acabado disponível encontrado.</p>
+ {(consumption.source === 'Devolucao' ? returnedFinishedProducts : availableFinishedProducts).filter((item) => item.name.toLocaleLowerCase('pt-BR').includes((finishedProductSearchTerms[index] ?? '').trim().toLocaleLowerCase('pt-BR'))).length === 0 ? (
+   <p className="px-3 py-2 text-sm text-gray-500">Nenhum produto acabado com saldo {consumption.source === 'Devolucao' ? 'devolvido' : 'disponível'} encontrado.</p>
  ) : null}
  </div>
  ) : null}
@@ -1111,6 +1145,47 @@ export default function Producao() {
                           <td className="px-4 py-3">{item?.name || insumo.insumoId}</td>
                           <td className="px-4 py-3 text-right font-medium">
                             {insumo.quantidade} {getUnitSymbol(item?.unitId)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {viewOrder.produtosAcabadosConsumidos && viewOrder.produtosAcabadosConsumidos.length > 0 && (
+            <div className="space-y-4">
+              <h4 className="font-semibold text-gray-900 border-b pb-2">Produtos Acabados Utilizados</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-medium">Produto</th>
+                      <th className="px-4 py-2 text-left font-medium">Lote de origem</th>
+                      <th className="px-4 py-2 text-left font-medium">Origem</th>
+                      <th className="px-4 py-2 text-right font-medium">Quantidade utilizada</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {viewOrder.produtosAcabadosConsumidos.map((consumo, idx) => {
+                      const produto = consumo.produtoId
+                        ? getFinishedProductById(consumo.produtoId)
+                        : undefined;
+                      const lote = finishedProductLots.find((item) => item.id === consumo.finishedProductLotId);
+
+                      return (
+                        <tr key={`${consumo.finishedProductLotId}-${idx}`} className="hover:bg-gray-50">
+                          <td className="px-4 py-3">{produto?.name || 'Produto acabado'}</td>
+                          <td className="px-4 py-3">{lote?.lote || consumo.finishedProductLotId}</td>
+                          <td className="px-4 py-3">
+                            <span className={consumo.origem === 'Devolucao' ? 'font-medium text-amber-700' : 'font-medium text-emerald-700'}>
+                              {consumo.origem === 'Devolucao' ? 'Devolução' : 'Disponível'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium">
+                            {consumo.quantidade.toLocaleString('pt-BR')} {getUnitSymbol(produto?.unitId)}
                           </td>
                         </tr>
                       );

@@ -203,6 +203,37 @@ describe('ProductionService', () => {
       ]);
       expect(order).toHaveBeenNthCalledWith(1, 'produced_at', { ascending: true });
     });
+
+    it('uses only the returned balance when the source is Devolucao', async () => {
+      let chain: any;
+      const order = jest.fn()
+        .mockImplementationOnce(() => chain)
+        .mockImplementationOnce(() => chain)
+        .mockResolvedValueOnce({
+          data: [
+            { id: 'returned-oldest', available_quantity: 500, returned_quantity: 12 },
+            { id: 'returned-next', available_quantity: 300, returned_quantity: 20 },
+          ],
+          error: null,
+        });
+      chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        gt: jest.fn().mockReturnThis(),
+        order,
+      };
+      supabaseServiceMock.admin.from.mockReturnValue(chain);
+
+      const consumptions = await (service as any).resolveFinishedProductConsumptions([
+        { finishedProductId: 'cream', source: 'Devolucao', quantity: 25 },
+      ]);
+
+      expect(chain.gt).toHaveBeenCalledWith('returned_quantity', 0);
+      expect(consumptions).toEqual([
+        { finishedProductLotId: 'returned-oldest', source: 'Devolucao', quantity: 12 },
+        { finishedProductLotId: 'returned-next', source: 'Devolucao', quantity: 13 },
+      ]);
+    });
   });
 
   describe('adjustOrder', () => {

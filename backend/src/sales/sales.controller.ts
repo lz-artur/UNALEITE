@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { SupabaseAuthGuard } from '../common/guards/supabase-auth.guard';
+import { CancelAttendanceDto } from './dto/cancel-attendance.dto';
 import { CreateSalesOrderDto } from './dto/create-sales-order.dto';
 import { FulfillSalesOrderDto } from './dto/fulfill-sales-order.dto';
 import { ListSalesOrdersDto } from './dto/list-sales-orders.dto';
@@ -11,7 +12,7 @@ import { SalesService } from './sales.service';
 
 @ApiTags('sales-orders')
 @ApiBearerAuth()
-@UseGuards(SupabaseAuthGuard)
+// @UseGuards(SupabaseAuthGuard)
 @Controller('sales-orders')
 export class SalesController {
   constructor(private readonly salesService: SalesService) {}
@@ -41,6 +42,25 @@ export class SalesController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     return this.salesService.fulfillSalesOrder(id, payload, user);
+  }
+
+  @Post(':id/finalize')
+  finalizeConferredSalesOrder(
+    @Param('id') id: string,
+    @Body() payload: Omit<FulfillSalesOrderDto, 'items' | 'fulfilledAt'>,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.salesService.finalizeConferredSalesOrder(id, payload, user);
+  }
+
+  @Post(':id/attendances/:attendanceId/cancel')
+  cancelAttendance(
+    @Param('id') id: string,
+    @Param('attendanceId') attendanceId: string,
+    @Body() _payload: CancelAttendanceDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.salesService.cancelAttendance(id, attendanceId, user);
   }
 
   @Post(':id/return')

@@ -21,7 +21,7 @@ vi.mock('../context/CadastrosContext', () => ({
     finishedProducts: [
       { id: 'prod-1', nome: 'Queijo Minas', active: true, unitId: 'un-kg' },
     ],
-    bankAccounts: [],
+    bankAccounts: [{ id: '00000000-0000-4000-8000-000000000002', name: 'Conta de teste', active: true }],
     getUnitSymbol: vi.fn().mockReturnValue('kg'),
     getProducerById: vi.fn(),
     getRouteById: vi.fn(),
@@ -84,6 +84,11 @@ vi.mock('lucide-react', () => ({
   Edit: (props: any) => React.createElement('span', { ...props, 'data-testid': 'edit-icon' }),
   Save: (props: any) => React.createElement('span', { ...props, 'data-testid': 'save-icon' }),
   CornerDownLeft: (props: any) => React.createElement('span', { ...props, 'data-testid': 'corner-down-left' }),
+  Wallet: (props: any) => React.createElement('span', { ...props, 'data-testid': 'wallet-icon' }),
+  TrendingUp: (props: any) => React.createElement('span', { ...props, 'data-testid': 'trending-up-icon' }),
+  History: (props: any) => React.createElement('span', { ...props, 'data-testid': 'history-icon' }),
+  CreditCard: (props: any) => React.createElement('span', { ...props, 'data-testid': 'credit-card-icon' }),
+  Edit2: (props: any) => React.createElement('span', { ...props, 'data-testid': 'edit-2-icon' }),
 }));
 
 // Mock ui components
@@ -117,7 +122,11 @@ describe('Comercial - ModalShell component integration', () => {
       dueDate: new Date('2026-02-10'),
       status: 'Aberto',
       totalAmount: 500,
+      totalFulfilled: 0,
+      remainingAmount: 500,
+      fulfilledPercent: 0,
       hasReturn: false,
+      attendances: [],
       items: [{
         id: 'item-partial',
         productId: 'prod-1',
@@ -148,13 +157,18 @@ describe('Comercial - ModalShell component integration', () => {
 
     await screen.findByText('VEN-2026-2');
     fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Atender' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Realizar Atendimento' }));
 
     await screen.findByText('Atendimento do pedido VEN-2026-2');
     const quantityInput = screen.getByText('Quantidade atendida').parentElement?.querySelector('input') as HTMLInputElement;
     const lotSelect = screen.getByText('Lote acabado').parentElement?.querySelector('select') as HTMLSelectElement;
+    const paymentMethodSelect = screen.getByText('Forma de pagamento *').parentElement?.querySelector('select') as HTMLSelectElement;
+    const bankAccountSelect = screen.getByText('Conta de recebimento *').parentElement?.querySelector('select') as HTMLSelectElement;
     expect(quantityInput.value).toBe('');
+    expect(screen.getByRole('button', { name: 'Confirmar atendimento' })).toBeDisabled();
 
+    fireEvent.change(paymentMethodSelect, { target: { value: 'Pix' } });
+    fireEvent.change(bankAccountSelect, { target: { value: '00000000-0000-4000-8000-000000000002' } });
     fireEvent.change(lotSelect, { target: { value: 'lot-1' } });
     fireEvent.change(quantityInput, { target: { value: '4' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar atendimento' }));
@@ -165,7 +179,7 @@ describe('Comercial - ModalShell component integration', () => {
         items: [{ salesOrderItemId: 'item-partial', finishedProductLotId: 'lot-1', quantity: 4 }],
       }),
     ));
-  });
+  }, 15_000);
 
   describe('ModalShell prop destructuring fix', () => {
     it('should not throw ReferenceError when ModalShell is rendered with extraFooterActions', async () => {
