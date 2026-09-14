@@ -156,6 +156,37 @@ export class SalesService {
   }
 
   /**
+   * Fecha comercialmente um pedido já conferido na expedição. A expedição
+   * baixa o estoque; esta etapa registra as condições financeiras e gera o
+   * contas a receber, sem repetir a baixa ou as quantidades atendidas.
+   */
+  async finalizeConferredSalesOrder(
+    salesOrderId: string,
+    payload: Omit<FulfillSalesOrderDto, 'items' | 'fulfilledAt'>,
+    user?: AuthenticatedUser,
+  ) {
+    if (!payload.paymentMethod?.trim()) {
+      throw new BadRequestException('Informe a forma de pagamento para finalizar a venda.');
+    }
+    if (!payload.bankAccountId?.trim()) {
+      throw new BadRequestException('Informe a conta de recebimento para finalizar a venda.');
+    }
+
+    const installmentEntries = payload.installmentEntries?.length
+      ? payload.installmentEntries.map((entry) => ({ amount: Number(entry.amount), dueDate: entry.dueDate }))
+      : null;
+    const { error } = await this.supabaseService.admin.rpc('finalize_conferred_sales_order', {
+      p_sales_order_id: salesOrderId,
+      p_user_id: user?.id ?? null,
+      p_payment_method: payload.paymentMethod.trim(),
+      p_bank_account_id: payload.bankAccountId,
+      p_installment_entries: installmentEntries,
+    });
+    if (error) throw new BadRequestException(error.message);
+    return this.getSalesOrder(salesOrderId);
+  }
+
+  /**
    * Cancela um atendimento específico.
    *
    * - Restaura saldo dos lotes

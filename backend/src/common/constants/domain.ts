@@ -36,6 +36,8 @@ export const PURCHASE_STATUS = {
 
 export const SALES_ORDER_STATUS = {
   OPEN: 'Aberto',
+  CONFERRED: 'Conferido',
+  PARTIALLY_CONFERRED: 'Parcialmente Conferido',
   PARTIALLY_FULFILLED: 'Parcialmente Atendido',
   FULFILLED: 'Atendido',
   CANCELED: 'Cancelado',

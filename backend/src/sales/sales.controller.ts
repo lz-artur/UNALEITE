@@ -44,6 +44,15 @@ export class SalesController {
     return this.salesService.fulfillSalesOrder(id, payload, user);
   }
 
+  @Post(':id/finalize')
+  finalizeConferredSalesOrder(
+    @Param('id') id: string,
+    @Body() payload: Omit<FulfillSalesOrderDto, 'items' | 'fulfilledAt'>,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.salesService.finalizeConferredSalesOrder(id, payload, user);
+  }
+
   @Post(':id/attendances/:attendanceId/cancel')
   cancelAttendance(
     @Param('id') id: string,

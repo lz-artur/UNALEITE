@@ -6,6 +6,7 @@ import { useCadastros } from '../context/CadastrosContext';
 import {
   createClient,
   createSalesOrder,
+  finalizeConferredSalesOrder,
   fulfillSalesOrder,
   cancelAttendance,
   loadClients,
@@ -62,6 +63,7 @@ export default function Comercial() {
   const [showClientModal, setShowClientModal] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showFulfillModal, setShowFulfillModal] = useState(false);
+  const [showFinalizeModal, setShowFinalizeModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [editingClient, setEditingClient] = useState<ClientRecord | null>(null);
@@ -411,6 +413,44 @@ export default function Comercial() {
     }
   };
 
+  const openFinalizeModal = async (salesOrderId: string) => {
+    setLoadingDetail(true);
+    setErrorMessage(null);
+    try {
+      setSelectedOrder(await loadSalesOrderDetail(salesOrderId));
+      setFulfillForm({
+        idempotencyKey: crypto.randomUUID(), fulfilledAt: getToday(), paymentMethod: '', installments: '',
+        isParcelado: false, parcelas: [{ id: crypto.randomUUID(), dueDate: '', amount: '' }], bankAccountId: '', items: {},
+      });
+      setShowFinalizeModal(true);
+    } catch (error) { setErrorMessage(getErrorMessage(error)); }
+    finally { setLoadingDetail(false); }
+  };
+
+  const handleFinalizeOrder = async () => {
+    if (!selectedOrder) return;
+    if (!fulfillForm.paymentMethod || !fulfillForm.bankAccountId) {
+      setErrorMessage('Selecione a forma de pagamento e a conta de recebimento.');
+      return;
+    }
+    const installmentsTotal = fulfillForm.parcelas.reduce((sum, entry) => sum + Number(entry.amount.replace(',', '.') || 0), 0);
+    if (fulfillForm.isParcelado && (fulfillForm.parcelas.some((entry) => !entry.amount || !entry.dueDate) || Math.abs(installmentsTotal - conferredAmount) > 0.01)) {
+      setErrorMessage('Preencha as parcelas e faça com que a soma seja igual ao total do pedido.');
+      return;
+    }
+    setSaving(true); setErrorMessage(null);
+    try {
+      const updatedOrder = await finalizeConferredSalesOrder({
+        salesOrderId: selectedOrder.id, paymentMethod: fulfillForm.paymentMethod, bankAccountId: fulfillForm.bankAccountId,
+        installmentEntries: fulfillForm.isParcelado ? fulfillForm.parcelas.map((entry) => ({ amount: Number(entry.amount.replace(',', '.')), dueDate: new Date(`${entry.dueDate}T12:00:00`).toISOString() })) : undefined,
+      });
+      setSalesOrders((current) => current.map((order) => order.id === updatedOrder.id ? updatedOrder : order));
+      setSelectedOrder(updatedOrder); setShowFinalizeModal(false);
+      toast.success('Venda finalizada e contas a receber gerado.');
+    } catch (error) { setErrorMessage(getErrorMessage(error)); }
+    finally { setSaving(false); }
+  };
+
   const handleFulfillOrder = async () => {
     if (!selectedOrder) {
       return;
@@ -613,6 +653,13 @@ export default function Comercial() {
     }, 0);
   }, [selectedOrder, fulfillForm.items, showFulfillModal]);
 
+  const conferredAmount = useMemo(
+    () => selectedOrder?.attendances
+      .filter((attendance) => attendance.attendanceNumber.startsWith('EXP-'))
+      .reduce((sum, attendance) => sum + attendance.totalValue, 0) ?? 0,
+    [selectedOrder],
+  );
+
   const hasFulfillmentErrors = useMemo(() => {
     if (!selectedOrder || !showFulfillModal) return false;
     if (!fulfillForm.paymentMethod || !fulfillForm.bankAccountId) return true;
@@ -722,6 +769,8 @@ export default function Comercial() {
                   { label: 'Todos', value: '' },
                   { label: 'Aberto', value: 'Aberto' },
                   { label: 'Parcialmente Atendido', value: 'Parcialmente Atendido' },
+                  { label: 'Conferido', value: 'Conferido' },
+                  { label: 'Parcialmente Conferido', value: 'Parcialmente Conferido' },
                   { label: 'Atendido', value: 'Atendido' },
                   { label: 'Cancelado', value: 'Cancelado' },
                 ]}
@@ -797,6 +846,11 @@ export default function Comercial() {
                             >
                               Detalhes
                             </button>
+                            {order.status === 'Conferido' && (
+                              <button onClick={() => void openFinalizeModal(order.id)} disabled={loadingDetail} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700 disabled:opacity-60">
+                                Finalizar venda
+                              </button>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="w-12">
@@ -1091,6 +1145,32 @@ export default function Comercial() {
         </ModalShell>
       ) : null}
 
+      {showFinalizeModal && selectedOrder ? (
+        <ModalShell
+          title={`Finalizar venda do pedido ${selectedOrder.number}`}
+          onClose={() => setShowFinalizeModal(false)}
+          onConfirm={() => void handleFinalizeOrder()}
+          confirmLabel="Finalizar venda e gerar contas a receber"
+          saving={saving}
+          disabled={!fulfillForm.paymentMethod || !fulfillForm.bankAccountId}
+          maxWidth="max-w-3xl"
+        >
+          <div className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+            A expedição deste pedido já foi conferida e o estoque já foi baixado. Informe abaixo as condições financeiras para concluir a venda e gerar o contas a receber.
+          </div>
+          <p className="mb-4 text-lg font-bold text-gray-900">Total conferido: R$ {conferredAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <SelectField label="Forma de pagamento *" value={fulfillForm.paymentMethod} onChange={(value) => setFulfillForm((current) => ({ ...current, paymentMethod: value }))} options={[{ label: 'Selecione...', value: '' }, { label: 'À vista', value: 'À vista' }, { label: 'Pix', value: 'Pix' }, { label: 'Dinheiro', value: 'Dinheiro' }, { label: 'Boleto', value: 'Boleto' }, { label: 'Cartão', value: 'Cartão' }]} />
+            <SelectField label="Conta de recebimento *" value={fulfillForm.bankAccountId} onChange={(value) => setFulfillForm((current) => ({ ...current, bankAccountId: value }))} options={[{ label: 'Selecione...', value: '' }, ...bankAccounts.filter((account) => account.active).map((account) => ({ label: account.name, value: account.id }))]} />
+          </div>
+          <label className="mt-4 flex items-center gap-2 text-sm font-medium text-gray-700"><input type="checkbox" checked={fulfillForm.isParcelado} onChange={(event) => setFulfillForm((current) => ({ ...current, isParcelado: event.target.checked }))} className="h-4 w-4 rounded border-gray-300 text-blue-600" />Lançamento parcelado</label>
+          {fulfillForm.isParcelado && <div className="mt-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+            {fulfillForm.parcelas.map((entry, index) => <div key={entry.id} className="flex items-end gap-3"><div className="flex-1"><InputField label={`Valor da parcela ${index + 1}`} type="number" value={entry.amount} onChange={(value) => setFulfillForm((current) => ({ ...current, parcelas: current.parcelas.map((item) => item.id === entry.id ? { ...item, amount: value } : item) }))} /></div><div className="flex-1"><InputField label="Vencimento" type="date" value={entry.dueDate} onChange={(value) => setFulfillForm((current) => ({ ...current, parcelas: current.parcelas.map((item) => item.id === entry.id ? { ...item, dueDate: value } : item) }))} /></div>{fulfillForm.parcelas.length > 1 && <button type="button" onClick={() => setFulfillForm((current) => ({ ...current, parcelas: current.parcelas.filter((item) => item.id !== entry.id) }))} className="mb-1 rounded p-2 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}</div>)}
+            <button type="button" onClick={() => setFulfillForm((current) => ({ ...current, parcelas: [...current.parcelas, { id: crypto.randomUUID(), dueDate: '', amount: '' }] }))} className="text-sm font-medium text-blue-700">+ Adicionar parcela</button>
+          </div>}
+        </ModalShell>
+      ) : null}
+
       {showFulfillModal && selectedOrder ? (
         <ModalShell
           title={`Atendimento do pedido ${selectedOrder.number}`}
@@ -1356,7 +1436,16 @@ export default function Comercial() {
                   Devolver
                 </button>
               )}
-              {selectedOrder.status !== 'Atendido' && selectedOrder.status !== 'Cancelado' && (
+              {selectedOrder.status === 'Conferido' && (
+                <button
+                  onClick={() => { setShowDetailModal(false); void openFinalizeModal(selectedOrder.id); }}
+                  disabled={loadingDetail}
+                  className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-700 transition-colors disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
+                >
+                  Finalizar venda
+                </button>
+              )}
+              {selectedOrder.status !== 'Atendido' && selectedOrder.status !== 'Cancelado' && selectedOrder.status !== 'Conferido' && (
                 <button
                   onClick={() => { setShowDetailModal(false); void openFulfillModal(selectedOrder.id); }}
                   disabled={loadingDetail}
@@ -1815,7 +1904,7 @@ export default function Comercial() {
                               <TableCell className="text-gray-600">{format(order.orderDate, 'dd/MM/yyyy')}</TableCell>
                               <TableCell className="text-gray-600">{format(order.dueDate, 'dd/MM/yyyy')}</TableCell>
                               <TableCell>
-                                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold leading-5 ${order.status === 'Atendido' ? 'bg-emerald-100 text-emerald-800' : order.status === 'Parcialmente Atendido' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>{order.status}</span>
+                                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold leading-5 ${order.status === 'Atendido' ? 'bg-emerald-100 text-emerald-800' : order.status === 'Conferido' ? 'bg-violet-100 text-violet-800' : order.status === 'Parcialmente Atendido' ? 'bg-amber-100 text-amber-800' : order.status === 'Parcialmente Conferido' ? 'bg-violet-50 text-violet-700' : 'bg-blue-100 text-blue-800'}`}>{order.status}</span>
                               </TableCell>
                               <TableCell className="font-bold text-gray-900">R$ {order.totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
                             </tr>
@@ -1992,6 +2081,10 @@ function StatusBadge({ status }: { status: string }) {
   const className =
     status === 'Atendido'
       ? 'bg-green-100 text-green-800'
+      : status === 'Conferido'
+        ? 'bg-violet-100 text-violet-800'
+        : status === 'Parcialmente Conferido'
+          ? 'bg-violet-50 text-violet-700'
       : status === 'Parcialmente Atendido'
         ? 'bg-yellow-100 text-yellow-800'
         : status === 'Cancelado'

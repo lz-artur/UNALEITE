@@ -1883,6 +1883,19 @@ export async function fulfillSalesOrder(payload: {
   return mapSalesOrder(salesOrder);
 }
 
+export async function finalizeConferredSalesOrder(payload: {
+  salesOrderId: string;
+  paymentMethod: string;
+  bankAccountId: string;
+  installmentEntries?: Array<{ amount: number; dueDate: string }>;
+}) {
+  const salesOrder = await apiRequest<any>(`/sales-orders/${payload.salesOrderId}/finalize`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return mapSalesOrder(salesOrder);
+}
+
 export async function cancelAttendance(salesOrderId: string, attendanceId: string) {
   const salesOrder = await apiRequest<any>(
     `/sales-orders/${salesOrderId}/attendances/${attendanceId}/cancel`,
