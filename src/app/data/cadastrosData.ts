@@ -132,6 +132,7 @@ export interface SupplyItemRecord {
   accountingCategoryId?: string;
   accountingSubcategoryId?: string;
   costType?: string;
+  isWarehouseItem: boolean;
   active: boolean;
 }
 

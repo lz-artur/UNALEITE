@@ -57,6 +57,22 @@ export interface SupplyLotInventoryItem {
   unitId?: string;
 }
 
+export interface WarehouseWithdrawal {
+  id: string;
+  withdrawal_number: string;
+  sector: string;
+  notes?: string | null;
+  withdrawal_date: string;
+  warehouse_withdrawal_items: Array<{
+    id: string;
+    supply_item_id: string;
+    quantity: number;
+    unit_cost: number;
+    total_value: number;
+    supply_items?: { name: string; code: string; units?: { symbol: string } | null } | null;
+  }>;
+}
+
 export type InventorySessionStatus = 'em_contagem' | 'aguardando_aprovacao' | 'concluido';
 export type InventoryCountItemStatus = 'nao_contado' | 'confere' | 'aguardando_aprovacao' | 'aprovado' | 'recusado';
 
@@ -1137,6 +1153,22 @@ export async function loadSupplyLots() {
   });
 
   return lots;
+}
+
+export async function loadWarehouseWithdrawals() {
+  return apiRequest<WarehouseWithdrawal[]>('/inventory/warehouse-withdrawals');
+}
+
+export async function createWarehouseWithdrawal(payload: {
+  sector: string;
+  notes?: string;
+  withdrawalDate?: string;
+  items: Array<{ supplyItemId: string; quantity: number }>;
+}) {
+  return apiRequest<WarehouseWithdrawal>('/inventory/warehouse-withdrawals', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function adjustSupplyLotStock(id: string, newAvailableQuantity: number, oldAvailableQuantity: number, oldReceivedQuantity: number) {

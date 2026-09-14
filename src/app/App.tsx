@@ -22,6 +22,7 @@ import GestaoUsuarios from './components/GestaoUsuarios';
 import Inventario from './components/Inventario';
 import Expedicao from './components/Expedicao';
 import FaturamentoNfe from './components/FaturamentoNfe';
+import Almoxarifado from './components/Almoxarifado';
 import { useAuth } from './context/AuthContext';
 import { CadastrosProvider } from './context/CadastrosContext';
 import { PermissionsProvider, usePermissions } from './context/PermissionsContext';
@@ -51,6 +52,7 @@ function AccessDenied({ onGoHome }: { onGoHome: () => void }) {
 // ─── Page key mapping ───────────────────────────────────────
 function getPageKey(currentPage: string): string {
   if (currentPage === 'vendedor-externo') return 'comercial';
+  if (currentPage === 'almoxarifado') return 'inventario';
   if (currentPage.startsWith('cadastros')) return 'cadastros';
   return currentPage;
 }
@@ -68,6 +70,7 @@ const ORDERED_PAGES = [
   'faturamento',
   'compras',
   'inventario',
+  'almoxarifado',
   'expedicao',
   'contas-receber',
   'contas-pagar',
@@ -128,6 +131,8 @@ function AppInner() {
         return <LotesEstoqueDetalhado />;
       case 'inventario':
         return <Inventario />;
+      case 'almoxarifado':
+        return <Almoxarifado />;
       case 'expedicao':
         return <Expedicao />;
       case 'producao':

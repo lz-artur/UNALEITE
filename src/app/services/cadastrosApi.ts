@@ -192,6 +192,7 @@ function mapSupplyItem(row: any): SupplyItemRecord {
     accountingCategoryId: row.accounting_category_id ?? undefined,
     accountingSubcategoryId: row.accounting_subcategory_id ?? undefined,
     costType: row.cost_type ?? undefined,
+    isWarehouseItem: row.is_warehouse_item ?? false,
     active: row.active,
   };
 }
@@ -528,6 +529,7 @@ function serializeSupplyItem(record: SupplyItemRecord) {
     accounting_category_id: record.accountingCategoryId ?? null,
     accounting_subcategory_id: record.accountingSubcategoryId ?? null,
     cost_type: record.costType ?? null,
+    is_warehouse_item: record.isWarehouseItem,
     active: record.active,
   };
 }

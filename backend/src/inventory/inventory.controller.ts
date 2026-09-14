@@ -10,6 +10,7 @@ import { SaveInventoryCountsDto } from './dto/save-inventory-counts.dto';
 import { ReviewInventoryCountDto } from './dto/review-inventory-count.dto';
 import { CreateSaleExpeditionDto } from './dto/create-sale-expedition.dto';
 import { CreateExpeditionWeighingDto } from './dto/create-expedition-weighing.dto';
+import { CreateWarehouseWithdrawalDto } from './dto/create-warehouse-withdrawal.dto';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
@@ -54,6 +55,16 @@ export class InventoryController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.inventoryService.createManualExit(payload, user);
+  }
+
+  @Get('warehouse-withdrawals')
+  listWarehouseWithdrawals() {
+    return this.inventoryService.listWarehouseWithdrawals();
+  }
+
+  @Post('warehouse-withdrawals')
+  createWarehouseWithdrawal(@Body() payload: CreateWarehouseWithdrawalDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.inventoryService.createWarehouseWithdrawal(payload, user);
   }
 
   @Get('counts')

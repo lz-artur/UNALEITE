@@ -7,6 +7,7 @@ import { CreateInventorySessionDto } from './dto/create-inventory-session.dto';
 import { SaveInventoryCountsDto } from './dto/save-inventory-counts.dto';
 import { ReviewInventoryCountDto } from './dto/review-inventory-count.dto';
 import { CreateExpeditionWeighingDto } from './dto/create-expedition-weighing.dto';
+import { CreateWarehouseWithdrawalDto } from './dto/create-warehouse-withdrawal.dto';
 
 @Injectable()
 export class InventoryService {
@@ -82,6 +83,33 @@ export class InventoryService {
     }
 
     return data ?? [];
+  }
+
+  async listWarehouseWithdrawals() {
+    const { data, error } = await this.supabaseService.admin
+      .from('warehouse_withdrawals')
+      .select('*, warehouse_withdrawal_items(*, supply_items(name, code, units(symbol)))')
+      .order('withdrawal_date', { ascending: false });
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
+  }
+
+  async createWarehouseWithdrawal(payload: CreateWarehouseWithdrawalDto, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const { data: id, error } = await this.supabaseService.admin.rpc('create_warehouse_withdrawal', {
+      p_sector: payload.sector,
+      p_notes: payload.notes ?? null,
+      p_withdrawal_date: payload.withdrawalDate ?? new Date().toISOString(),
+      p_created_by: actor.id,
+      p_items: payload.items,
+    });
+    if (error) throw new BadRequestException(error.message);
+    const { data: withdrawal, error: loadError } = await this.supabaseService.admin
+      .from('warehouse_withdrawals')
+      .select('*, warehouse_withdrawal_items(*, supply_items(name, code, units(symbol)))')
+      .eq('id', id).single();
+    if (loadError) throw new BadRequestException(loadError.message);
+    return withdrawal;
   }
 
   async getFinishedProductLots() {

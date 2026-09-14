@@ -39,6 +39,7 @@ const menuItems = [
     subItems: [
       { id: 'lotes', label: 'Consulta de estoque' },
       { id: 'inventario', label: 'Inventário' },
+      { id: 'almoxarifado', label: 'Almoxarifado' },
       { id: 'expedicao', label: 'Expedição' },
     ],
   },
@@ -97,6 +98,7 @@ function getPageKeyForItem(id: string): string {
   if (id === 'vendedor-externo') return 'comercial';
   if (id.startsWith('cadastros')) return 'cadastros';
   if (id === 'lotes') return 'lotes';
+  if (id === 'almoxarifado') return 'inventario';
   if (id === 'financeiro') return 'contas-receber'; // parent entry
   return id;
 }
@@ -108,7 +110,7 @@ export default function Layout({ children, currentPage, onNavigate }: LayoutProp
     if (window.innerWidth < 768) setSidebarOpen(false);
   };
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
-    lotes: currentPage === 'lotes' || currentPage === 'inventario' || currentPage === 'expedicao',
+    lotes: currentPage === 'lotes' || currentPage === 'inventario' || currentPage === 'expedicao' || currentPage === 'almoxarifado',
     financeiro: currentPage === 'contas-receber' || currentPage === 'contas-pagar' || currentPage === 'contas-bancarias' || currentPage === 'financeiro',
     cadastros: currentPage.startsWith('cadastros'),
   });
