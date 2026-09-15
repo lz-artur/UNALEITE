@@ -232,6 +232,20 @@ export default function Compras() {
       return;
     }
 
+    const missingFinancialFields = [
+      !createForm.paymentMethodId && 'forma de pagamento',
+      !createForm.paymentTypeId && 'tipo de pagamento',
+      !createForm.bankAccountId && 'conta bancária',
+      !createForm.costCenterId && 'centro de custo',
+      !createForm.accountingCategoryId && 'categoria contábil',
+      !createForm.accountingSubcategoryId && 'subcategoria contábil',
+    ].filter(Boolean);
+
+    if (missingFinancialFields.length > 0) {
+      setErrorMessage(`Preencha os campos financeiros obrigatórios: ${missingFinancialFields.join(', ')}.`);
+      return;
+    }
+
     const selectedPaymentType = paymentTypes.find((pt) => pt.id === createForm.paymentTypeId);
     const isDividido = selectedPaymentType?.name.toLowerCase().includes('dividido') || selectedPaymentType?.name.toLowerCase().includes('prazo');
 
@@ -730,7 +744,8 @@ export default function Compras() {
                   onChange={(value) => setCreateForm((current) => ({ ...current, dueDate: value }))}
                 />
                 <FilterSelect
-                  label="Conta Bancaria"
+                  label="Conta Bancária"
+                  required
                   value={createForm.bankAccountId}
                   onChange={(value) => setCreateForm((current) => ({ ...current, bankAccountId: value }))}
                   options={[
@@ -740,6 +755,7 @@ export default function Compras() {
                 />
                 <FilterSelect
                   label="Centro de Custo"
+                  required
                   value={createForm.costCenterId}
                   onChange={(value) => setCreateForm((current) => ({ ...current, costCenterId: value }))}
                   options={[
@@ -748,16 +764,18 @@ export default function Compras() {
                   ]}
                 />
                 <FilterSelect
-                  label="Categoria contabil"
+                  label="Categoria contábil"
+                  required
                   value={createForm.accountingCategoryId}
-                  onChange={(value) => setCreateForm((current) => ({ ...current, accountingCategoryId: value }))}
+                  onChange={(value) => setCreateForm((current) => ({ ...current, accountingCategoryId: value, accountingSubcategoryId: '' }))}
                   options={[
                     { label: 'Selecione...', value: '' },
                     ...accountingCategories.filter(c => c.active && c.entryType === 'Pagar').map((c) => ({ label: c.name, value: c.id })),
                   ]}
                 />
                 <FilterSelect
-                  label="Subcategoria contabil"
+                  label="Subcategoria contábil"
+                  required
                   value={createForm.accountingSubcategoryId}
                   onChange={(value) => setCreateForm((current) => ({ ...current, accountingSubcategoryId: value }))}
                   options={[
@@ -903,6 +921,7 @@ export default function Compras() {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 bg-gray-50 p-4 rounded-xl border border-gray-200">
                 <FilterSelect
                   label="Forma de Pagamento"
+                  required
                   value={createForm.paymentMethodId}
                   onChange={(value) => setCreateForm((current) => ({ ...current, paymentMethodId: value }))}
                   options={[
@@ -912,6 +931,7 @@ export default function Compras() {
                 />
                 <FilterSelect
                   label="Tipo de Pagamento"
+                  required
                   value={createForm.paymentTypeId}
                   onChange={(value) => setCreateForm((current) => ({ ...current, paymentTypeId: value }))}
                   options={[
@@ -1297,19 +1317,24 @@ function FilterField({
 
 function FilterSelect({
   label,
+  required = false,
   value,
   onChange,
   options,
 }: {
   label: string;
+  required?: boolean;
   value: string;
   onChange: (value: string) => void;
   options: Array<{ label: string; value: string }>;
 }) {
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-gray-700">{label}</label>
+      <label className="mb-1 block text-sm font-medium text-gray-700">
+        {label}{required && <span className="text-red-500"> *</span>}
+      </label>
       <select
+        required={required}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"

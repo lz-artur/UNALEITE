@@ -38,8 +38,11 @@ export class PurchasesService {
   }
 
   async createPurchase(payload: CreatePurchaseDto, user?: AuthenticatedUser) {
-    const supplier = await this.getSupplier(payload.supplierId);
-    const supplyItems = await this.getSupplyItems(payload.items.map((item) => item.supplyItemId));
+    const [supplier, supplyItems, financialReferences] = await Promise.all([
+      this.getSupplier(payload.supplierId),
+      this.getSupplyItems(payload.items.map((item) => item.supplyItemId)),
+      this.getFinancialReferences(payload),
+    ]);
     const purchaseNumber = `CMP-${new Date(payload.purchaseDate).getFullYear()}-${Date.now()}`;
     const totalAmount = payload.items.reduce(
       (sum, item) => sum + Number((item.quantity * item.unitCost).toFixed(4)),
@@ -100,7 +103,15 @@ export class PurchasesService {
       throw new BadRequestException(itemsError.message);
     }
 
-    await this.upsertFinancialEntry(purchase, supplier, totalAmount, payload, supplyItems, user);
+    await this.upsertFinancialEntry(
+      purchase,
+      supplier,
+      totalAmount,
+      payload,
+      supplyItems,
+      financialReferences,
+      user,
+    );
 
     return this.getPurchase(String(purchase.id));
   }
@@ -408,6 +419,49 @@ export class PurchasesService {
     return data ?? [];
   }
 
+  private async getFinancialReferences(payload: CreatePurchaseDto) {
+    const [paymentMethod, paymentType, costCenter, accountingCategory, accountingSubcategory, bankAccount] = await Promise.all([
+      this.getActiveReference('payment_methods', payload.paymentMethodId, 'Forma de pagamento'),
+      this.getActiveReference('payment_types', payload.paymentTypeId, 'Tipo de pagamento'),
+      this.getActiveReference('cost_centers', payload.costCenterId, 'Centro de custo'),
+      this.getActiveReference('accounting_categories', payload.accountingCategoryId, 'Categoria contábil'),
+      this.getActiveReference('accounting_subcategories', payload.accountingSubcategoryId, 'Subcategoria contábil'),
+      this.getActiveReference('bank_accounts', payload.bankAccountId, 'Conta bancária'),
+    ]);
+
+    if (accountingCategory.entry_type !== 'Pagar') {
+      throw new BadRequestException('A categoria contábil deve ser do tipo Pagar.');
+    }
+
+    if (String(accountingSubcategory.category_id) !== String(accountingCategory.id)) {
+      throw new BadRequestException('A subcategoria contábil deve pertencer à categoria selecionada.');
+    }
+
+    return { paymentMethod, paymentType, costCenter, accountingCategory, accountingSubcategory, bankAccount };
+  }
+
+  private async getActiveReference(table: string, id: string, label: string) {
+    const { data, error } = await this.supabaseService.admin
+      .from(table)
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    if (!data) {
+      throw new BadRequestException(`${label} não encontrado(a).`);
+    }
+
+    if (!data.active) {
+      throw new BadRequestException(`${label} está inativo(a).`);
+    }
+
+    return data;
+  }
+
   private async refreshPurchaseStatus(purchaseId: string, user?: AuthenticatedUser) {
     const { data: items, error } = await this.supabaseService.admin
       .from('purchase_items')
@@ -445,6 +499,7 @@ export class PurchasesService {
     amount: number,
     payload: CreatePurchaseDto,
     supplyItems: Record<string, any>[],
+    financialReferences: { paymentMethod: any; paymentType: any },
     user?: AuthenticatedUser,
   ) {
     const description = `Compra ${String(purchase.purchase_number)} - ${String(supplier.name)}`;
@@ -459,6 +514,8 @@ export class PurchasesService {
       accounting_category_id: payload.accountingCategoryId ?? null,
       accounting_subcategory_id: payload.accountingSubcategoryId ?? null,
       bank_account_id: payload.bankAccountId ?? null,
+      payment_method: financialReferences.paymentMethod.name,
+      payment_type: financialReferences.paymentType.name,
       created_by: user?.id ?? null,
       updated_by: user?.id ?? null,
     };

@@ -2,9 +2,11 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -53,29 +55,29 @@ export class CreatePurchaseDto {
   @Type(() => CreatePurchaseItemDto)
   items!: CreatePurchaseItemDto[];
 
-  @IsOptional()
-  @IsString()
-  paymentMethodId?: string;
+  @IsNotEmpty()
+  @IsUUID()
+  paymentMethodId!: string;
 
-  @IsOptional()
-  @IsString()
-  paymentTypeId?: string;
+  @IsNotEmpty()
+  @IsUUID()
+  paymentTypeId!: string;
 
-  @IsOptional()
-  @IsString()
-  costCenterId?: string;
+  @IsNotEmpty()
+  @IsUUID()
+  costCenterId!: string;
 
-  @IsOptional()
-  @IsString()
-  accountingCategoryId?: string;
+  @IsNotEmpty()
+  @IsUUID()
+  accountingCategoryId!: string;
 
-  @IsOptional()
-  @IsString()
-  accountingSubcategoryId?: string;
+  @IsNotEmpty()
+  @IsUUID()
+  accountingSubcategoryId!: string;
 
-  @IsOptional()
-  @IsString()
-  bankAccountId?: string;
+  @IsNotEmpty()
+  @IsUUID()
+  bankAccountId!: string;
 
   @IsOptional()
   @IsArray()
