@@ -16,6 +16,91 @@ describe('MilkReceptionService', () => {
     service = new MilkReceptionService(supabaseServiceMock as SupabaseService);
   });
 
+  describe('createReception', () => {
+    it('should create a payable entry with the milk type financial defaults', async () => {
+      const insertFinancialEntry = jest.fn().mockResolvedValue({ error: null });
+      const activeRecord = { data: { id: 'active-id', active: true }, error: null };
+
+      supabaseServiceMock.admin.from.mockImplementation((table: string) => {
+        if (['producers', 'routes', 'transporters'].includes(table)) {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue(activeRecord) }),
+            }),
+          };
+        }
+
+        if (table === 'milk_receptions') {
+          return {
+            insert: jest.fn().mockReturnValue({
+              select: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: { id: 'reception-1' }, error: null }),
+              }),
+            }),
+          };
+        }
+
+        if (table === 'milk_lots') {
+          return {
+            insert: jest.fn().mockReturnValue({
+              select: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: {
+                    id: 'lot-1', code: 'LT-2026-1', producer_id: 'producer-1',
+                    milk_type_id: 'milk-type-1', total_value: 450, received_at: '2026-09-15T12:00:00.000Z',
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+          };
+        }
+
+        if (table === 'milk_types') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                maybeSingle: jest.fn().mockResolvedValue({
+                  data: {
+                    accounting_category_id: 'category-1', accounting_subcategory_id: 'subcategory-1',
+                    cost_center_id: 'cost-center-1', accounting_categories: { name: 'Matéria Prima' },
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+          };
+        }
+
+        if (table === 'financial_entries') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }) }),
+              }),
+            }),
+            insert: insertFinancialEntry,
+          };
+        }
+
+        throw new Error(`Unexpected table ${table}`);
+      });
+
+      await service.createReception({
+        producerId: 'producer-1', routeId: 'route-1', transporterId: 'transporter-1',
+        milkTypeId: 'milk-type-1', volumeLiters: 150, temperatura: 4,
+        pricePerLiter: 3, receivedAt: '2026-09-15T12:00:00.000Z',
+      });
+
+      expect(insertFinancialEntry).toHaveBeenCalledWith(expect.objectContaining({
+        entry_type: 'Pagar', amount: 450, producer_id: 'producer-1',
+        category: 'Matéria Prima', accounting_category_id: 'category-1',
+        accounting_subcategory_id: 'subcategory-1', cost_center_id: 'cost-center-1',
+        reference_table: 'milk_lots', reference_id: 'lot-1',
+      }));
+    });
+  });
+
   describe('deleteReception', () => {
     let selectMock: jest.Mock;
     let eqMock: jest.Mock;
@@ -70,7 +155,8 @@ describe('MilkReceptionService', () => {
 
       const result = await service.deleteReception('lot-1');
       expect(result).toEqual({ success: true });
-      expect(deleteMock).toHaveBeenCalledTimes(3); // lot_block_events, milk_lots, milk_receptions
+      expect(deleteMock).toHaveBeenCalledTimes(3); // block events, lot, reception
+      expect(supabaseServiceMock.admin.from).toHaveBeenCalledWith('financial_entries');
     });
 
     it('should throw NotFoundException if lot does not exist', async () => {

@@ -156,8 +156,6 @@ export class QualityService {
 
     if (evaluation.blocked) {
       await this.createBlockEvent(milkLotId, evaluation.reasonNames, user);
-    } else if (milkLot.total_value) {
-      await this.upsertFinancialEntry(updatedLot, Number(milkLot.total_value), user);
     }
 
     return {
@@ -252,43 +250,6 @@ export class QualityService {
     }
   }
 
-  private async upsertFinancialEntry(
-    lot: Record<string, unknown>,
-    totalValue: number,
-    user?: AuthenticatedUser,
-  ) {
-    const description = `Folha do leite - ${lot.code as string}`;
-
-    const { data: milkType } = await this.supabaseService.admin
-      .from('milk_types')
-      .select('accounting_category_id, accounting_subcategory_id, cost_center_id, accounting_categories(name)')
-      .eq('id', lot.milk_type_id)
-      .maybeSingle();
-
-    const categoryName = (milkType?.accounting_categories as any)?.name ?? 'Matéria Prima';
-
-    const { error } = await this.supabaseService.admin.from('financial_entries').insert({
-      entry_type: 'Pagar',
-      description,
-      amount: totalValue,
-      due_date: lot.received_at,
-      status: 'Aberto',
-      category: categoryName,
-      accounting_category_id: milkType?.accounting_category_id ?? null,
-      accounting_subcategory_id: milkType?.accounting_subcategory_id ?? null,
-      cost_center_id: milkType?.cost_center_id ?? null,
-      producer_id: lot.producer_id,
-      reference_table: 'milk_lots',
-      reference_id: lot.id,
-      created_by: user?.id ?? null,
-      updated_by: user?.id ?? null,
-    });
-
-    if (error && !error.message.includes('duplicate')) {
-      throw new BadRequestException(error.message);
-    }
-  }
-
   async deleteAnalysis(id: string) {
     const { data: analysis, error: analysisError } = await this.supabaseService.admin
       .from('milk_lot_analyses')
@@ -346,11 +307,6 @@ export class QualityService {
         .delete()
         .eq('lot_id', lot.id);
 
-      await this.supabaseService.admin
-        .from('financial_entries')
-        .delete()
-        .eq('reference_table', 'milk_lots')
-        .eq('reference_id', lot.id);
     }
 
     return { success: true };
