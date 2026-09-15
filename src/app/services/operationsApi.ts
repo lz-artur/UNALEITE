@@ -279,6 +279,7 @@ export interface ClientRecord {
   finalConsumer?: boolean;
   notes?: string;
   active: boolean;
+  delinquent?: boolean;
   credit_balance?: number;
 }
 
@@ -842,6 +843,7 @@ function mapClient(row: any): ClientRecord {
     finalConsumer: row.final_consumer ?? undefined,
     notes: row.notes ?? undefined,
     active: Boolean(row.active),
+    delinquent: Boolean(row.delinquent),
     credit_balance: Number(row.credit_balance || row.creditBalance || 0),
   };
 }
@@ -1829,6 +1831,7 @@ export async function createClient(payload: {
   finalConsumer?: boolean;
   notes?: string;
   active?: boolean;
+  delinquent?: boolean;
 }) {
   const client = await apiRequest<any>('/clients', {
     method: 'POST',
@@ -1861,6 +1864,7 @@ export async function updateClient(
     finalConsumer?: boolean;
     notes?: string;
     active?: boolean;
+    delinquent?: boolean;
   },
 ) {
   const client = await apiRequest<any>(`/clients/${clientId}`, {

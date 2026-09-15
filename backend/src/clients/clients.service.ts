@@ -182,6 +182,7 @@ export class ClientsService {
       ...(payload.finalConsumer !== undefined ? { final_consumer: payload.finalConsumer } : {}),
       ...(payload.notes !== undefined ? { notes: payload.notes || null } : {}),
       ...(payload.active !== undefined ? { active: payload.active } : isCreate ? { active: true } : {}),
+      ...(payload.delinquent !== undefined ? { delinquent: payload.delinquent } : isCreate ? { delinquent: false } : {}),
       ...(isCreate ? { created_by: user?.id ?? null } : {}),
       updated_by: user?.id ?? null,
     };
