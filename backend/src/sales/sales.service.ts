@@ -318,13 +318,36 @@ export class SalesService {
 
     // Apply financial discount
     if (totalDiscount > 0) {
-      const { data: relatedEntries } = await this.supabaseService.admin
+      // Vendas finalizadas pelo fluxo atual têm os lançamentos vinculados à
+      // finalização financeira, e não diretamente ao pedido. Mantemos também
+      // a consulta legada para que devoluções de pedidos antigos continuem
+      // funcionando.
+      const { data: legacyEntries } = await this.supabaseService.admin
         .from('financial_entries')
         .select('*, financial_entry_receipts(*)')
         .eq('reference_table', 'sales_orders')
         .eq('reference_id', salesOrderId);
 
-      if (relatedEntries && relatedEntries.length > 0) {
+      const { data: finalizations } = await this.supabaseService.admin
+        .from('sales_order_financial_finalizations')
+        .select('id')
+        .eq('sales_order_id', salesOrderId);
+
+      const finalizedEntries = await Promise.all(
+        (finalizations || []).map(async (finalization) => {
+          const { data } = await this.supabaseService.admin
+            .from('financial_entries')
+            .select('*, financial_entry_receipts(*)')
+            .eq('reference_table', 'sales_order_financial_finalizations')
+            .eq('reference_id', finalization.id);
+
+          return data || [];
+        }),
+      );
+
+      const relatedEntries = [...(legacyEntries || []), ...finalizedEntries.flat()];
+
+      if (relatedEntries.length > 0) {
         const totalAmount = relatedEntries.reduce((sum, e) => sum + Number(e.amount), 0);
         
         if (totalDiscount > totalAmount) {

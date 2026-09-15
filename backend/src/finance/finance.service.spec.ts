@@ -19,7 +19,10 @@ describe('FinanceService', () => {
 
   describe('createReceipt', () => {
     it('registers a partial receipt and returns the recalculated balance', async () => {
-      supabaseServiceMock.admin.rpc.mockResolvedValue({ data: 'receipt-1', error: null });
+      supabaseServiceMock.admin.rpc.mockResolvedValue({
+        data: 'receipt-1',
+        error: null,
+      });
       supabaseServiceMock.admin.from.mockReturnValue({
         select: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
@@ -29,12 +32,14 @@ describe('FinanceService', () => {
                 amount: 10000,
                 due_date: '2029-01-01',
                 status: 'Parcial',
-                financial_entry_receipts: [{
-                  id: 'receipt-1',
-                  amount: 5000,
-                  payment_date: '2026-08-30T12:00:00.000Z',
-                  payment_method: 'Pix',
-                }],
+                financial_entry_receipts: [
+                  {
+                    id: 'receipt-1',
+                    amount: 5000,
+                    payment_date: '2026-08-30T12:00:00.000Z',
+                    payment_method: 'Pix',
+                  },
+                ],
               },
               error: null,
             }),
@@ -59,6 +64,60 @@ describe('FinanceService', () => {
       expect((result as any).received_amount).toBe(5000);
       expect((result as any).outstanding_amount).toBe(5000);
       expect((result as any).computed_status).toBe('Parcial');
+    });
+  });
+
+  describe('settleEntry', () => {
+    it('uses the entry bank account when the quick settlement does not provide one', async () => {
+      supabaseServiceMock.admin.rpc.mockResolvedValue({
+        data: 'receipt-1',
+        error: null,
+      });
+      const maybeSingle = jest
+        .fn()
+        .mockResolvedValueOnce({
+          data: {
+            id: 'entry-1',
+            amount: 100,
+            status: 'Aberto',
+            bank_account_id: 'account-1',
+            payment_method: 'Pix',
+            financial_entry_receipts: [],
+          },
+          error: null,
+        })
+        .mockResolvedValueOnce({
+          data: {
+            id: 'entry-1',
+            amount: 100,
+            due_date: '2029-01-01',
+            status: 'Pago',
+            financial_entry_receipts: [
+              {
+                id: 'receipt-1',
+                amount: 100,
+                payment_date: '2029-01-01',
+                payment_method: 'Pix',
+              },
+            ],
+          },
+          error: null,
+        });
+      supabaseServiceMock.admin.from.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({ maybeSingle }),
+        }),
+      });
+
+      await service.settleEntry('entry-1', { paymentDate: '2029-01-01' });
+
+      expect(supabaseServiceMock.admin.rpc).toHaveBeenCalledWith(
+        'register_financial_receipt',
+        expect.objectContaining({
+          p_entry_id: 'entry-1',
+          p_bank_account_id: 'account-1',
+        }),
+      );
     });
   });
 
@@ -118,9 +177,7 @@ describe('FinanceService', () => {
         }),
       });
 
-      await expect(service.deleteEntry('entry-1')).rejects.toThrow(
-        'Não é possível excluir um lançamento financeiro que já foi pago/liquidado.',
-      );
+      await expect(service.deleteEntry('entry-1')).rejects.toThrow('Não é possível excluir um lançamento financeiro que já foi pago/liquidado.');
     });
   });
 
@@ -134,7 +191,12 @@ describe('FinanceService', () => {
         eq: jest.fn().mockReturnValue({
           select: jest.fn().mockReturnValue({
             single: jest.fn().mockResolvedValue({
-              data: { id: 'entry-1', status: 'Aberto', payment_date: null, due_date: '2023-01-01' },
+              data: {
+                id: 'entry-1',
+                status: 'Aberto',
+                payment_date: null,
+                due_date: '2023-01-01',
+              },
               error: null,
             }),
           }),
@@ -165,9 +227,7 @@ describe('FinanceService', () => {
       const result = await service.unsettleEntry('entry-1');
       expect((result as any).status).toBe('Aberto');
       expect((result as any).computed_status).toBe('Vencido'); // past date
-      expect(updateMock).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'Aberto', payment_date: null }),
-      );
+      expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'Aberto', payment_date: null }));
     });
 
     it('should throw NotFoundException if entry does not exist during unsettle', async () => {
@@ -203,14 +263,9 @@ describe('FinanceService', () => {
     it('should insert multiple entries successfully', async () => {
       const payloads = [{ valor: 100 }, { valor: 200 }];
       const result = await service.createBatchEntries(payloads);
-      
+
       expect(result).toHaveLength(2);
-      expect(insertMock).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({ valor: 100, created_by: null }),
-          expect.objectContaining({ valor: 200, created_by: null }),
-        ]),
-      );
+      expect(insertMock).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ valor: 100, created_by: null }), expect.objectContaining({ valor: 200, created_by: null })]));
     });
 
     it('should return empty array if payloads are empty', async () => {

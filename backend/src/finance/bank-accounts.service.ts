@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { SupabaseService } from '../supabase/supabase.service';
 
@@ -11,10 +7,7 @@ export class BankAccountsService {
   constructor(private readonly supabaseService: SupabaseService) {}
 
   async listAccounts() {
-    const { data: accounts, error } = await this.supabaseService.admin
-      .from('bank_accounts')
-      .select('*')
-      .order('name');
+    const { data: accounts, error } = await this.supabaseService.admin.from('bank_accounts').select('*').order('name');
 
     if (error) {
       throw new BadRequestException(error.message);
@@ -30,11 +23,7 @@ export class BankAccountsService {
   }
 
   async getAccount(id: string) {
-    const { data, error } = await this.supabaseService.admin
-      .from('bank_accounts')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
+    const { data, error } = await this.supabaseService.admin.from('bank_accounts').select('*').eq('id', id).maybeSingle();
 
     if (error) {
       throw new BadRequestException(error.message);
@@ -47,7 +36,7 @@ export class BankAccountsService {
 
   async createAccount(payload: Record<string, any>, user?: AuthenticatedUser) {
     const { initial_balance, ...accountData } = payload;
-    
+
     // Insere a conta
     const { data, error } = await this.supabaseService.admin
       .from('bank_accounts')
@@ -67,11 +56,7 @@ export class BankAccountsService {
       const amount = Math.abs(Number(initial_balance));
       const entryType = Number(initial_balance) > 0 ? 'Receber' : 'Pagar';
 
-      const { data: categoryData } = await this.supabaseService.admin
-        .from('accounting_categories')
-        .select('id')
-        .eq('name', 'Saldo Inicial')
-        .maybeSingle();
+      const { data: categoryData } = await this.supabaseService.admin.from('accounting_categories').select('id').eq('name', 'Saldo Inicial').maybeSingle();
 
       if (categoryData) {
         await this.supabaseService.admin.from('financial_entries').insert({
@@ -93,16 +78,14 @@ export class BankAccountsService {
   }
 
   async updateAccount(id: string, payload: Record<string, any>, user?: AuthenticatedUser) {
-    const updateFields: Record<string, any> = { ...payload, updated_by: user?.id ?? null };
+    const updateFields: Record<string, any> = {
+      ...payload,
+      updated_by: user?.id ?? null,
+    };
     delete updateFields.initial_balance; // não atualizamos saldo inicial via update
     delete updateFields.current_balance;
 
-    const { data, error } = await this.supabaseService.admin
-      .from('bank_accounts')
-      .update(updateFields)
-      .eq('id', id)
-      .select('*')
-      .single();
+    const { data, error } = await this.supabaseService.admin.from('bank_accounts').update(updateFields).eq('id', id).select('*').single();
 
     if (error) {
       throw new BadRequestException(error.message);
@@ -116,26 +99,16 @@ export class BankAccountsService {
     const end = filters.endDate ? new Date(filters.endDate) : null;
     if (end) end.setHours(23, 59, 59, 999);
 
-    return movements
-      .filter((movement) => (!start || new Date(movement.effective_date) >= start)
-        && (!end || new Date(movement.effective_date) <= end))
-      .sort((a, b) => new Date(b.effective_date).getTime() - new Date(a.effective_date).getTime());
+    return movements.filter((movement) => (!start || new Date(movement.effective_date) >= start) && (!end || new Date(movement.effective_date) <= end)).sort((a, b) => new Date(b.effective_date).getTime() - new Date(a.effective_date).getTime());
   }
 
   async getFinancialPosition() {
-    const { data: accounts, error: accountsError } = await this.supabaseService.admin
-      .from('bank_accounts')
-      .select('*')
-      .order('name');
+    const { data: accounts, error: accountsError } = await this.supabaseService.admin.from('bank_accounts').select('*').order('name');
     if (accountsError) throw new BadRequestException(accountsError.message);
 
     const movements = await this.getActualMovements();
     const balances = this.sumBalances(movements);
-    const { data: entries, error: entriesError } = await this.supabaseService.admin
-      .from('financial_entries')
-      .select('id, bank_account_id, entry_type, description, amount, due_date, status, financial_entry_receipts(amount)')
-      .not('bank_account_id', 'is', null)
-      .neq('status', 'Cancelado');
+    const { data: entries, error: entriesError } = await this.supabaseService.admin.from('financial_entries').select('id, bank_account_id, entry_type, description, amount, due_date, status, financial_entry_receipts(amount)').not('bank_account_id', 'is', null).neq('status', 'Cancelado');
     if (entriesError) throw new BadRequestException(entriesError.message);
 
     const projected = new Map<string, { inflows: any[]; outflows: any[] }>();
@@ -146,7 +119,10 @@ export class BankAccountsService {
       const received = receipts.reduce((total: number, receipt: any) => total + Number(receipt.amount || 0), 0);
       const outstanding = Math.max(0, Number(entry.amount || 0) - received);
       if (outstanding === 0 || !entry.bank_account_id) continue;
-      const bucket = projected.get(entry.bank_account_id) ?? { inflows: [], outflows: [] };
+      const bucket = projected.get(entry.bank_account_id) ?? {
+        inflows: [],
+        outflows: [],
+      };
       const forecast = {
         financial_entry_id: entry.id,
         description: entry.description,
@@ -161,7 +137,10 @@ export class BankAccountsService {
     }
 
     return (accounts ?? []).map((account) => {
-      const forecast = projected.get(account.id) ?? { inflows: [], outflows: [] };
+      const forecast = projected.get(account.id) ?? {
+        inflows: [],
+        outflows: [],
+      };
       const expected_inflows = forecast.inflows.reduce((total, entry) => total + entry.amount, 0);
       const expected_outflows = forecast.outflows.reduce((total, entry) => total + entry.amount, 0);
       const current_balance = balances[account.id] || 0;
@@ -171,7 +150,11 @@ export class BankAccountsService {
         expected_inflows,
         expected_outflows,
         projected_balance: current_balance + expected_inflows - expected_outflows,
-        details: { current: movements.filter((movement) => movement.bank_account_id === account.id), inflows: forecast.inflows, outflows: forecast.outflows },
+        details: {
+          current: movements.filter((movement) => movement.bank_account_id === account.id),
+          inflows: forecast.inflows,
+          outflows: forecast.outflows,
+        },
       };
     });
   }
@@ -212,22 +195,25 @@ export class BankAccountsService {
       .single();
     if (entryError) throw new BadRequestException(entryError.message);
 
-    const { error: adjustmentError } = await this.supabaseService.admin
-      .from('bank_account_balance_adjustments')
-      .insert({
-        bank_account_id: id,
-        financial_entry_id: entry.id,
-        balance_before: balanceBefore,
-        target_balance: targetBalance,
-        adjustment_amount: adjustmentAmount,
-        justification,
-        manager_approval: managerApproval,
-        effective_date: effectiveDate.toISOString(),
-        created_by: user?.id ?? null,
-      });
+    const { error: adjustmentError } = await this.supabaseService.admin.from('bank_account_balance_adjustments').insert({
+      bank_account_id: id,
+      financial_entry_id: entry.id,
+      balance_before: balanceBefore,
+      target_balance: targetBalance,
+      adjustment_amount: adjustmentAmount,
+      justification,
+      manager_approval: managerApproval,
+      effective_date: effectiveDate.toISOString(),
+      created_by: user?.id ?? null,
+    });
     if (adjustmentError) throw new BadRequestException(adjustmentError.message);
 
-    return { account, entry, balance_before: balanceBefore, current_balance: targetBalance };
+    return {
+      account,
+      entry,
+      balance_before: balanceBefore,
+      current_balance: targetBalance,
+    };
   }
 
   /**
@@ -235,20 +221,12 @@ export class BankAccountsService {
    * jamais entra aqui: ele fica exclusivamente na posição financeira.
    */
   private async getActualMovements(bankAccountId?: string) {
-    let entriesQuery = this.supabaseService.admin
-      .from('financial_entries')
-      .select('id, bank_account_id, entry_type, description, amount, due_date, payment_date, status, category, attachment_url, accounting_categories(name), financial_entry_receipts(id)')
-      .eq('status', 'Pago')
-      .not('bank_account_id', 'is', null);
+    let entriesQuery = this.supabaseService.admin.from('financial_entries').select('id, bank_account_id, entry_type, description, amount, due_date, payment_date, status, category, attachment_url, accounting_categories(name), financial_entry_receipts(id)').eq('status', 'Pago').not('bank_account_id', 'is', null);
     if (bankAccountId) entriesQuery = entriesQuery.eq('bank_account_id', bankAccountId);
     const { data: paidEntries, error: entriesError } = await entriesQuery;
     if (entriesError) throw new BadRequestException(entriesError.message);
 
-    let receiptsQuery = this.supabaseService.admin
-      .from('financial_entry_receipts')
-      .select('id, financial_entry_id, bank_account_id, amount, payment_date, attachment_url, notes, financial_entries(entry_type, description, category, due_date, status, accounting_categories(name))')
-      .not('bank_account_id', 'is', null);
-    if (bankAccountId) receiptsQuery = receiptsQuery.eq('bank_account_id', bankAccountId);
+    let receiptsQuery = this.supabaseService.admin.from('financial_entry_receipts').select('id, financial_entry_id, bank_account_id, amount, payment_date, attachment_url, notes, financial_entries(entry_type, description, category, due_date, status, bank_account_id, accounting_categories(name))');
     const { data: receipts, error: receiptsError } = await receiptsQuery;
     if (receiptsError) throw new BadRequestException(receiptsError.message);
 
@@ -271,31 +249,40 @@ export class BankAccountsService {
         status: 'Pago',
         source: 'direct_entry',
       }));
-    const receiptMovements = (receipts ?? []).map((receipt: any) => ({
-      id: `receipt:${receipt.id}`,
-      financial_entry_id: receipt.financial_entry_id,
-      receipt_id: receipt.id,
-      bank_account_id: receipt.bank_account_id,
-      entry_type: receipt.financial_entries?.entry_type,
-      description: receipt.financial_entries?.description || 'Baixa financeira',
-      amount: Number(receipt.amount),
-      effective_date: receipt.payment_date,
-      category: receipt.financial_entries?.accounting_categories?.name || receipt.financial_entries?.category,
-      attachment_url: receipt.attachment_url,
-      notes: receipt.notes,
-      status: 'Pago',
-      source: 'receipt',
-    }));
+    const receiptMovements = (receipts ?? [])
+      // Recibos antigos de baixas rápidas não recebiam a conta bancária. A
+      // conta da obrigação é a fonte confiável para exibi-los no extrato sem
+      // modificar o histórico original.
+      .map((receipt: any) => ({
+        id: `receipt:${receipt.id}`,
+        financial_entry_id: receipt.financial_entry_id,
+        receipt_id: receipt.id,
+        bank_account_id: receipt.bank_account_id ?? receipt.financial_entries?.bank_account_id,
+        entry_type: receipt.financial_entries?.entry_type,
+        description: receipt.financial_entries?.description || 'Baixa financeira',
+        amount: Number(receipt.amount),
+        effective_date: receipt.payment_date,
+        category: receipt.financial_entries?.accounting_categories?.name || receipt.financial_entries?.category,
+        attachment_url: receipt.attachment_url,
+        notes: receipt.notes,
+        status: 'Pago',
+        source: 'receipt',
+      }))
+      .filter((movement) => Boolean(movement.bank_account_id) && (!bankAccountId || movement.bank_account_id === bankAccountId));
     return [...directMovements, ...receiptMovements];
   }
 
-  private sumBalances(movements: Array<{ bank_account_id: string; entry_type: string; amount: number }>) {
+  private sumBalances(
+    movements: Array<{
+      bank_account_id: string;
+      entry_type: string;
+      amount: number;
+    }>,
+  ) {
     return movements.reduce((balances: Record<string, number>, movement) => {
       const accountId = movement.bank_account_id;
       balances[accountId] = balances[accountId] || 0;
-      balances[accountId] += this.isCredit(movement.entry_type)
-        ? Number(movement.amount)
-        : -Number(movement.amount);
+      balances[accountId] += this.isCredit(movement.entry_type) ? Number(movement.amount) : -Number(movement.amount);
       return balances;
     }, {});
   }
@@ -306,7 +293,7 @@ export class BankAccountsService {
 
   async transferFunds(payload: any, user?: AuthenticatedUser) {
     const { sourceAccountId, destinationAccountId, amount, date, description, attachmentUrl } = payload;
-    
+
     if (sourceAccountId === destinationAccountId) {
       throw new BadRequestException('A conta de origem não pode ser igual a conta de destino.');
     }
@@ -315,11 +302,7 @@ export class BankAccountsService {
     }
 
     // Pega a categoria "Transferência entre Contas"
-    const { data: categoryData } = await this.supabaseService.admin
-      .from('accounting_categories')
-      .select('id')
-      .eq('name', 'Transferência entre Contas')
-      .maybeSingle();
+    const { data: categoryData } = await this.supabaseService.admin.from('accounting_categories').select('id').eq('name', 'Transferência entre Contas').maybeSingle();
 
     const categoryId = categoryData?.id;
     const transferDate = date ? new Date(date).toISOString() : new Date().toISOString();
@@ -362,10 +345,7 @@ export class BankAccountsService {
     };
 
     // Array insert performs a single transaction in Supabase PostgREST
-    const { data, error } = await this.supabaseService.admin
-      .from('financial_entries')
-      .insert([debitEntry, creditEntry])
-      .select('*');
+    const { data, error } = await this.supabaseService.admin.from('financial_entries').insert([debitEntry, creditEntry]).select('*');
 
     if (error) {
       throw new BadRequestException('Falha ao realizar transferência: ' + error.message);

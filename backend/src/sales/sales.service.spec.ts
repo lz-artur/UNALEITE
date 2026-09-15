@@ -580,6 +580,91 @@ describe('SalesService', () => {
       expect(orderUpdate).toBeDefined();
       expect(orderUpdate!.data.has_return).toBe(true);
     });
+
+    it.each([
+      ['credit', 'client_credits'],
+      ['refund', 'financial_entries'],
+    ] as const)(
+      'generates %s excess handling from entries linked to the financial finalization',
+      async (excessHandlingStrategy, expectedInsertTable) => {
+        const inserts: Array<{ table: string; data: any }> = [];
+        const tableData: Record<string, any[]> = {
+          sales_orders: bundle.salesOrders,
+          sales_order_items: bundle.salesOrderItems,
+          sales_order_fulfillments: bundle.fulfillments,
+          clients: [{ ...bundle.clients[0], credit_balance: 0 }],
+          finished_products: bundle.finishedProducts,
+          finished_product_lots: bundle.finishedProductLots,
+          sales_returns: bundle.salesReturns,
+          sale_attendances: [],
+          sale_attendance_items: [],
+          sales_order_financial_finalizations: [{ id: 'finalization-1' }],
+          financial_entry_items: [],
+        };
+        let financialEntriesQuery = 0;
+
+        supabaseMock.fromMock.mockImplementation((table: string) => ({
+          select: jest.fn().mockImplementation((selection?: string) => {
+            if (table === 'sales_returns' && selection === 'returned_quantity') {
+              return {
+                eq: jest.fn().mockReturnValue({
+                  eq: jest.fn().mockReturnValue({
+                    eq: jest.fn().mockResolvedValue({ data: [], error: null }),
+                  }),
+                }),
+              };
+            }
+
+            if (table === 'financial_entries') {
+              const data = financialEntriesQuery++ === 0
+                ? []
+                : [{
+                    id: 'entry-1',
+                    amount: 100,
+                    discount_amount: 0,
+                    financial_entry_receipts: [{ amount: 100 }],
+                  }];
+              return {
+                eq: jest.fn().mockReturnValue({
+                  eq: jest.fn().mockResolvedValue({ data, error: null }),
+                }),
+              };
+            }
+
+            if (table === 'clients' && selection === 'credit_balance') {
+              return {
+                eq: jest.fn().mockReturnValue({
+                  single: jest.fn().mockResolvedValue({ data: { credit_balance: 0 }, error: null }),
+                }),
+              };
+            }
+
+            const data = tableData[table] ?? [];
+            const result = Promise.resolve({ data, error: null });
+            return Object.assign(result, { eq: jest.fn().mockResolvedValue({ data, error: null }) });
+          }),
+          update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
+          insert: jest.fn().mockImplementation((data: any) => {
+            inserts.push({ table, data });
+            return Promise.resolve({ data: null, error: null });
+          }),
+          delete: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
+          }),
+        }));
+
+        await service.returnSalesOrder('order-1', {
+          returnDate: '2026-08-25',
+          items: [{ salesOrderItemId: 'item-1', lotId: 'lot-1', returnedQuantity: 1 }],
+          discountAmount: 50,
+          excessHandlingStrategy,
+        });
+
+        const generatedEntry = inserts.find((entry) => entry.table === expectedInsertTable);
+        expect(generatedEntry).toBeDefined();
+        expect(generatedEntry!.data.amount).toBe(50);
+      },
+    );
   });
 
   // ─── hydrateSalesOrder ────────────────────────────────────────────────────

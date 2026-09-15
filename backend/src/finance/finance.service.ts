@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { SupabaseService } from '../supabase/supabase.service';
 import { ListFinancialEntriesDto } from './dto/list-financial-entries.dto';
@@ -27,9 +23,7 @@ export class FinanceService {
       throw new BadRequestException(error.message);
     }
 
-    const normalized = (data ?? []).map(
-      (entry) => this.normalizeEntry(entry) as Record<string, unknown>,
-    );
+    const normalized = (data ?? []).map((entry) => this.normalizeEntry(entry) as Record<string, unknown>);
 
     return normalized.filter((entry) => {
       if (filters.type && String(entry.entry_type) !== filters.type) {
@@ -60,16 +54,8 @@ export class FinanceService {
     });
   }
 
-  async settleEntry(
-    id: string,
-    payload: SettleFinancialEntryDto,
-    user?: AuthenticatedUser,
-  ) {
-    const { data: currentEntry, error: currentError } = await this.supabaseService.admin
-      .from('financial_entries')
-      .select('*, financial_entry_receipts(*)')
-      .eq('id', id)
-      .maybeSingle();
+  async settleEntry(id: string, payload: SettleFinancialEntryDto, user?: AuthenticatedUser) {
+    const { data: currentEntry, error: currentError } = await this.supabaseService.admin.from('financial_entries').select('*, financial_entry_receipts(*)').eq('id', id).maybeSingle();
 
     if (currentError) {
       throw new BadRequestException(currentError.message);
@@ -79,13 +65,8 @@ export class FinanceService {
       throw new NotFoundException('Financial entry not found');
     }
 
-    const currentReceipts = Array.isArray(currentEntry.financial_entry_receipts)
-      ? currentEntry.financial_entry_receipts
-      : [];
-    const receivedAmount = currentReceipts.reduce(
-      (sum: number, receipt: Record<string, unknown>) => sum + Number(receipt.amount || 0),
-      0,
-    );
+    const currentReceipts = Array.isArray(currentEntry.financial_entry_receipts) ? currentEntry.financial_entry_receipts : [];
+    const receivedAmount = currentReceipts.reduce((sum: number, receipt: Record<string, unknown>) => sum + Number(receipt.amount || 0), 0);
     const originalAmount = Number(currentEntry.amount || 0);
     const discountAmount = Number(currentEntry.discount_amount || 0);
     const remainingAmount = originalAmount - discountAmount - receivedAmount;
@@ -100,7 +81,10 @@ export class FinanceService {
         amount: payload.amount ?? remainingAmount,
         paymentDate: payload.paymentDate,
         paymentMethod: payload.paymentMethod || currentEntry.payment_method || 'Não informado',
-        bankAccountId: payload.bankAccountId,
+        // A baixa rápida não pergunta novamente a conta bancária. Nesse caso,
+        // usa a conta que já estava vinculada à previsão para que o evento
+        // efetivado entre no extrato e no saldo da conta correta.
+        bankAccountId: payload.bankAccountId ?? currentEntry.bank_account_id ?? undefined,
         attachmentUrl: payload.attachmentUrl,
         notes: payload.notes,
       },
@@ -108,76 +92,57 @@ export class FinanceService {
     );
   }
 
-  async createReceipt(
-    id: string,
-    payload: CreateFinancialReceiptDto,
-    user?: AuthenticatedUser,
-  ) {
-    const paymentDate = payload.paymentDate
-      ? new Date(payload.paymentDate)
-      : new Date();
+  async createReceipt(id: string, payload: CreateFinancialReceiptDto, user?: AuthenticatedUser) {
+    const paymentDate = payload.paymentDate ? new Date(payload.paymentDate) : new Date();
 
     if (Number.isNaN(paymentDate.getTime())) {
       throw new BadRequestException('Data de recebimento inválida.');
     }
 
     if (payload.paymentMethod === 'Crédito do Cliente') {
-      const { data: entryData } = await this.supabaseService.admin
-        .from('financial_entries')
-        .select('client_id')
-        .eq('id', id)
-        .single();
-        
+      const { data: entryData } = await this.supabaseService.admin.from('financial_entries').select('client_id').eq('id', id).single();
+
       if (!entryData || !entryData.client_id) {
         throw new BadRequestException('Lançamento não possui cliente vinculado para uso de crédito.');
       }
-      
+
       const clientId = entryData.client_id;
-      
-      const { data: clientData } = await this.supabaseService.admin
-        .from('clients')
-        .select('credit_balance')
-        .eq('id', clientId)
-        .single();
-        
+
+      const { data: clientData } = await this.supabaseService.admin.from('clients').select('credit_balance').eq('id', clientId).single();
+
       const currentBalance = Number(clientData?.credit_balance || 0);
       const amountToUse = Number(payload.amount);
-      
+
       if (currentBalance < amountToUse) {
         throw new BadRequestException('Saldo de crédito insuficiente para o cliente.');
       }
-      
+
       await this.supabaseService.admin
         .from('clients')
         .update({ credit_balance: currentBalance - amountToUse })
         .eq('id', clientId);
-        
-      await this.supabaseService.admin
-        .from('client_credits')
-        .insert({
-          client_id: clientId,
-          amount: -amountToUse,
-          transaction_type: 'Credit_Used',
-          reference_type: 'financial_entries',
-          reference_id: id,
-          notes: `Crédito utilizado para liquidação`,
-          created_by: user?.id ?? null
-        });
+
+      await this.supabaseService.admin.from('client_credits').insert({
+        client_id: clientId,
+        amount: -amountToUse,
+        transaction_type: 'Credit_Used',
+        reference_type: 'financial_entries',
+        reference_id: id,
+        notes: `Crédito utilizado para liquidação`,
+        created_by: user?.id ?? null,
+      });
     }
 
-    const { error } = await this.supabaseService.admin.rpc(
-      'register_financial_receipt',
-      {
-        p_entry_id: id,
-        p_amount: payload.amount,
-        p_payment_date: paymentDate.toISOString(),
-        p_payment_method: payload.paymentMethod,
-        p_bank_account_id: payload.bankAccountId ?? null,
-        p_attachment_url: payload.attachmentUrl ?? null,
-        p_notes: payload.notes ?? null,
-        p_created_by: user?.id ?? null,
-      },
-    );
+    const { error } = await this.supabaseService.admin.rpc('register_financial_receipt', {
+      p_entry_id: id,
+      p_amount: payload.amount,
+      p_payment_date: paymentDate.toISOString(),
+      p_payment_method: payload.paymentMethod,
+      p_bank_account_id: payload.bankAccountId ?? null,
+      p_attachment_url: payload.attachmentUrl ?? null,
+      p_notes: payload.notes ?? null,
+      p_created_by: user?.id ?? null,
+    });
 
     if (error) {
       throw new BadRequestException(error.message);
@@ -186,19 +151,12 @@ export class FinanceService {
     return this.getEntryWithReceipts(id);
   }
 
-  async deleteReceipt(
-    id: string,
-    receiptId: string,
-    user?: AuthenticatedUser,
-  ) {
-    const { error } = await this.supabaseService.admin.rpc(
-      'delete_financial_receipt',
-      {
-        p_entry_id: id,
-        p_receipt_id: receiptId,
-        p_updated_by: user?.id ?? null,
-      },
-    );
+  async deleteReceipt(id: string, receiptId: string, user?: AuthenticatedUser) {
+    const { error } = await this.supabaseService.admin.rpc('delete_financial_receipt', {
+      p_entry_id: id,
+      p_receipt_id: receiptId,
+      p_updated_by: user?.id ?? null,
+    });
 
     if (error) {
       throw new BadRequestException(error.message);
@@ -207,15 +165,8 @@ export class FinanceService {
     return this.getEntryWithReceipts(id);
   }
 
-  async unsettleEntry(
-    id: string,
-    user?: AuthenticatedUser,
-  ) {
-    const { data: currentEntry, error: currentError } = await this.supabaseService.admin
-      .from('financial_entries')
-      .select('*, financial_entry_receipts(*)')
-      .eq('id', id)
-      .maybeSingle();
+  async unsettleEntry(id: string, user?: AuthenticatedUser) {
+    const { data: currentEntry, error: currentError } = await this.supabaseService.admin.from('financial_entries').select('*, financial_entry_receipts(*)').eq('id', id).maybeSingle();
 
     if (currentError) {
       throw new BadRequestException(currentError.message);
@@ -225,20 +176,15 @@ export class FinanceService {
       throw new NotFoundException('Financial entry not found');
     }
 
-    const receipts = Array.isArray(currentEntry.financial_entry_receipts)
-      ? currentEntry.financial_entry_receipts
-      : [];
+    const receipts = Array.isArray(currentEntry.financial_entry_receipts) ? currentEntry.financial_entry_receipts : [];
 
     if (receipts.length > 0) {
       for (const receipt of receipts) {
-        const { error } = await this.supabaseService.admin.rpc(
-          'delete_financial_receipt',
-          {
-            p_entry_id: id,
-            p_receipt_id: receipt.id,
-            p_updated_by: user?.id ?? null,
-          },
-        );
+        const { error } = await this.supabaseService.admin.rpc('delete_financial_receipt', {
+          p_entry_id: id,
+          p_receipt_id: receipt.id,
+          p_updated_by: user?.id ?? null,
+        });
         if (error) {
           throw new BadRequestException(error.message);
         }
@@ -300,7 +246,7 @@ export class FinanceService {
 
   async createBatchEntries(payloads: Record<string, any>[], user?: AuthenticatedUser) {
     if (!payloads || payloads.length === 0) return [];
-    
+
     const entries = payloads.map((payload) => ({
       ...payload,
       status: payload.status === 'Pago' ? 'Aberto' : payload.status,
@@ -308,32 +254,31 @@ export class FinanceService {
       created_by: user?.id ?? null,
     }));
 
-    const { data, error } = await this.supabaseService.admin
-      .from('financial_entries')
-      .insert(entries)
-      .select('*');
+    const { data, error } = await this.supabaseService.admin.from('financial_entries').insert(entries).select('*');
 
     if (error) {
       throw new BadRequestException(error.message);
     }
 
-    return Promise.all((data ?? []).map((entry, index) => {
-      const originalPayload = payloads[index];
-      if (originalPayload.status !== 'Pago') {
-        return this.normalizeEntry(entry);
-      }
-      return this.createReceipt(
-        entry.id,
-        {
-          amount: Number(entry.amount),
-          paymentDate: originalPayload.payment_date,
-          paymentMethod: originalPayload.payment_method || 'Não informado',
-          bankAccountId: originalPayload.bank_account_id,
-          attachmentUrl: originalPayload.attachment_url || originalPayload.attachment_urls?.[0],
-        },
-        user,
-      );
-    }));
+    return Promise.all(
+      (data ?? []).map((entry, index) => {
+        const originalPayload = payloads[index];
+        if (originalPayload.status !== 'Pago') {
+          return this.normalizeEntry(entry);
+        }
+        return this.createReceipt(
+          entry.id,
+          {
+            amount: Number(entry.amount),
+            paymentDate: originalPayload.payment_date,
+            paymentMethod: originalPayload.payment_method || 'Não informado',
+            bankAccountId: originalPayload.bank_account_id,
+            attachmentUrl: originalPayload.attachment_url || originalPayload.attachment_urls?.[0],
+          },
+          user,
+        );
+      }),
+    );
   }
 
   async updateEntry(id: string, payload: Record<string, any>, user?: AuthenticatedUser) {
@@ -373,12 +318,7 @@ export class FinanceService {
 
     updateFields.updated_by = user?.id ?? null;
 
-    const { data, error } = await this.supabaseService.admin
-      .from('financial_entries')
-      .update(updateFields)
-      .eq('id', id)
-      .select('*, financial_entry_receipts(*)')
-      .single();
+    const { data, error } = await this.supabaseService.admin.from('financial_entries').update(updateFields).eq('id', id).select('*, financial_entry_receipts(*)').single();
 
     if (error) {
       throw new BadRequestException(error.message);
@@ -403,11 +343,7 @@ export class FinanceService {
   }
 
   async deleteEntry(id: string) {
-    const { data: entry, error: fetchError } = await this.supabaseService.admin
-      .from('financial_entries')
-      .select('status, financial_entry_receipts(id)')
-      .eq('id', id)
-      .maybeSingle();
+    const { data: entry, error: fetchError } = await this.supabaseService.admin.from('financial_entries').select('status, financial_entry_receipts(id)').eq('id', id).maybeSingle();
 
     if (fetchError) {
       throw new BadRequestException(fetchError.message);
@@ -417,8 +353,7 @@ export class FinanceService {
       throw new NotFoundException('Lançamento financeiro não encontrado');
     }
 
-    const hasReceipts = Array.isArray(entry.financial_entry_receipts)
-      && entry.financial_entry_receipts.length > 0;
+    const hasReceipts = Array.isArray(entry.financial_entry_receipts) && entry.financial_entry_receipts.length > 0;
     if (entry.status === 'Pago') {
       throw new BadRequestException('Não é possível excluir um lançamento financeiro que já foi pago/liquidado.');
     }
@@ -426,10 +361,7 @@ export class FinanceService {
       throw new BadRequestException('Não é possível excluir um lançamento financeiro que possui recebimentos/pagamentos.');
     }
 
-    const { error } = await this.supabaseService.admin
-      .from('financial_entries')
-      .delete()
-      .eq('id', id);
+    const { error } = await this.supabaseService.admin.from('financial_entries').delete().eq('id', id);
 
     if (error) {
       throw new BadRequestException(error.message);
@@ -445,9 +377,7 @@ export class FinanceService {
   private normalizeEntry(entry: Record<string, unknown>) {
     const dueDate = String(entry.due_date);
     const originalStatus = String(entry.status);
-    const receipts: Array<Record<string, unknown> & { amount: number }> = (Array.isArray(entry.financial_entry_receipts)
-      ? entry.financial_entry_receipts
-      : [])
+    const receipts: Array<Record<string, unknown> & { amount: number }> = (Array.isArray(entry.financial_entry_receipts) ? entry.financial_entry_receipts : [])
       .map((receipt: Record<string, unknown>): Record<string, unknown> & { amount: number } => ({
         ...receipt,
         amount: Number(receipt.amount || 0),
@@ -458,17 +388,8 @@ export class FinanceService {
     const discountAmount = Number(entry.discount_amount || 0);
     const totalAmount = originalAmount - discountAmount;
     const outstandingAmount = Math.max(0, totalAmount - receivedAmount);
-    const effectiveStatus = receivedAmount >= totalAmount && totalAmount > 0
-      ? 'Pago'
-      : receivedAmount > 0
-        ? 'Parcial'
-        : originalStatus === 'Pago'
-          ? 'Pago'
-          : originalStatus;
-    const computedStatus =
-      effectiveStatus === 'Aberto' && new Date(dueDate) < new Date()
-        ? 'Vencido'
-        : effectiveStatus;
+    const effectiveStatus = receivedAmount >= totalAmount && totalAmount > 0 ? 'Pago' : receivedAmount > 0 ? 'Parcial' : originalStatus === 'Pago' ? 'Pago' : originalStatus;
+    const computedStatus = effectiveStatus === 'Aberto' && new Date(dueDate) < new Date() ? 'Vencido' : effectiveStatus;
     const lastReceipt = receipts[receipts.length - 1];
 
     return {
@@ -486,11 +407,7 @@ export class FinanceService {
   }
 
   private async getEntryWithReceipts(id: string) {
-    const { data, error } = await this.supabaseService.admin
-      .from('financial_entries')
-      .select('*, financial_entry_receipts(*)')
-      .eq('id', id)
-      .maybeSingle();
+    const { data, error } = await this.supabaseService.admin.from('financial_entries').select('*, financial_entry_receipts(*)').eq('id', id).maybeSingle();
 
     if (error) {
       throw new BadRequestException(error.message);
