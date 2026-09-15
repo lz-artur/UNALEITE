@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { differenceInDays, format } from 'date-fns';
-import { AlertTriangle, Award, DollarSign, Loader2, PackageSearch, Search, TrendingUp, Trash2, Pencil, X } from 'lucide-react';
+import { AlertTriangle, Award, DollarSign, Loader2, PackageSearch, Search, TrendingUp, Trash2, Pencil, X, ShieldCheck } from 'lucide-react';
 import type { AnaliseLaboral, EstoqueProduto, LoteLeite, PrecificacaoLeite } from '../data/mockData';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -14,9 +14,14 @@ import {
  deleteFinishedProductLot,
  adjustSupplyLotStock,
  createManualProductExit,
+ loadExpiredLotDisposals,
+ createExpiredLotDisposal,
+ reviewExpiredLotDisposal,
  type MilkLotDetail,
  type SupplyLotInventoryItem,
+ type ExpiredLotDisposal,
 } from '../services/operationsApi';
+import { usePermissions } from '../context/PermissionsContext';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,6 +67,16 @@ export default function LotesEstoqueDetalhado() {
  const [exitReason, setExitReason] = useState('Doação');
  const [exitNotes, setExitNotes] = useState('');
  const [isExiting, setIsExiting] = useState(false);
+ const [disposals, setDisposals] = useState<ExpiredLotDisposal[]>([]);
+ const [disposalLot, setDisposalLot] = useState<{ id: string; type: 'Insumo' | 'Produto Acabado'; name: string; code: string; quantity: number; unit: string } | null>(null);
+ const [disposalQuantity, setDisposalQuantity] = useState('');
+ const [disposalDestination, setDisposalDestination] = useState<'repasse_custo' | 'doacao_dre'>('repasse_custo');
+ const [disposalJustification, setDisposalJustification] = useState('');
+ const [disposalNotes, setDisposalNotes] = useState('');
+ const [isSubmittingDisposal, setIsSubmittingDisposal] = useState(false);
+ const [reviewingDisposalId, setReviewingDisposalId] = useState<string | null>(null);
+ const { hasPermission } = usePermissions();
+ const canApproveDisposals = hasPermission('inventario', 'authorize');
  const {
  producers,
  supplyItems,
@@ -77,13 +92,14 @@ export default function LotesEstoqueDetalhado() {
  setErrorMessage(null);
 
  try {
- const [nextLotes, nextEstoquesProdutos, nextAnalises, nextPrecificacoes, nextSupplyLots] =
+ const [nextLotes, nextEstoquesProdutos, nextAnalises, nextPrecificacoes, nextSupplyLots, nextDisposals] =
  await Promise.all([
  loadMilkLots(),
  loadFinishedProductLots(),
  loadMilkAnalyses(),
  loadMilkPricings(),
  loadSupplyLots(),
+ loadExpiredLotDisposals(),
  ]);
 
  setLotes(nextLotes);
@@ -91,6 +107,7 @@ export default function LotesEstoqueDetalhado() {
  setAnalises(nextAnalises);
  setPrecificacoes(nextPrecificacoes);
  setSupplyLots(nextSupplyLots);
+ setDisposals(nextDisposals);
  } catch (error) {
  setErrorMessage(getErrorMessage(error));
  } finally {
@@ -155,6 +172,27 @@ export default function LotesEstoqueDetalhado() {
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  const openDisposal = (lot: { id: string; type: 'Insumo' | 'Produto Acabado'; name: string; code: string; quantity: number; unit: string }) => {
+    setDisposalLot(lot); setDisposalQuantity(String(lot.quantity)); setDisposalDestination('repasse_custo'); setDisposalJustification(''); setDisposalNotes('');
+  };
+  const submitDisposal = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!disposalLot || !disposalJustification.trim() || Number(disposalQuantity) <= 0) return;
+    setIsSubmittingDisposal(true); setErrorMessage(null);
+    try {
+      await createExpiredLotDisposal({ lotType: disposalLot.type, lotId: disposalLot.id, quantity: Number(disposalQuantity), destination: disposalDestination, justification: disposalJustification, notes: disposalNotes || undefined });
+      setDisposalLot(null); await loadData();
+    } catch (error) { setErrorMessage(getErrorMessage(error)); }
+    finally { setIsSubmittingDisposal(false); }
+  };
+  const reviewDisposal = async (id: string, decision: 'aprovada' | 'recusada') => {
+    const note = decision === 'recusada' ? window.prompt('Informe o motivo da recusa (opcional):') || undefined : undefined;
+    setReviewingDisposalId(id); setErrorMessage(null);
+    try { await reviewExpiredLotDisposal(id, { decision, reviewNote: note }); await loadData(); }
+    catch (error) { setErrorMessage(getErrorMessage(error)); }
+    finally { setReviewingDisposalId(null); }
   };
 
   const handleEditLotSubmit = async (e: React.FormEvent) => {
@@ -401,6 +439,13 @@ export default function LotesEstoqueDetalhado() {
  </button>
  ))}
  </div>
+
+ {!loading && disposals.filter((item) => item.status === 'aguardando_aprovacao').length > 0 ? (
+ <section className="overflow-hidden rounded-xl border border-amber-200 bg-white">
+ <div className="flex items-center gap-3 border-b border-amber-100 bg-amber-50 p-4"><ShieldCheck className="h-5 w-5 text-amber-700" /><div><h3 className="font-bold text-amber-950">Autorizações de baixa por vencimento</h3><p className="text-sm text-amber-800">O estoque só será baixado depois da aprovação.</p></div></div>
+ <div className="divide-y divide-gray-100">{disposals.filter((item) => item.status === 'aguardando_aprovacao').map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm"><div><p className="font-semibold text-gray-900">{item.item_name} · lote {item.lot_code}</p><p className="text-gray-600">{Number(item.quantity).toLocaleString('pt-BR')} {item.unit_symbol} · {item.destination === 'doacao_dre' ? 'Doação no DRE' : 'Repasse pelo custo'} · R$ {Number(item.total_value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p><p className="mt-1 text-xs text-gray-500">Solicitado por {item.requested_by_name}: {item.justification}</p></div>{canApproveDisposals ? <div className="flex gap-2"><button disabled={reviewingDisposalId === item.id} onClick={() => void reviewDisposal(item.id, 'recusada')} className="rounded-lg border border-red-200 px-3 py-2 font-medium text-red-700">Recusar</button><button disabled={reviewingDisposalId === item.id} onClick={() => void reviewDisposal(item.id, 'aprovada')} className="rounded-lg bg-emerald-600 px-3 py-2 font-medium text-white">Aprovar baixa</button></div> : <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">Aguardando aprovação</span>}</div>)}</div>
+ </section>
+ ) : null}
  </div>
 
  {!loading && selectedTab === 'resumo' ? (
@@ -711,6 +756,7 @@ export default function LotesEstoqueDetalhado() {
  const supplierName = lot.supplierName || getSupplierById(lot.supplierId)?.name || '-';
  const unitSymbol = getUnitSymbol(lot.unitId || supplyItem?.unitId);
  const minimumStock = lot.minimumStock ?? supplyItem?.minimumStock ?? 0;
+ const expired = Boolean(lot.expirationDate && lot.expirationDate < new Date());
 
  return (
  <tr key={lot.id} className="hover:bg-gray-50">
@@ -733,6 +779,7 @@ export default function LotesEstoqueDetalhado() {
  <SupplyLotStatusBadge status={lot.status} />
  </td>
  <td className="px-6 py-4 text-right flex justify-end gap-2">
+    {expired && lot.availableQuantity > 0 ? <button onClick={() => openDisposal({ id: lot.id, type: 'Insumo', name: lot.supplyItemName || supplyItem?.name || 'Insumo', code: lot.internalLotCode, quantity: lot.availableQuantity, unit: unitSymbol })} className="text-sm font-medium text-amber-700 hover:text-amber-900">Baixa vencido</button> : null}
     <button
       onClick={() => {
         setEditingLotId(lot.id);
@@ -790,6 +837,7 @@ export default function LotesEstoqueDetalhado() {
  {estoquesProdutos.map((stock) => {
  const product = getFinishedProductById(stock.produtoId);
  const daysToExpire = differenceInDays(stock.dataValidade, new Date());
+ const expired = stock.dataValidade < new Date();
 
  return (
  <tr key={stock.id} className="hover:bg-gray-50">
@@ -819,6 +867,7 @@ export default function LotesEstoqueDetalhado() {
  </span>
  </td>
  <td className="px-6 py-4 text-right flex justify-end gap-2">
+    {expired && stock.disponivel > 0 ? <button onClick={() => openDisposal({ id: stock.id, type: 'Produto Acabado', name: product?.name || 'Produto acabado', code: stock.lote, quantity: stock.disponivel, unit: getUnitSymbol(product?.unitId) })} className="text-sm font-medium text-amber-700 hover:text-amber-900">Baixa vencido</button> : null}
     <button
       onClick={() => {
         setExitLotId(stock.id);
@@ -1159,6 +1208,30 @@ export default function LotesEstoqueDetalhado() {
                   Registrar Saída
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {disposalLot && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div><h3 className="text-lg font-bold text-gray-900">Solicitar baixa de lote vencido</h3><p className="mt-1 text-sm text-gray-600">{disposalLot.name} · lote {disposalLot.code}</p></div>
+              <button onClick={() => setDisposalLot(null)} className="text-gray-400 hover:text-gray-700"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">A baixa fica pendente de autorização. O estoque e o lançamento financeiro só serão gerados após a aprovação.</div>
+            <form onSubmit={submitDisposal} className="space-y-4">
+              <label className="block text-sm font-medium text-gray-700">Quantidade disponível: {disposalLot.quantity.toLocaleString('pt-BR')} {disposalLot.unit}
+                <input type="number" required min="0.0001" max={disposalLot.quantity} step="0.0001" value={disposalQuantity} onChange={(event) => setDisposalQuantity(event.target.value)} className="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2" />
+              </label>
+              <fieldset><legend className="text-sm font-medium text-gray-700">Destinação após a aprovação</legend><div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <label className={`cursor-pointer rounded-xl border p-3 text-sm ${disposalDestination === 'repasse_custo' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}><input className="mr-2" type="radio" checked={disposalDestination === 'repasse_custo'} onChange={() => setDisposalDestination('repasse_custo')} />Repasse/venda pelo custo</label>
+                <label className={`cursor-pointer rounded-xl border p-3 text-sm ${disposalDestination === 'doacao_dre' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}><input className="mr-2" type="radio" checked={disposalDestination === 'doacao_dre'} onChange={() => setDisposalDestination('doacao_dre')} />Doação no DRE</label>
+              </div></fieldset>
+              <label className="block text-sm font-medium text-gray-700">Justificativa da baixa<textarea required value={disposalJustification} onChange={(event) => setDisposalJustification(event.target.value)} rows={3} className="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2" placeholder="Ex.: produto vencido sem condição de comercialização regular" /></label>
+              <label className="block text-sm font-medium text-gray-700">Observações (opcional)<input value={disposalNotes} onChange={(event) => setDisposalNotes(event.target.value)} className="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
+              <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={() => setDisposalLot(null)} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100">Cancelar</button><button type="submit" disabled={isSubmittingDisposal || !disposalJustification.trim()} className="flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{isSubmittingDisposal ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Solicitar autorização</button></div>
             </form>
           </div>
         </div>

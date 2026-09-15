@@ -57,6 +57,27 @@ export interface SupplyLotInventoryItem {
   unitId?: string;
 }
 
+export interface ExpiredLotDisposal {
+  id: string;
+  lot_type: 'Insumo' | 'Produto Acabado';
+  lot_id: string;
+  lot_code: string;
+  item_name: string;
+  unit_symbol?: string | null;
+  quantity: number;
+  unit_cost: number;
+  total_value: number;
+  destination: 'repasse_custo' | 'doacao_dre';
+  justification: string;
+  notes?: string | null;
+  status: 'aguardando_aprovacao' | 'aprovada' | 'recusada';
+  requested_by_name: string;
+  requested_at: string;
+  reviewed_by_name?: string | null;
+  reviewed_at?: string | null;
+  review_note?: string | null;
+}
+
 export interface WarehouseWithdrawal {
   id: string;
   withdrawal_number: string;
@@ -2014,6 +2035,21 @@ export async function createManualProductExit(payload: {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+
+export function loadExpiredLotDisposals() {
+  return apiRequest<ExpiredLotDisposal[]>('/inventory/expired-lot-disposals');
+}
+
+export function createExpiredLotDisposal(payload: {
+  lotType: 'Insumo' | 'Produto Acabado'; lotId: string; quantity: number;
+  destination: 'repasse_custo' | 'doacao_dre'; justification: string; notes?: string;
+}) {
+  return apiRequest<ExpiredLotDisposal>('/inventory/expired-lot-disposals', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export function reviewExpiredLotDisposal(id: string, payload: { decision: 'aprovada' | 'recusada'; reviewNote?: string }) {
+  return apiRequest<ExpiredLotDisposal>(`/inventory/expired-lot-disposals/${id}/review`, { method: 'POST', body: JSON.stringify(payload) });
 }
 
 export async function adjustProductionOrder(

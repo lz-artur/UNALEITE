@@ -11,6 +11,8 @@ import { ReviewInventoryCountDto } from './dto/review-inventory-count.dto';
 import { CreateSaleExpeditionDto } from './dto/create-sale-expedition.dto';
 import { CreateExpeditionWeighingDto } from './dto/create-expedition-weighing.dto';
 import { CreateWarehouseWithdrawalDto } from './dto/create-warehouse-withdrawal.dto';
+import { CreateExpiredLotDisposalDto } from './dto/create-expired-lot-disposal.dto';
+import { ReviewExpiredLotDisposalDto } from './dto/review-expired-lot-disposal.dto';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
@@ -55,6 +57,22 @@ export class InventoryController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.inventoryService.createManualExit(payload, user);
+  }
+
+  @Get('expired-lot-disposals')
+  listExpiredLotDisposals() {
+    return this.inventoryService.listExpiredLotDisposals();
+  }
+
+  @Post('expired-lot-disposals')
+  createExpiredLotDisposal(@Body() payload: CreateExpiredLotDisposalDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.inventoryService.createExpiredLotDisposal(payload, user);
+  }
+
+  @Post('expired-lot-disposals/:id/review')
+  @UseGuards(AdminGuard)
+  reviewExpiredLotDisposal(@Param('id') id: string, @Body() payload: ReviewExpiredLotDisposalDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.inventoryService.reviewExpiredLotDisposal(id, payload, user);
   }
 
   @Get('warehouse-withdrawals')
