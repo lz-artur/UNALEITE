@@ -397,8 +397,15 @@ export class SalesService {
           }
         }
         
-        // Handle the excess if there is any and a strategy is provided
-        if (totalNewlyGeneratedExcess > 0 && payload.excessHandlingStrategy) {
+        // Crédito só existe quando um recebimento já superou o novo saldo do
+        // título. Já o reembolso é uma escolha explícita do usuário: deve
+        // gerar a obrigação de pagar pelo valor devolvido, mesmo que o contas
+        // a receber também tenha sido abatido nesta operação.
+        const reimbursementAmount = payload.excessHandlingStrategy === 'refund'
+          ? totalDiscount
+          : totalNewlyGeneratedExcess;
+
+        if (reimbursementAmount > 0 && payload.excessHandlingStrategy) {
           if (payload.excessHandlingStrategy === 'credit' && salesOrder.client_id) {
             const { data: client } = await this.supabaseService.admin
               .from('clients')
@@ -407,7 +414,7 @@ export class SalesService {
               .single();
             
             if (client) {
-              const newBalance = Number(client.credit_balance || 0) + totalNewlyGeneratedExcess;
+              const newBalance = Number(client.credit_balance || 0) + reimbursementAmount;
               await this.supabaseService.admin
                 .from('clients')
                 .update({ credit_balance: newBalance })
@@ -417,7 +424,7 @@ export class SalesService {
                 .from('client_credits')
                 .insert({
                   client_id: salesOrder.client_id,
-                  amount: totalNewlyGeneratedExcess,
+                  amount: reimbursementAmount,
                   transaction_type: 'Credit_Earned',
                   reference_type: 'sales_orders',
                   reference_id: salesOrderId,
@@ -431,7 +438,7 @@ export class SalesService {
               .insert({
                 entry_type: 'Pagar',
                 description: `Reembolso de Devolução (Pedido ${salesOrder.id})`,
-                amount: totalNewlyGeneratedExcess,
+                amount: reimbursementAmount,
                 due_date: payload.returnDate || new Date().toISOString(),
                 status: 'Aberto',
                 category: 'Reembolsos',

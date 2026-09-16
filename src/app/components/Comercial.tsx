@@ -1772,7 +1772,7 @@ export default function Comercial() {
                 <div>
                   <h4 className="font-bold text-blue-900">Abatimento Financeiro</h4>
                   <p className="text-sm text-blue-700 mt-1 text-balance">
-                    O valor será abatido da receita original. Se o pedido já estiver pago, escolha o destino do valor excedente abaixo.
+                    O valor será abatido da receita original. Para reembolso financeiro, será criado também um título em Contas a Pagar.
                   </p>
                 </div>
                 <div className="w-full md:w-48 bg-white rounded p-2 border border-blue-200 shrink-0">
@@ -1787,7 +1787,7 @@ export default function Comercial() {
               
               {Number(returnForm.discountAmount) > 0 && (
                 <div className="flex flex-col md:flex-row items-center gap-3 pt-3 border-t border-blue-200">
-                  <span className="text-sm font-medium text-blue-900 shrink-0">Destino do excedente (se já pago):</span>
+                  <span className="text-sm font-medium text-blue-900 shrink-0">Como tratar a devolução:</span>
                   <select 
                     className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                     value={returnForm.excessHandlingStrategy}

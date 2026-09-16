@@ -585,7 +585,7 @@ describe('SalesService', () => {
       ['credit', 'client_credits'],
       ['refund', 'financial_entries'],
     ] as const)(
-      'generates %s excess handling from entries linked to the financial finalization',
+      'generates %s handling from entries linked to the financial finalization',
       async (excessHandlingStrategy, expectedInsertTable) => {
         const inserts: Array<{ table: string; data: any }> = [];
         const tableData: Record<string, any[]> = {
@@ -622,7 +622,10 @@ describe('SalesService', () => {
                     id: 'entry-1',
                     amount: 100,
                     discount_amount: 0,
-                    financial_entry_receipts: [{ amount: 100 }],
+                    // Reembolso deve ser criado mesmo quando o título ainda
+                    // não possui recebimentos; nesse caso o desconto reduz o
+                    // contas a receber e a opção escolhida cria o contas a pagar.
+                    financial_entry_receipts: excessHandlingStrategy === 'credit' ? [{ amount: 100 }] : [],
                   }];
               return {
                 eq: jest.fn().mockReturnValue({
