@@ -142,6 +142,10 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
       toast.error('O comprovante é obrigatório para registrar uma conta como Paga.');
       return;
     }
+    if (status === 'Pago' && !contaBancariaId) {
+      toast.error('Selecione a conta bancária da movimentação para registrar a baixa.');
+      return;
+    }
 
     if (!isParcelado && !isRecorrente && (!valor || !dataVencimento)) {
       toast.error('Preencha valor e vencimento.');
@@ -531,18 +535,18 @@ export default function NovaDespesaModal({ isOpen, onClose, onSave, initialData 
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Conta prevista</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{status === 'Pago' ? <>Conta da movimentação <span className="text-red-500">*</span></> : 'Conta prevista'}</label>
               <select
                 value={contaBancariaId}
                 onChange={(e) => setContaBancariaId(e.target.value)}
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
               >
-                <option value="">Não vincular à posição bancária</option>
+                <option value="">{status === 'Pago' ? 'Selecione...' : 'Não vincular à posição bancária'}</option>
                 {bankAccounts.filter(account => account.active).map(account => (
                   <option key={account.id} value={account.id}>{account.name}</option>
                 ))}
               </select>
-              <p className="mt-1 text-xs text-gray-500">Usada apenas na projeção até a baixa.</p>
+              <p className="mt-1 text-xs text-gray-500">{status === 'Pago' ? 'A baixa será registrada no extrato desta conta.' : 'Usada apenas na projeção até a baixa.'}</p>
             </div>
           </div>
 

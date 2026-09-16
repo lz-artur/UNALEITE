@@ -86,6 +86,8 @@ export class MilkReceptionService {
       throw new BadRequestException(lotError.message);
     }
 
+    await this.syncFinancialEntry(lot, user);
+
     return {
       reception,
       lot,
@@ -185,6 +187,8 @@ export class MilkReceptionService {
     if (lotError) {
       throw new BadRequestException(lotError.message);
     }
+
+    await this.syncFinancialEntry(lot, user);
 
     return {
       reception,
@@ -333,6 +337,69 @@ export class MilkReceptionService {
     return data.id as string;
   }
 
+  /**
+   * Cada recebimento de leite representa uma obrigação com o produtor. O
+   * lançamento é vinculado ao lote para que ajustes e exclusões da recepção
+   * mantenham o financeiro consistente e não gerem duplicidades.
+   */
+  private async syncFinancialEntry(lot: Record<string, any>, user?: AuthenticatedUser) {
+    const { data: milkType, error: milkTypeError } = await this.supabaseService.admin
+      .from('milk_types')
+      .select('accounting_category_id, accounting_subcategory_id, cost_center_id, accounting_categories(name)')
+      .eq('id', lot.milk_type_id)
+      .maybeSingle();
+
+    if (milkTypeError) {
+      throw new BadRequestException(milkTypeError.message);
+    }
+
+    const entryPayload = {
+      entry_type: 'Pagar',
+      description: `Folha do leite - ${String(lot.code)}`,
+      amount: Number(lot.total_value),
+      due_date: lot.received_at,
+      category: (milkType?.accounting_categories as any)?.name ?? 'Matéria Prima',
+      accounting_category_id: milkType?.accounting_category_id ?? null,
+      accounting_subcategory_id: milkType?.accounting_subcategory_id ?? null,
+      cost_center_id: milkType?.cost_center_id ?? null,
+      producer_id: lot.producer_id,
+      reference_table: 'milk_lots',
+      reference_id: lot.id,
+      updated_by: user?.id ?? null,
+    };
+
+    const { data: existingEntry, error: existingEntryError } = await this.supabaseService.admin
+      .from('financial_entries')
+      .select('id')
+      .eq('reference_table', 'milk_lots')
+      .eq('reference_id', lot.id)
+      .maybeSingle();
+
+    if (existingEntryError) {
+      throw new BadRequestException(existingEntryError.message);
+    }
+
+    if (existingEntry) {
+      const { error } = await this.supabaseService.admin
+        .from('financial_entries')
+        .update(entryPayload)
+        .eq('id', existingEntry.id);
+
+      if (error) {
+        throw new BadRequestException(error.message);
+      }
+      return;
+    }
+
+    const { error } = await this.supabaseService.admin
+      .from('financial_entries')
+      .insert({ ...entryPayload, status: 'Aberto', created_by: user?.id ?? null });
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+  }
+
   async deleteReception(milkLotId: string) {
     const { data: lot, error: lotFindError } = await this.supabaseService.admin
       .from('milk_lots')
@@ -379,6 +446,16 @@ export class MilkReceptionService {
     }
 
     await this.supabaseService.admin.from('lot_block_events').delete().eq('lot_id', milkLotId);
+
+    const { error: deleteFinancialEntryError } = await this.supabaseService.admin
+      .from('financial_entries')
+      .delete()
+      .eq('reference_table', 'milk_lots')
+      .eq('reference_id', milkLotId);
+
+    if (deleteFinancialEntryError) {
+      throw new BadRequestException(deleteFinancialEntryError.message);
+    }
 
     const { error: deleteLotError } = await this.supabaseService.admin
       .from('milk_lots')

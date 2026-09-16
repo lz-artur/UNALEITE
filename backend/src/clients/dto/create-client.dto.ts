@@ -82,4 +82,8 @@ export class CreateClientDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  delinquent?: boolean;
 }

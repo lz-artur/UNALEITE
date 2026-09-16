@@ -8,6 +8,8 @@ import { SaveInventoryCountsDto } from './dto/save-inventory-counts.dto';
 import { ReviewInventoryCountDto } from './dto/review-inventory-count.dto';
 import { CreateExpeditionWeighingDto } from './dto/create-expedition-weighing.dto';
 import { CreateWarehouseWithdrawalDto } from './dto/create-warehouse-withdrawal.dto';
+import { CreateExpiredLotDisposalDto } from './dto/create-expired-lot-disposal.dto';
+import { ReviewExpiredLotDisposalDto } from './dto/review-expired-lot-disposal.dto';
 
 @Injectable()
 export class InventoryService {
@@ -235,6 +237,82 @@ export class InventoryService {
     }
 
     return { success: true, exitRecord };
+  }
+
+  async listExpiredLotDisposals() {
+    const { data, error } = await this.supabaseService.admin.from('expired_lot_disposals').select('*').order('requested_at', { ascending: false });
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
+  }
+
+  private async getExpiredLotSnapshot(lotType: 'Insumo' | 'Produto Acabado', lotId: string) {
+    if (lotType === 'Insumo') {
+      const { data, error } = await this.supabaseService.admin.from('supply_lots_with_item')
+        .select('id, internal_lot_code, supply_item_name, expiration_date, available_quantity, unit_cost, units(symbol)').eq('id', lotId).maybeSingle();
+      if (error) throw new BadRequestException(error.message);
+      if (!data) throw new NotFoundException('Lote de insumo não encontrado');
+      const unit = Array.isArray(data.units) ? data.units[0] : data.units;
+      return { ...data, lotCode: data.internal_lot_code, itemName: data.supply_item_name, unitSymbol: unit?.symbol ?? null, unitCost: Number(data.unit_cost) };
+    }
+    const { data, error } = await this.supabaseService.admin.from('finished_product_lots')
+      .select('id, lot_code, expiration_date, available_quantity, quantity_produced, production_order_id, finished_products(name, units(symbol))').eq('id', lotId).maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new NotFoundException('Lote de produto acabado não encontrado');
+    const product = Array.isArray(data.finished_products) ? data.finished_products[0] : data.finished_products;
+    const unit = Array.isArray(product?.units) ? product.units[0] : product?.units;
+    // Custo industrial direto do lote: leite + insumos consumidos na OP, rateado pela produção da OP.
+    const [{ data: milk }, { data: supplies }, { data: outputs }] = await Promise.all([
+      this.supabaseService.admin.from('production_order_milk_consumptions').select('liters_consumed, unit_cost, milk_lots(cost_per_liter)').eq('production_order_id', data.production_order_id),
+      this.supabaseService.admin.from('production_order_supply_consumptions').select('quantity_consumed, supply_lots(unit_cost)').eq('production_order_id', data.production_order_id),
+      this.supabaseService.admin.from('finished_product_lots').select('quantity_produced').eq('production_order_id', data.production_order_id),
+    ]);
+    const milkCost = (milk ?? []).reduce((sum: number, row: any) => sum + Number(row.liters_consumed) * Number(row.unit_cost ?? (Array.isArray(row.milk_lots) ? row.milk_lots[0] : row.milk_lots)?.cost_per_liter ?? 0), 0);
+    const suppliesCost = (supplies ?? []).reduce((sum: number, row: any) => sum + Number(row.quantity_consumed) * Number((Array.isArray(row.supply_lots) ? row.supply_lots[0] : row.supply_lots)?.unit_cost ?? 0), 0);
+    const totalOutput = (outputs ?? []).reduce((sum: number, row: any) => sum + Number(row.quantity_produced), 0);
+    return { ...data, lotCode: data.lot_code, itemName: product?.name ?? 'Produto acabado', unitSymbol: unit?.symbol ?? null, unitCost: totalOutput > 0 ? (milkCost + suppliesCost) / totalOutput : 0 };
+  }
+
+  async createExpiredLotDisposal(payload: CreateExpiredLotDisposalDto, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const lot = await this.getExpiredLotSnapshot(payload.lotType, payload.lotId);
+    if (!lot.expiration_date || new Date(lot.expiration_date).getTime() >= new Date().setHours(0, 0, 0, 0)) throw new BadRequestException('A baixa especial só pode ser solicitada para lote vencido.');
+    if (payload.quantity > Number(lot.available_quantity)) throw new BadRequestException(`Quantidade maior que o saldo disponível (${lot.available_quantity}).`);
+    const { data, error } = await this.supabaseService.admin.from('expired_lot_disposals').insert({
+      lot_type: payload.lotType, lot_id: payload.lotId, lot_code: lot.lotCode, item_name: lot.itemName, unit_symbol: lot.unitSymbol,
+      quantity: payload.quantity, unit_cost: lot.unitCost, total_value: payload.quantity * lot.unitCost, destination: payload.destination,
+      justification: payload.justification.trim(), notes: payload.notes?.trim() || null, requested_by: actor.id, requested_by_name: actor.name,
+    }).select('*').single();
+    if (error) throw new BadRequestException(error.message);
+    return data;
+  }
+
+  async reviewExpiredLotDisposal(id: string, payload: ReviewExpiredLotDisposalDto, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const { data: request, error } = await this.supabaseService.admin.from('expired_lot_disposals').select('*').eq('id', id).maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!request) throw new NotFoundException('Solicitação de baixa não encontrada');
+    if (request.status !== 'aguardando_aprovacao') throw new BadRequestException('Esta solicitação já foi analisada.');
+    if (payload.decision === 'recusada') {
+      const { data, error: updateError } = await this.supabaseService.admin.from('expired_lot_disposals').update({ status: 'recusada', reviewed_by: actor.id, reviewed_by_name: actor.name, reviewed_at: new Date().toISOString(), review_note: payload.reviewNote?.trim() || null }).eq('id', id).select('*').single();
+      if (updateError) throw new BadRequestException(updateError.message); return data;
+    }
+    const lot = await this.getExpiredLotSnapshot(request.lot_type, request.lot_id);
+    if (Number(request.quantity) > Number(lot.available_quantity)) throw new BadRequestException('O saldo do lote mudou e não é suficiente para aprovar esta baixa.');
+    const table = request.lot_type === 'Insumo' ? 'supply_lots' : 'finished_product_lots';
+    const { error: stockError } = await this.supabaseService.admin.from(table).update({ available_quantity: Number(lot.available_quantity) - Number(request.quantity), updated_by: actor.id }).eq('id', request.lot_id);
+    if (stockError) throw new BadRequestException(stockError.message);
+    const isDonation = request.destination === 'doacao_dre';
+    const { data: financial, error: financialError } = await this.supabaseService.admin.from('financial_entries').insert({
+      entry_type: isDonation ? 'Pagar' : 'Receber', description: `${isDonation ? 'Doação' : 'Repasse a preço de custo'} de lote vencido ${request.lot_code}`,
+      amount: request.total_value, due_date: new Date().toISOString(), status: 'Aberto',
+      category: isDonation ? 'Doações de lotes vencidos' : 'Repasses de lotes vencidos', reference_table: 'expired_lot_disposals', reference_id: id, created_by: actor.id, updated_by: actor.id,
+    }).select('*').single();
+    if (financialError) throw new BadRequestException(financialError.message);
+    const { error: movementError } = await this.supabaseService.admin.from('stock_movements').insert({ movement_type: 'saida', lot_type: request.lot_type, lot_id: request.lot_id, quantity: request.quantity, reference_table: 'expired_lot_disposals', reference_id: id, created_by: actor.id, updated_by: actor.id });
+    if (movementError) throw new BadRequestException(movementError.message);
+    const { data, error: updateError } = await this.supabaseService.admin.from('expired_lot_disposals').update({ status: 'aprovada', reviewed_by: actor.id, reviewed_by_name: actor.name, reviewed_at: new Date().toISOString(), review_note: payload.reviewNote?.trim() || null, financial_entry_id: financial.id }).eq('id', id).select('*').single();
+    if (updateError) throw new BadRequestException(updateError.message);
+    return data;
   }
 
   async listInventorySessions(user: AuthenticatedUser) {

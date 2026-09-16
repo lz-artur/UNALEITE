@@ -3,6 +3,7 @@ import { Toaster } from 'sonner';
 import AuthScreen from './components/AuthScreen';
 import CadastrosBase from './components/CadastrosBase';
 import Comercial from './components/Comercial';
+import Clientes from './components/Clientes';
 import VendedorExterno from './components/VendedorExterno';
 import Compras from './components/Compras';
 import Dashboard from './components/Dashboard';
@@ -53,6 +54,7 @@ function AccessDenied({ onGoHome }: { onGoHome: () => void }) {
 // ─── Page key mapping ───────────────────────────────────────
 function getPageKey(currentPage: string): string {
   if (currentPage === 'vendedor-externo') return 'comercial';
+  if (currentPage === 'clientes') return 'comercial';
   if (currentPage === 'almoxarifado') return 'inventario';
   if (currentPage.startsWith('cadastros')) return 'cadastros';
   return currentPage;
@@ -68,6 +70,7 @@ const ORDERED_PAGES = [
   'custos',
   'vendedor-externo',
   'comercial',
+  'clientes',
   'faturamento',
   'compras',
   'inventario',
@@ -146,6 +149,8 @@ function AppInner() {
         return <RelatoriosOperacionais />;
       case 'comercial':
         return <Comercial />;
+      case 'clientes':
+        return <Clientes />;
       case 'vendedor-externo':
         return <VendedorExterno />;
       case 'faturamento':

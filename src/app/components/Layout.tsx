@@ -46,6 +46,7 @@ const menuItems = [
   { id: 'producao', label: 'Producao', icon: Factory },
   { id: 'custos', label: 'Relatorios', icon: DollarSign },
   { id: 'comercial', label: 'Comercial', icon: TruckIcon },
+  { id: 'clientes', label: 'Clientes', icon: Users },
   { id: 'vendedor-externo', label: 'Vendedor externo', icon: Smartphone },
   { id: 'faturamento', label: 'Faturamento NF-e', icon: FileCheck2 },
   { id: 'compras', label: 'Compras', icon: Package },
@@ -97,6 +98,7 @@ const menuItems = [
  */
 function getPageKeyForItem(id: string): string {
   if (id === 'vendedor-externo') return 'comercial';
+  if (id === 'clientes') return 'comercial';
   if (id.startsWith('cadastros')) return 'cadastros';
   if (id === 'lotes') return 'lotes';
   if (id === 'almoxarifado') return 'inventario';

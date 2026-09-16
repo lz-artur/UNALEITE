@@ -4,7 +4,7 @@ import { IsNumber, IsOptional, IsPositive, IsString, IsUUID } from 'class-valida
 export class SettleFinancialEntryDto {
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 4 })
+  @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive()
   amount?: number;
 

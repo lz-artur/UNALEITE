@@ -57,6 +57,27 @@ export interface SupplyLotInventoryItem {
   unitId?: string;
 }
 
+export interface ExpiredLotDisposal {
+  id: string;
+  lot_type: 'Insumo' | 'Produto Acabado';
+  lot_id: string;
+  lot_code: string;
+  item_name: string;
+  unit_symbol?: string | null;
+  quantity: number;
+  unit_cost: number;
+  total_value: number;
+  destination: 'repasse_custo' | 'doacao_dre';
+  justification: string;
+  notes?: string | null;
+  status: 'aguardando_aprovacao' | 'aprovada' | 'recusada';
+  requested_by_name: string;
+  requested_at: string;
+  reviewed_by_name?: string | null;
+  reviewed_at?: string | null;
+  review_note?: string | null;
+}
+
 export interface WarehouseWithdrawal {
   id: string;
   withdrawal_number: string;
@@ -258,6 +279,7 @@ export interface ClientRecord {
   finalConsumer?: boolean;
   notes?: string;
   active: boolean;
+  delinquent?: boolean;
   credit_balance?: number;
 }
 
@@ -338,6 +360,17 @@ export interface FinancialEntryRecord extends ContaFinanceira {
   valorRecebido: number;
   saldoReceber: number;
   recebimentos: FinancialReceiptRecord[];
+  itensRateio: FinancialEntryItemRecord[];
+}
+
+export interface FinancialEntryItemRecord {
+  id: string;
+  valor: number;
+  insumo?: string;
+  centroCusto?: string;
+  categoria?: string;
+  subcategoria?: string;
+  tipoCusto?: string;
 }
 
 export interface FinancialReceiptRecord {
@@ -821,6 +854,7 @@ function mapClient(row: any): ClientRecord {
     finalConsumer: row.final_consumer ?? undefined,
     notes: row.notes ?? undefined,
     active: Boolean(row.active),
+    delinquent: Boolean(row.delinquent),
     credit_balance: Number(row.credit_balance || row.creditBalance || 0),
   };
 }
@@ -882,19 +916,33 @@ function mapSalesOrder(row: any): SalesOrderRecord {
   };
 }
 
+function roundCurrency(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round((parsed + Number.EPSILON) * 100) / 100 : 0;
+}
+
 function mapFinancialEntry(row: any): FinancialEntryRecord {
   const recebimentos: FinancialReceiptRecord[] = (row.financial_entry_receipts ?? []).map((receipt: any) => ({
     id: receipt.id,
-    valor: Number(receipt.amount),
+    valor: roundCurrency(receipt.amount),
     dataPagamento: new Date(receipt.payment_date),
     formaPagamento: receipt.payment_method,
     contaBancariaId: receipt.bank_account_id ?? undefined,
     anexoUrl: receipt.attachment_url ?? undefined,
     observacoes: receipt.notes ?? undefined,
   }));
-  const valor = Number(row.amount);
-  const valorRecebido = Number(row.received_amount ?? recebimentos.reduce((sum, receipt) => sum + receipt.valor, 0));
-  const saldoReceber = Number(row.outstanding_amount ?? Math.max(0, valor - valorRecebido));
+  const valor = roundCurrency(row.amount);
+  const valorRecebido = roundCurrency(row.received_amount ?? recebimentos.reduce((sum, receipt) => sum + receipt.valor, 0));
+  const saldoReceber = roundCurrency(row.outstanding_amount ?? Math.max(0, valor - valorRecebido));
+  const itensRateio: FinancialEntryItemRecord[] = (row.financial_entry_items ?? []).map((item: any) => ({
+    id: item.id,
+    valor: Number(item.amount),
+    insumo: item.supply_items?.name ?? undefined,
+    centroCusto: item.cost_centers?.name ?? undefined,
+    categoria: item.accounting_categories?.name ?? undefined,
+    subcategoria: item.accounting_subcategories?.name ?? undefined,
+    tipoCusto: item.cost_type ?? undefined,
+  }));
 
   return {
     id: row.id,
@@ -931,6 +979,7 @@ function mapFinancialEntry(row: any): FinancialEntryRecord {
     valorRecebido,
     saldoReceber,
     recebimentos,
+    itensRateio,
   };
 }
 
@@ -1808,6 +1857,7 @@ export async function createClient(payload: {
   finalConsumer?: boolean;
   notes?: string;
   active?: boolean;
+  delinquent?: boolean;
 }) {
   const client = await apiRequest<any>('/clients', {
     method: 'POST',
@@ -1840,6 +1890,7 @@ export async function updateClient(
     finalConsumer?: boolean;
     notes?: string;
     active?: boolean;
+    delinquent?: boolean;
   },
 ) {
   const client = await apiRequest<any>(`/clients/${clientId}`, {
@@ -1949,6 +2000,7 @@ export async function returnSalesOrder(payload: {
     reason?: string;
   }>;
   discountAmount: number;
+  excessHandlingStrategy?: 'credit' | 'refund';
 }) {
   const salesOrder = await apiRequest<any>(`/sales-orders/${payload.salesOrderId}/return`, {
     method: 'POST',
@@ -1956,6 +2008,7 @@ export async function returnSalesOrder(payload: {
       returnDate: payload.returnDate,
       items: payload.items,
       discountAmount: payload.discountAmount,
+      excessHandlingStrategy: payload.excessHandlingStrategy,
     }),
   });
   return mapSalesOrder(salesOrder);
@@ -2014,6 +2067,21 @@ export async function createManualProductExit(payload: {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+
+export function loadExpiredLotDisposals() {
+  return apiRequest<ExpiredLotDisposal[]>('/inventory/expired-lot-disposals');
+}
+
+export function createExpiredLotDisposal(payload: {
+  lotType: 'Insumo' | 'Produto Acabado'; lotId: string; quantity: number;
+  destination: 'repasse_custo' | 'doacao_dre'; justification: string; notes?: string;
+}) {
+  return apiRequest<ExpiredLotDisposal>('/inventory/expired-lot-disposals', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export function reviewExpiredLotDisposal(id: string, payload: { decision: 'aprovada' | 'recusada'; reviewNote?: string }) {
+  return apiRequest<ExpiredLotDisposal>(`/inventory/expired-lot-disposals/${id}/review`, { method: 'POST', body: JSON.stringify(payload) });
 }
 
 export async function adjustProductionOrder(

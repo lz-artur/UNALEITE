@@ -705,7 +705,7 @@ export default function ContasPagar() {
         
         {viewingEntry && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl overflow-hidden">
               <div className="flex items-center justify-between p-4 border-b border-gray-200">
                 <h2 className="text-lg font-semibold text-gray-800">Detalhes da Despesa</h2>
                 <button onClick={() => setViewingEntry(null)} className="text-gray-500 hover:text-gray-700">
@@ -724,6 +724,39 @@ export default function ContasPagar() {
                 {viewingEntry.tipoPagamento && <div><span className="font-semibold text-gray-700">Tipo:</span> {viewingEntry.tipoPagamento}</div>}
                 {viewingEntry.fornecedorId && <div><span className="font-semibold text-gray-700">Fornecedor:</span> {suppliers.find(s => s.id === viewingEntry.fornecedorId)?.name || viewingEntry.fornecedorId}</div>}
                 {viewingEntry.produtorId && <div><span className="font-semibold text-gray-700">Produtor:</span> {producers.find(p => p.id === viewingEntry.produtorId)?.name || viewingEntry.produtorId}</div>}
+                {viewingEntry.itensRateio.length > 0 && (
+                  <div className="pt-2">
+                    <div className="mb-2 font-semibold text-gray-700">Composição da compra</div>
+                    <div className="overflow-x-auto rounded border border-gray-200">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-gray-50 text-gray-600">
+                          <tr>
+                            <th className="px-3 py-2">Produto</th>
+                            <th className="px-3 py-2">Categoria</th>
+                            <th className="px-3 py-2">Subcategoria</th>
+                            <th className="px-3 py-2 text-right">Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {viewingEntry.itensRateio.map((item) => (
+                            <tr key={item.id}>
+                              <td className="px-3 py-2 font-medium text-gray-800">{item.insumo ?? 'Item financeiro'}</td>
+                              <td className="px-3 py-2">{item.categoria ?? '-'}</td>
+                              <td className="px-3 py-2">{item.subcategoria ?? '-'}</td>
+                              <td className="px-3 py-2 text-right whitespace-nowrap">{formatCurrency(item.valor)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="border-t bg-gray-50 font-semibold text-gray-800">
+                          <tr>
+                            <td className="px-3 py-2" colSpan={3}>Total</td>
+                            <td className="px-3 py-2 text-right">{formatCurrency(viewingEntry.valor)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                )}
                 {viewingEntry.anexoUrl && (
                   <div>
                     <span className="font-semibold text-gray-700">Comprovante:</span>{' '}

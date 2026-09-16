@@ -18,6 +18,10 @@ function currency(value: number) {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+function roundCurrency(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
 export default function RecebimentoModal({ isOpen, entry, onClose, onConfirm }: RecebimentoModalProps) {
   const { bankAccounts, paymentMethods } = useCadastros();
   const [valor, setValor] = useState('');
@@ -28,7 +32,7 @@ export default function RecebimentoModal({ isOpen, entry, onClose, onConfirm }: 
   const [file, setFile] = useState<File>();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const saldo = entry.saldoReceber;
+  const saldo = roundCurrency(entry.saldoReceber);
   const formas = useMemo(() => {
     const activeMethods = paymentMethods.filter((method) => method.active).map((method) => method.name);
     return activeMethods.length > 0 ? activeMethods : FALLBACK_PAYMENT_METHODS;
@@ -48,13 +52,13 @@ export default function RecebimentoModal({ isOpen, entry, onClose, onConfirm }: 
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    const parsedValue = Number(valor.replace(',', '.'));
+    const parsedValue = roundCurrency(Number(valor.replace(',', '.')));
 
     if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
       toast.error('Informe um valor de recebimento maior que zero.');
       return;
     }
-    if (parsedValue > saldo + 0.0001) {
+    if (parsedValue > saldo) {
       toast.error(`O valor não pode ultrapassar o saldo de ${currency(saldo)}.`);
       return;
     }
@@ -111,7 +115,7 @@ export default function RecebimentoModal({ isOpen, entry, onClose, onConfirm }: 
               <input
                 type="number"
                 min="0.01"
-                max={saldo}
+                max={saldo.toFixed(2)}
                 step="0.01"
                 required
                 value={valor}
@@ -179,9 +183,9 @@ export default function RecebimentoModal({ isOpen, entry, onClose, onConfirm }: 
             </label>
           </div>
 
-          {Number(valor || 0) > 0 && Number(valor || 0) < saldo && (
+          {roundCurrency(Number(valor || 0)) > 0 && roundCurrency(Number(valor || 0)) < saldo && (
             <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-800">
-              Após este recebimento, o lançamento continuará parcialmente aberto com saldo de {currency(Math.max(0, saldo - Number(valor)))}.
+              Após este recebimento, o lançamento continuará parcialmente aberto com saldo de {currency(Math.max(0, roundCurrency(saldo - Number(valor))))}.
             </p>
           )}
 

@@ -23,7 +23,9 @@ export class ClientsService {
       throw new BadRequestException(error.message);
     }
 
-    return (data ?? []).filter((client) => {
+    const clients = await this.attachDelinquencyStatus(data ?? []);
+
+    return clients.filter((client) => {
       if (filters.activeOnly === 'true' && !client.active) {
         return false;
       }
@@ -67,7 +69,7 @@ export class ClientsService {
       throw new NotFoundException('Client not found');
     }
 
-    return data;
+    return (await this.attachDelinquencyStatus([data]))[0];
   }
 
   async generateNextClientCode(): Promise<string> {
@@ -206,5 +208,32 @@ export class ClientsService {
 
   private normalizeDocument(document: string) {
     return document.replace(/\D/g, '');
+  }
+
+  /** A client is delinquent only when a receivable installment is overdue and still has a balance. */
+  private async attachDelinquencyStatus(clients: Array<Record<string, any>>): Promise<Array<Record<string, any>>> {
+    if (!clients.length) return clients;
+
+    const { data: entries, error } = await this.supabaseService.admin
+      .from('financial_entries')
+      .select('client_id, amount, discount_amount, financial_entry_receipts(amount)')
+      .in('client_id', clients.map((client) => client.id))
+      .eq('entry_type', 'Receber')
+      .lt('due_date', new Date().toISOString())
+      .neq('status', 'Cancelado');
+
+    if (error) throw new BadRequestException(error.message);
+
+    const delinquentClientIds = new Set(
+      (entries ?? [])
+        .filter((entry) => {
+          const receipts = Array.isArray(entry.financial_entry_receipts) ? entry.financial_entry_receipts : [];
+          const received = receipts.reduce((sum: number, receipt: Record<string, unknown>) => sum + Number(receipt.amount || 0), 0);
+          return Number(entry.amount || 0) - Number(entry.discount_amount || 0) - received > 0.0001;
+        })
+        .map((entry) => String(entry.client_id)),
+    );
+
+    return clients.map((client) => ({ ...client, delinquent: delinquentClientIds.has(String(client.id)) }));
   }
 }

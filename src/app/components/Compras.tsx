@@ -58,10 +58,6 @@ export default function Compras() {
     items: [{ localId: 'item-1', supplyItemId: '', quantity: '', unitCost: '' }],
     paymentMethodId: '',
     paymentTypeId: '',
-    costCenterId: '',
-    accountingCategoryId: '',
-    accountingSubcategoryId: '',
-    costType: '',
     bankAccountId: '',
     installments: [] as Array<{ localId: string; dueDate: string; amount: string }>,
     installmentCount: '1',
@@ -148,9 +144,6 @@ export default function Compras() {
       items: [{ localId: `item-${Date.now()}`, supplyItemId: '', quantity: '', unitCost: '' }],
       paymentMethodId: '',
       paymentTypeId: '',
-      costCenterId: '',
-      accountingCategoryId: '',
-      accountingSubcategoryId: '',
       bankAccountId: '',
       installments: [],
       installmentCount: '1',
@@ -232,6 +225,17 @@ export default function Compras() {
       return;
     }
 
+    const missingFinancialFields = [
+      !createForm.paymentMethodId && 'forma de pagamento',
+      !createForm.paymentTypeId && 'tipo de pagamento',
+      !createForm.bankAccountId && 'conta bancária',
+    ].filter(Boolean);
+
+    if (missingFinancialFields.length > 0) {
+      setErrorMessage(`Preencha os campos financeiros obrigatórios: ${missingFinancialFields.join(', ')}.`);
+      return;
+    }
+
     const selectedPaymentType = paymentTypes.find((pt) => pt.id === createForm.paymentTypeId);
     const isDividido = selectedPaymentType?.name.toLowerCase().includes('dividido') || selectedPaymentType?.name.toLowerCase().includes('prazo');
 
@@ -269,9 +273,6 @@ export default function Compras() {
         notes: createForm.notes || undefined,
         paymentMethodId: createForm.paymentMethodId || undefined,
         paymentTypeId: createForm.paymentTypeId || undefined,
-        costCenterId: createForm.costCenterId || undefined,
-        accountingCategoryId: createForm.accountingCategoryId || undefined,
-        accountingSubcategoryId: createForm.accountingSubcategoryId || undefined,
         bankAccountId: createForm.bankAccountId || undefined,
         installments: normalizedInstallments.length > 0 ? normalizedInstallments : undefined,
         items: normalizedItems,
@@ -730,49 +731,13 @@ export default function Compras() {
                   onChange={(value) => setCreateForm((current) => ({ ...current, dueDate: value }))}
                 />
                 <FilterSelect
-                  label="Conta Bancaria"
+                  label="Conta Bancária"
+                  required
                   value={createForm.bankAccountId}
                   onChange={(value) => setCreateForm((current) => ({ ...current, bankAccountId: value }))}
                   options={[
                     { label: 'Selecione...', value: '' },
                     ...bankAccounts.filter(b => b.active).map((b) => ({ label: b.name, value: b.id })),
-                  ]}
-                />
-                <FilterSelect
-                  label="Centro de Custo"
-                  value={createForm.costCenterId}
-                  onChange={(value) => setCreateForm((current) => ({ ...current, costCenterId: value }))}
-                  options={[
-                    { label: 'Selecione...', value: '' },
-                    ...costCenters.filter(c => c.active).map((c) => ({ label: c.name, value: c.id })),
-                  ]}
-                />
-                <FilterSelect
-                  label="Categoria contabil"
-                  value={createForm.accountingCategoryId}
-                  onChange={(value) => setCreateForm((current) => ({ ...current, accountingCategoryId: value }))}
-                  options={[
-                    { label: 'Selecione...', value: '' },
-                    ...accountingCategories.filter(c => c.active && c.entryType === 'Pagar').map((c) => ({ label: c.name, value: c.id })),
-                  ]}
-                />
-                <FilterSelect
-                  label="Subcategoria contabil"
-                  value={createForm.accountingSubcategoryId}
-                  onChange={(value) => setCreateForm((current) => ({ ...current, accountingSubcategoryId: value }))}
-                  options={[
-                    { label: 'Selecione...', value: '' },
-                    ...accountingSubcategories.filter(s => s.active && s.categoryId === createForm.accountingCategoryId).map((s) => ({ label: s.name, value: s.id })),
-                  ]}
-                />
-                <FilterSelect
-                  label="Tipo de custo"
-                  value={createForm.costType}
-                  onChange={(value) => setCreateForm((current) => ({ ...current, costType: value }))}
-                  options={[
-                    { label: 'Selecione...', value: '' },
-                    { label: 'Fixo', value: 'Fixo' },
-                    { label: 'Variável', value: 'Variável' },
                   ]}
                 />
               </div>
@@ -813,27 +778,8 @@ export default function Compras() {
                       onChange={(value) => {
                         const supplyItem = getSupplyItemById(value);
                         setCreateForm((current) => {
-                          const isFirstItem = current.items[0]?.localId === item.localId;
-                          const needsFinancialFill = isFirstItem || (!current.costCenterId && !current.accountingCategoryId);
-                          
-                          let newCostCenterId = current.costCenterId;
-                          let newAccountingCategoryId = current.accountingCategoryId;
-                          let newAccountingSubcategoryId = current.accountingSubcategoryId;
-                          let newCostType = current.costType;
-
-                          if (needsFinancialFill && supplyItem) {
-                            newCostCenterId = supplyItem.costCenterId || current.costCenterId;
-                            newAccountingCategoryId = supplyItem.accountingCategoryId || current.accountingCategoryId;
-                            newAccountingSubcategoryId = supplyItem.accountingSubcategoryId || current.accountingSubcategoryId;
-                            newCostType = supplyItem.costType || current.costType;
-                          }
-
                           return {
                             ...current,
-                            costCenterId: newCostCenterId,
-                            accountingCategoryId: newAccountingCategoryId,
-                            accountingSubcategoryId: newAccountingSubcategoryId,
-                            costType: newCostType,
                             items: current.items.map((entry) =>
                               entry.localId === item.localId
                                 ? {
@@ -903,6 +849,7 @@ export default function Compras() {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 bg-gray-50 p-4 rounded-xl border border-gray-200">
                 <FilterSelect
                   label="Forma de Pagamento"
+                  required
                   value={createForm.paymentMethodId}
                   onChange={(value) => setCreateForm((current) => ({ ...current, paymentMethodId: value }))}
                   options={[
@@ -912,6 +859,7 @@ export default function Compras() {
                 />
                 <FilterSelect
                   label="Tipo de Pagamento"
+                  required
                   value={createForm.paymentTypeId}
                   onChange={(value) => setCreateForm((current) => ({ ...current, paymentTypeId: value }))}
                   options={[
@@ -1297,19 +1245,24 @@ function FilterField({
 
 function FilterSelect({
   label,
+  required = false,
   value,
   onChange,
   options,
 }: {
   label: string;
+  required?: boolean;
   value: string;
   onChange: (value: string) => void;
   options: Array<{ label: string; value: string }>;
 }) {
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-gray-700">{label}</label>
+      <label className="mb-1 block text-sm font-medium text-gray-700">
+        {label}{required && <span className="text-red-500"> *</span>}
+      </label>
       <select
+        required={required}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"

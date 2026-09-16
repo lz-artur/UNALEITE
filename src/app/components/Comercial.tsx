@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { format } from 'date-fns';
-import { Loader2, Plus, ShoppingBag, Users, Trash2, Calendar, CalendarDays, FileText, User, X, Wallet, TrendingUp, History, CreditCard, Edit2 } from 'lucide-react';
+import { AlertTriangle, Loader2, Plus, ShoppingBag, Users, Trash2, Calendar, CalendarDays, FileText, User, X, Wallet, TrendingUp, History, CreditCard, Edit2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -694,16 +694,10 @@ export default function Comercial() {
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Comercial</h2>
           <p className="text-gray-600">
-            Clientes, pedidos de venda e atendimento com baixa de produto acabado
+            Pedidos de venda e atendimento com baixa de produto acabado
           </p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={openCreateClient}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Novo cliente
-          </button>
           <button
             onClick={openCreateOrder}
             className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
@@ -732,19 +726,6 @@ export default function Comercial() {
             minimumFractionDigits: 2,
           })}`}
           icon={ShoppingBag}
-        />
-      </div>
-
-      <div className="flex gap-2 rounded-xl border border-gray-200 bg-white p-2">
-        <TabButton
-          active={activeTab === 'pedidos'}
-          label="Pedidos"
-          onClick={() => setActiveTab('pedidos')}
-        />
-        <TabButton
-          active={activeTab === 'clientes'}
-          label="Clientes"
-          onClick={() => setActiveTab('clientes')}
         />
       </div>
 
@@ -1033,6 +1014,7 @@ export default function Comercial() {
                 ...activeClients.map((client) => ({ label: client.name, value: client.id })),
               ]}
             />
+            {clients.find((client) => client.id === orderForm.clientId)?.delinquent && <div className="md:col-span-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span><strong>Cliente inadimplente.</strong> Revise a situação financeira antes de criar este pedido.</span></div>}
             <InputField label="Data do pedido" type="date" value={orderForm.orderDate} onChange={(value) => setOrderForm((current) => ({ ...current, orderDate: value }))} />
             <InputField label="Data prev. de entrega" type="date" value={(orderForm as any).deliveryDate} onChange={(value) => setOrderForm((current) => ({ ...current, deliveryDate: value }))} />
             <InputField label="Vencimento" type="date" value={orderForm.dueDate} onChange={(value) => setOrderForm((current) => ({ ...current, dueDate: value }))} />
@@ -1790,7 +1772,7 @@ export default function Comercial() {
                 <div>
                   <h4 className="font-bold text-blue-900">Abatimento Financeiro</h4>
                   <p className="text-sm text-blue-700 mt-1 text-balance">
-                    O valor será abatido da receita original. Se o pedido já estiver pago, escolha o destino do valor excedente abaixo.
+                    O valor será abatido da receita original. Para reembolso financeiro, será criado também um título em Contas a Pagar.
                   </p>
                 </div>
                 <div className="w-full md:w-48 bg-white rounded p-2 border border-blue-200 shrink-0">
@@ -1805,7 +1787,7 @@ export default function Comercial() {
               
               {Number(returnForm.discountAmount) > 0 && (
                 <div className="flex flex-col md:flex-row items-center gap-3 pt-3 border-t border-blue-200">
-                  <span className="text-sm font-medium text-blue-900 shrink-0">Destino do excedente (se já pago):</span>
+                  <span className="text-sm font-medium text-blue-900 shrink-0">Como tratar a devolução:</span>
                   <select 
                     className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                     value={returnForm.excessHandlingStrategy}

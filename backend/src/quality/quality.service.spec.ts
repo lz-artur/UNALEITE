@@ -26,7 +26,7 @@ describe('QualityService', () => {
     );
   });
 
-  describe('createAnalysis (and financial entry)', () => {
+  describe('createAnalysis', () => {
     let selectMock: jest.Mock;
     let insertMock: jest.Mock;
     let updateMock: jest.Mock;
@@ -45,7 +45,7 @@ describe('QualityService', () => {
       });
     });
 
-    it('should create a financial entry using category from milk_type', async () => {
+    it('should not create a financial entry because it is generated at reception', async () => {
       // 1. getMilkLot
       selectMock.mockReturnValueOnce({
         eq: jest.fn().mockReturnValue({
@@ -93,26 +93,6 @@ describe('QualityService', () => {
         }),
       });
 
-      // 6. select milk_types (for upsertFinancialEntry)
-      selectMock.mockReturnValueOnce({
-        eq: jest.fn().mockReturnValue({
-          maybeSingle: jest.fn().mockResolvedValue({
-            data: {
-              accounting_category_id: 'cat-id',
-              accounting_subcategory_id: 'sub-id',
-              cost_center_id: 'cc-id',
-              accounting_categories: { name: 'Fornecedores Leite' },
-            },
-            error: null,
-          }),
-        }),
-      });
-
-      // 7. insert financial_entries
-      insertMock.mockReturnValueOnce({
-        error: null,
-      });
-
       await service.createAnalysis('lot-1', {
         alizarol: 'Aprovado',
         gordura: 3.5,
@@ -120,18 +100,10 @@ describe('QualityService', () => {
         antibioticos: 'Não Detectado'
       });
 
-      // Verify the insert into financial_entries
-      expect(supabaseServiceMock.admin.from).toHaveBeenCalledWith('financial_entries');
-      expect(insertMock).toHaveBeenLastCalledWith(expect.objectContaining({
-        category: 'Fornecedores Leite',
-        accounting_category_id: 'cat-id',
-        accounting_subcategory_id: 'sub-id',
-        cost_center_id: 'cc-id',
-        amount: 500,
-      }));
+      expect(supabaseServiceMock.admin.from).not.toHaveBeenCalledWith('financial_entries');
     });
 
-    it('should default to "Matéria Prima" if milk_type has no category configured', async () => {
+    it('should not create a payable entry when the analysis approves a lot', async () => {
       // 1. getMilkLot
       selectMock.mockReturnValueOnce({
         eq: jest.fn().mockReturnValue({
@@ -179,26 +151,6 @@ describe('QualityService', () => {
         }),
       });
 
-      // 6. select milk_types (for upsertFinancialEntry)
-      selectMock.mockReturnValueOnce({
-        eq: jest.fn().mockReturnValue({
-          maybeSingle: jest.fn().mockResolvedValue({
-            data: {
-              accounting_category_id: null,
-              accounting_subcategory_id: null,
-              cost_center_id: null,
-              accounting_categories: null,
-            },
-            error: null,
-          }),
-        }),
-      });
-
-      // 7. insert financial_entries
-      insertMock.mockReturnValueOnce({
-        error: null,
-      });
-
       await service.createAnalysis('lot-2', {
         alizarol: 'Aprovado',
         gordura: 3.5,
@@ -206,14 +158,7 @@ describe('QualityService', () => {
         antibioticos: 'Não Detectado'
       });
 
-      // Verify the insert into financial_entries
-      expect(supabaseServiceMock.admin.from).toHaveBeenCalledWith('financial_entries');
-      expect(insertMock).toHaveBeenLastCalledWith(expect.objectContaining({
-        category: 'Matéria Prima',
-        accounting_category_id: null,
-        accounting_subcategory_id: null,
-        cost_center_id: null,
-      }));
+      expect(supabaseServiceMock.admin.from).not.toHaveBeenCalledWith('financial_entries');
     });
   });
 
@@ -265,7 +210,7 @@ describe('QualityService', () => {
 
       const result = await service.deleteAnalysis('analysis-1');
       expect(result).toEqual({ success: true });
-      expect(deleteMock).toHaveBeenCalledTimes(3); // milk_lot_analyses, lot_block_events, financial_entries
+      expect(deleteMock).toHaveBeenCalledTimes(2); // milk_lot_analyses, lot_block_events
       expect(updateMock).toHaveBeenCalledWith({
         status: MILK_LOT_STATUS.PENDING_ANALYSIS,
         latest_analysis_id: null,

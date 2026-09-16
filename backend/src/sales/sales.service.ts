@@ -236,6 +236,23 @@ export class SalesService {
     payload: ReturnSalesOrderDto,
     user?: AuthenticatedUser,
   ) {
+    const { error } = await this.supabaseService.admin.rpc('process_sales_return', {
+      p_sales_order_id: salesOrderId,
+      p_return_date: payload.returnDate,
+      p_items: payload.items,
+      p_discount_amount: payload.discountAmount,
+      p_excess_handling_strategy: payload.excessHandlingStrategy ?? null,
+      p_user_id: user?.id ?? null,
+    });
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return this.getSalesOrder(salesOrderId);
+
+    /* Legacy, non-atomic flow retained below temporarily for reference while
+       the database migration is rolled out.
     const bundle = await this.loadSalesBundle();
     const salesOrder = bundle.salesOrders.find((entry) => String(entry.id) === salesOrderId);
 
@@ -318,13 +335,36 @@ export class SalesService {
 
     // Apply financial discount
     if (totalDiscount > 0) {
-      const { data: relatedEntries } = await this.supabaseService.admin
+      // Vendas finalizadas pelo fluxo atual têm os lançamentos vinculados à
+      // finalização financeira, e não diretamente ao pedido. Mantemos também
+      // a consulta legada para que devoluções de pedidos antigos continuem
+      // funcionando.
+      const { data: legacyEntries } = await this.supabaseService.admin
         .from('financial_entries')
         .select('*, financial_entry_receipts(*)')
         .eq('reference_table', 'sales_orders')
         .eq('reference_id', salesOrderId);
 
-      if (relatedEntries && relatedEntries.length > 0) {
+      const { data: finalizations } = await this.supabaseService.admin
+        .from('sales_order_financial_finalizations')
+        .select('id')
+        .eq('sales_order_id', salesOrderId);
+
+      const finalizedEntries = await Promise.all(
+        (finalizations || []).map(async (finalization) => {
+          const { data } = await this.supabaseService.admin
+            .from('financial_entries')
+            .select('*, financial_entry_receipts(*)')
+            .eq('reference_table', 'sales_order_financial_finalizations')
+            .eq('reference_id', finalization.id);
+
+          return data || [];
+        }),
+      );
+
+      const relatedEntries = [...(legacyEntries || []), ...finalizedEntries.flat()];
+
+      if (relatedEntries.length > 0) {
         const totalAmount = relatedEntries.reduce((sum, e) => sum + Number(e.amount), 0);
         
         if (totalDiscount > totalAmount) {
@@ -374,8 +414,15 @@ export class SalesService {
           }
         }
         
-        // Handle the excess if there is any and a strategy is provided
-        if (totalNewlyGeneratedExcess > 0 && payload.excessHandlingStrategy) {
+        // Crédito só existe quando um recebimento já superou o novo saldo do
+        // título. Já o reembolso é uma escolha explícita do usuário: deve
+        // gerar a obrigação de pagar pelo valor devolvido, mesmo que o contas
+        // a receber também tenha sido abatido nesta operação.
+        const reimbursementAmount = payload.excessHandlingStrategy === 'refund'
+          ? totalDiscount
+          : totalNewlyGeneratedExcess;
+
+        if (reimbursementAmount > 0 && payload.excessHandlingStrategy) {
           if (payload.excessHandlingStrategy === 'credit' && salesOrder.client_id) {
             const { data: client } = await this.supabaseService.admin
               .from('clients')
@@ -384,7 +431,7 @@ export class SalesService {
               .single();
             
             if (client) {
-              const newBalance = Number(client.credit_balance || 0) + totalNewlyGeneratedExcess;
+              const newBalance = Number(client.credit_balance || 0) + reimbursementAmount;
               await this.supabaseService.admin
                 .from('clients')
                 .update({ credit_balance: newBalance })
@@ -394,7 +441,7 @@ export class SalesService {
                 .from('client_credits')
                 .insert({
                   client_id: salesOrder.client_id,
-                  amount: totalNewlyGeneratedExcess,
+                  amount: reimbursementAmount,
                   transaction_type: 'Credit_Earned',
                   reference_type: 'sales_orders',
                   reference_id: salesOrderId,
@@ -408,7 +455,7 @@ export class SalesService {
               .insert({
                 entry_type: 'Pagar',
                 description: `Reembolso de Devolução (Pedido ${salesOrder.id})`,
-                amount: totalNewlyGeneratedExcess,
+                amount: reimbursementAmount,
                 due_date: payload.returnDate || new Date().toISOString(),
                 status: 'Aberto',
                 category: 'Reembolsos',
@@ -423,6 +470,9 @@ export class SalesService {
     }
 
     return this.getSalesOrder(salesOrderId);
+  }
+
+    */
   }
 
   private async loadSalesBundle() {

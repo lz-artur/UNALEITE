@@ -38,13 +38,25 @@ export class PurchasesService {
   }
 
   async createPurchase(payload: CreatePurchaseDto, user?: AuthenticatedUser) {
-    const supplier = await this.getSupplier(payload.supplierId);
-    const supplyItems = await this.getSupplyItems(payload.items.map((item) => item.supplyItemId));
+    const [supplier, supplyItems, financialReferences] = await Promise.all([
+      this.getSupplier(payload.supplierId),
+      this.getSupplyItems(payload.items.map((item) => item.supplyItemId)),
+      this.getFinancialReferences(payload),
+    ]);
     const purchaseNumber = `CMP-${new Date(payload.purchaseDate).getFullYear()}-${Date.now()}`;
     const totalAmount = payload.items.reduce(
       (sum, item) => sum + Number((item.quantity * item.unitCost).toFixed(4)),
       0,
     );
+    const uncategorizedItems = supplyItems.filter(
+      (item) => !item.cost_center_id || !item.accounting_category_id || !item.accounting_subcategory_id,
+    );
+    if (uncategorizedItems.length > 0) {
+      const names = uncategorizedItems.map((item) => String(item.name ?? item.id)).join(', ');
+      throw new BadRequestException(
+        `Cadastre centro de custo, categoria e subcategoria contábil nos seguintes insumos antes de comprar: ${names}.`,
+      );
+    }
     const dueDate = payload.dueDate ?? payload.purchaseDate;
 
     const { data: purchase, error: purchaseError } = await this.supabaseService.admin
@@ -59,9 +71,11 @@ export class PurchasesService {
         notes: payload.notes ?? null,
         payment_method_id: payload.paymentMethodId ?? null,
         payment_type_id: payload.paymentTypeId ?? null,
-        cost_center_id: payload.costCenterId ?? null,
-        accounting_category_id: payload.accountingCategoryId ?? null,
-        accounting_subcategory_id: payload.accountingSubcategoryId ?? null,
+        // A classificação contábil de uma compra pertence a cada item, nunca
+        // ao cabeçalho: uma única compra pode reunir insumos distintos.
+        cost_center_id: null,
+        accounting_category_id: null,
+        accounting_subcategory_id: null,
         bank_account_id: payload.bankAccountId ?? null,
         created_by: user?.id ?? null,
         updated_by: user?.id ?? null,
@@ -100,7 +114,15 @@ export class PurchasesService {
       throw new BadRequestException(itemsError.message);
     }
 
-    await this.upsertFinancialEntry(purchase, supplier, totalAmount, payload, supplyItems, user);
+    await this.upsertFinancialEntry(
+      purchase,
+      supplier,
+      totalAmount,
+      payload,
+      supplyItems,
+      financialReferences,
+      user,
+    );
 
     return this.getPurchase(String(purchase.id));
   }
@@ -408,6 +430,38 @@ export class PurchasesService {
     return data ?? [];
   }
 
+  private async getFinancialReferences(payload: CreatePurchaseDto) {
+    const [paymentMethod, paymentType, bankAccount] = await Promise.all([
+      this.getActiveReference('payment_methods', payload.paymentMethodId, 'Forma de pagamento'),
+      this.getActiveReference('payment_types', payload.paymentTypeId, 'Tipo de pagamento'),
+      this.getActiveReference('bank_accounts', payload.bankAccountId, 'Conta bancária'),
+    ]);
+
+    return { paymentMethod, paymentType, bankAccount };
+  }
+
+  private async getActiveReference(table: string, id: string, label: string) {
+    const { data, error } = await this.supabaseService.admin
+      .from(table)
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    if (!data) {
+      throw new BadRequestException(`${label} não encontrado(a).`);
+    }
+
+    if (!data.active) {
+      throw new BadRequestException(`${label} está inativo(a).`);
+    }
+
+    return data;
+  }
+
   private async refreshPurchaseStatus(purchaseId: string, user?: AuthenticatedUser) {
     const { data: items, error } = await this.supabaseService.admin
       .from('purchase_items')
@@ -445,6 +499,7 @@ export class PurchasesService {
     amount: number,
     payload: CreatePurchaseDto,
     supplyItems: Record<string, any>[],
+    financialReferences: { paymentMethod: any; paymentType: any },
     user?: AuthenticatedUser,
   ) {
     const description = `Compra ${String(purchase.purchase_number)} - ${String(supplier.name)}`;
@@ -455,10 +510,13 @@ export class PurchasesService {
       supplier_id: purchase.supplier_id,
       reference_table: 'purchases',
       reference_id: purchase.id,
-      cost_center_id: payload.costCenterId ?? null,
-      accounting_category_id: payload.accountingCategoryId ?? null,
-      accounting_subcategory_id: payload.accountingSubcategoryId ?? null,
+      cost_center_id: null,
+      // As categorias ficam nas linhas de rateio, vindas do cadastro do insumo.
+      accounting_category_id: null,
+      accounting_subcategory_id: null,
       bank_account_id: payload.bankAccountId ?? null,
+      payment_method: financialReferences.paymentMethod.name,
+      payment_type: financialReferences.paymentType.name,
       created_by: user?.id ?? null,
       updated_by: user?.id ?? null,
     };
@@ -520,6 +578,7 @@ export class PurchasesService {
 
           rateioItemsToInsert.push({
             financial_entry_id: entry.id,
+            supply_item_id: supplyItem?.id ?? null,
             amount: rateioAmount,
             cost_center_id: supplyItem?.cost_center_id ?? null,
             accounting_category_id: supplyItem?.accounting_category_id ?? null,
