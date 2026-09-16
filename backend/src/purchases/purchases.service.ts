@@ -48,6 +48,15 @@ export class PurchasesService {
       (sum, item) => sum + Number((item.quantity * item.unitCost).toFixed(4)),
       0,
     );
+    const uncategorizedItems = supplyItems.filter(
+      (item) => !item.cost_center_id || !item.accounting_category_id || !item.accounting_subcategory_id,
+    );
+    if (uncategorizedItems.length > 0) {
+      const names = uncategorizedItems.map((item) => String(item.name ?? item.id)).join(', ');
+      throw new BadRequestException(
+        `Cadastre centro de custo, categoria e subcategoria contábil nos seguintes insumos antes de comprar: ${names}.`,
+      );
+    }
     const dueDate = payload.dueDate ?? payload.purchaseDate;
 
     const { data: purchase, error: purchaseError } = await this.supabaseService.admin
@@ -62,9 +71,11 @@ export class PurchasesService {
         notes: payload.notes ?? null,
         payment_method_id: payload.paymentMethodId ?? null,
         payment_type_id: payload.paymentTypeId ?? null,
-        cost_center_id: payload.costCenterId ?? null,
-        accounting_category_id: payload.accountingCategoryId ?? null,
-        accounting_subcategory_id: payload.accountingSubcategoryId ?? null,
+        // A classificação contábil de uma compra pertence a cada item, nunca
+        // ao cabeçalho: uma única compra pode reunir insumos distintos.
+        cost_center_id: null,
+        accounting_category_id: null,
+        accounting_subcategory_id: null,
         bank_account_id: payload.bankAccountId ?? null,
         created_by: user?.id ?? null,
         updated_by: user?.id ?? null,
@@ -420,24 +431,13 @@ export class PurchasesService {
   }
 
   private async getFinancialReferences(payload: CreatePurchaseDto) {
-    const [paymentMethod, paymentType, costCenter, accountingCategory, accountingSubcategory, bankAccount] = await Promise.all([
+    const [paymentMethod, paymentType, bankAccount] = await Promise.all([
       this.getActiveReference('payment_methods', payload.paymentMethodId, 'Forma de pagamento'),
       this.getActiveReference('payment_types', payload.paymentTypeId, 'Tipo de pagamento'),
-      this.getActiveReference('cost_centers', payload.costCenterId, 'Centro de custo'),
-      this.getActiveReference('accounting_categories', payload.accountingCategoryId, 'Categoria contábil'),
-      this.getActiveReference('accounting_subcategories', payload.accountingSubcategoryId, 'Subcategoria contábil'),
       this.getActiveReference('bank_accounts', payload.bankAccountId, 'Conta bancária'),
     ]);
 
-    if (accountingCategory.entry_type !== 'Pagar') {
-      throw new BadRequestException('A categoria contábil deve ser do tipo Pagar.');
-    }
-
-    if (String(accountingSubcategory.category_id) !== String(accountingCategory.id)) {
-      throw new BadRequestException('A subcategoria contábil deve pertencer à categoria selecionada.');
-    }
-
-    return { paymentMethod, paymentType, costCenter, accountingCategory, accountingSubcategory, bankAccount };
+    return { paymentMethod, paymentType, bankAccount };
   }
 
   private async getActiveReference(table: string, id: string, label: string) {
@@ -510,9 +510,10 @@ export class PurchasesService {
       supplier_id: purchase.supplier_id,
       reference_table: 'purchases',
       reference_id: purchase.id,
-      cost_center_id: payload.costCenterId ?? null,
-      accounting_category_id: payload.accountingCategoryId ?? null,
-      accounting_subcategory_id: payload.accountingSubcategoryId ?? null,
+      cost_center_id: null,
+      // As categorias ficam nas linhas de rateio, vindas do cadastro do insumo.
+      accounting_category_id: null,
+      accounting_subcategory_id: null,
       bank_account_id: payload.bankAccountId ?? null,
       payment_method: financialReferences.paymentMethod.name,
       payment_type: financialReferences.paymentType.name,
@@ -577,6 +578,7 @@ export class PurchasesService {
 
           rateioItemsToInsert.push({
             financial_entry_id: entry.id,
+            supply_item_id: supplyItem?.id ?? null,
             amount: rateioAmount,
             cost_center_id: supplyItem?.cost_center_id ?? null,
             accounting_category_id: supplyItem?.accounting_category_id ?? null,

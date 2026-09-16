@@ -360,6 +360,17 @@ export interface FinancialEntryRecord extends ContaFinanceira {
   valorRecebido: number;
   saldoReceber: number;
   recebimentos: FinancialReceiptRecord[];
+  itensRateio: FinancialEntryItemRecord[];
+}
+
+export interface FinancialEntryItemRecord {
+  id: string;
+  valor: number;
+  insumo?: string;
+  centroCusto?: string;
+  categoria?: string;
+  subcategoria?: string;
+  tipoCusto?: string;
 }
 
 export interface FinancialReceiptRecord {
@@ -918,6 +929,15 @@ function mapFinancialEntry(row: any): FinancialEntryRecord {
   const valor = Number(row.amount);
   const valorRecebido = Number(row.received_amount ?? recebimentos.reduce((sum, receipt) => sum + receipt.valor, 0));
   const saldoReceber = Number(row.outstanding_amount ?? Math.max(0, valor - valorRecebido));
+  const itensRateio: FinancialEntryItemRecord[] = (row.financial_entry_items ?? []).map((item: any) => ({
+    id: item.id,
+    valor: Number(item.amount),
+    insumo: item.supply_items?.name ?? undefined,
+    centroCusto: item.cost_centers?.name ?? undefined,
+    categoria: item.accounting_categories?.name ?? undefined,
+    subcategoria: item.accounting_subcategories?.name ?? undefined,
+    tipoCusto: item.cost_type ?? undefined,
+  }));
 
   return {
     id: row.id,
@@ -954,6 +974,7 @@ function mapFinancialEntry(row: any): FinancialEntryRecord {
     valorRecebido,
     saldoReceber,
     recebimentos,
+    itensRateio,
   };
 }
 
@@ -1974,6 +1995,7 @@ export async function returnSalesOrder(payload: {
     reason?: string;
   }>;
   discountAmount: number;
+  excessHandlingStrategy?: 'credit' | 'refund';
 }) {
   const salesOrder = await apiRequest<any>(`/sales-orders/${payload.salesOrderId}/return`, {
     method: 'POST',
@@ -1981,6 +2003,7 @@ export async function returnSalesOrder(payload: {
       returnDate: payload.returnDate,
       items: payload.items,
       discountAmount: payload.discountAmount,
+      excessHandlingStrategy: payload.excessHandlingStrategy,
     }),
   });
   return mapSalesOrder(salesOrder);

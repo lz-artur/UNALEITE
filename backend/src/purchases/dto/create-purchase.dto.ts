@@ -65,18 +65,6 @@ export class CreatePurchaseDto {
 
   @IsNotEmpty()
   @IsUUID()
-  costCenterId!: string;
-
-  @IsNotEmpty()
-  @IsUUID()
-  accountingCategoryId!: string;
-
-  @IsNotEmpty()
-  @IsUUID()
-  accountingSubcategoryId!: string;
-
-  @IsNotEmpty()
-  @IsUUID()
   bankAccountId!: string;
 
   @IsOptional()

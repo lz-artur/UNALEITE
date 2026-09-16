@@ -58,10 +58,6 @@ export default function Compras() {
     items: [{ localId: 'item-1', supplyItemId: '', quantity: '', unitCost: '' }],
     paymentMethodId: '',
     paymentTypeId: '',
-    costCenterId: '',
-    accountingCategoryId: '',
-    accountingSubcategoryId: '',
-    costType: '',
     bankAccountId: '',
     installments: [] as Array<{ localId: string; dueDate: string; amount: string }>,
     installmentCount: '1',
@@ -148,9 +144,6 @@ export default function Compras() {
       items: [{ localId: `item-${Date.now()}`, supplyItemId: '', quantity: '', unitCost: '' }],
       paymentMethodId: '',
       paymentTypeId: '',
-      costCenterId: '',
-      accountingCategoryId: '',
-      accountingSubcategoryId: '',
       bankAccountId: '',
       installments: [],
       installmentCount: '1',
@@ -236,9 +229,6 @@ export default function Compras() {
       !createForm.paymentMethodId && 'forma de pagamento',
       !createForm.paymentTypeId && 'tipo de pagamento',
       !createForm.bankAccountId && 'conta bancária',
-      !createForm.costCenterId && 'centro de custo',
-      !createForm.accountingCategoryId && 'categoria contábil',
-      !createForm.accountingSubcategoryId && 'subcategoria contábil',
     ].filter(Boolean);
 
     if (missingFinancialFields.length > 0) {
@@ -283,9 +273,6 @@ export default function Compras() {
         notes: createForm.notes || undefined,
         paymentMethodId: createForm.paymentMethodId || undefined,
         paymentTypeId: createForm.paymentTypeId || undefined,
-        costCenterId: createForm.costCenterId || undefined,
-        accountingCategoryId: createForm.accountingCategoryId || undefined,
-        accountingSubcategoryId: createForm.accountingSubcategoryId || undefined,
         bankAccountId: createForm.bankAccountId || undefined,
         installments: normalizedInstallments.length > 0 ? normalizedInstallments : undefined,
         items: normalizedItems,
@@ -753,46 +740,6 @@ export default function Compras() {
                     ...bankAccounts.filter(b => b.active).map((b) => ({ label: b.name, value: b.id })),
                   ]}
                 />
-                <FilterSelect
-                  label="Centro de Custo"
-                  required
-                  value={createForm.costCenterId}
-                  onChange={(value) => setCreateForm((current) => ({ ...current, costCenterId: value }))}
-                  options={[
-                    { label: 'Selecione...', value: '' },
-                    ...costCenters.filter(c => c.active).map((c) => ({ label: c.name, value: c.id })),
-                  ]}
-                />
-                <FilterSelect
-                  label="Categoria contábil"
-                  required
-                  value={createForm.accountingCategoryId}
-                  onChange={(value) => setCreateForm((current) => ({ ...current, accountingCategoryId: value, accountingSubcategoryId: '' }))}
-                  options={[
-                    { label: 'Selecione...', value: '' },
-                    ...accountingCategories.filter(c => c.active && c.entryType === 'Pagar').map((c) => ({ label: c.name, value: c.id })),
-                  ]}
-                />
-                <FilterSelect
-                  label="Subcategoria contábil"
-                  required
-                  value={createForm.accountingSubcategoryId}
-                  onChange={(value) => setCreateForm((current) => ({ ...current, accountingSubcategoryId: value }))}
-                  options={[
-                    { label: 'Selecione...', value: '' },
-                    ...accountingSubcategories.filter(s => s.active && s.categoryId === createForm.accountingCategoryId).map((s) => ({ label: s.name, value: s.id })),
-                  ]}
-                />
-                <FilterSelect
-                  label="Tipo de custo"
-                  value={createForm.costType}
-                  onChange={(value) => setCreateForm((current) => ({ ...current, costType: value }))}
-                  options={[
-                    { label: 'Selecione...', value: '' },
-                    { label: 'Fixo', value: 'Fixo' },
-                    { label: 'Variável', value: 'Variável' },
-                  ]}
-                />
               </div>
 
               <div className="space-y-3 mt-4">
@@ -831,27 +778,8 @@ export default function Compras() {
                       onChange={(value) => {
                         const supplyItem = getSupplyItemById(value);
                         setCreateForm((current) => {
-                          const isFirstItem = current.items[0]?.localId === item.localId;
-                          const needsFinancialFill = isFirstItem || (!current.costCenterId && !current.accountingCategoryId);
-                          
-                          let newCostCenterId = current.costCenterId;
-                          let newAccountingCategoryId = current.accountingCategoryId;
-                          let newAccountingSubcategoryId = current.accountingSubcategoryId;
-                          let newCostType = current.costType;
-
-                          if (needsFinancialFill && supplyItem) {
-                            newCostCenterId = supplyItem.costCenterId || current.costCenterId;
-                            newAccountingCategoryId = supplyItem.accountingCategoryId || current.accountingCategoryId;
-                            newAccountingSubcategoryId = supplyItem.accountingSubcategoryId || current.accountingSubcategoryId;
-                            newCostType = supplyItem.costType || current.costType;
-                          }
-
                           return {
                             ...current,
-                            costCenterId: newCostCenterId,
-                            accountingCategoryId: newAccountingCategoryId,
-                            accountingSubcategoryId: newAccountingSubcategoryId,
-                            costType: newCostType,
                             items: current.items.map((entry) =>
                               entry.localId === item.localId
                                 ? {

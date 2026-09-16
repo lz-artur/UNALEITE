@@ -12,7 +12,7 @@ export class FinanceService {
   async listEntries(filters: ListFinancialEntriesDto = {}) {
     const { data, error } = await this.supabaseService.admin
       .from('financial_entries')
-      .select('*, financial_entry_receipts(*)')
+      .select('*, financial_entry_receipts(*), financial_entry_items(*, supply_items(name), cost_centers(name), accounting_categories(name), accounting_subcategories(name))')
       // A relação de lançamentos é consultada também por integrações. Manter a
       // ordenação no servidor evita que telas distintas exibam categorias em
       // ordens diferentes.
@@ -407,7 +407,7 @@ export class FinanceService {
   }
 
   private async getEntryWithReceipts(id: string) {
-    const { data, error } = await this.supabaseService.admin.from('financial_entries').select('*, financial_entry_receipts(*)').eq('id', id).maybeSingle();
+    const { data, error } = await this.supabaseService.admin.from('financial_entries').select('*, financial_entry_receipts(*), financial_entry_items(*, supply_items(name), cost_centers(name), accounting_categories(name), accounting_subcategories(name))').eq('id', id).maybeSingle();
 
     if (error) {
       throw new BadRequestException(error.message);

@@ -207,6 +207,7 @@ describe('operationsApi - Deletion endpoints', () => {
           },
         ],
         discountAmount: 50,
+        excessHandlingStrategy: 'refund' as const,
       };
 
       const result = await returnSalesOrder(payload);
@@ -224,6 +225,7 @@ describe('operationsApi - Deletion endpoints', () => {
             },
           ],
           discountAmount: 50,
+          excessHandlingStrategy: 'refund',
         }),
       });
 
