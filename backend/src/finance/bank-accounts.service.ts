@@ -108,7 +108,7 @@ export class BankAccountsService {
 
     const movements = await this.getActualMovements();
     const balances = this.sumBalances(movements);
-    const { data: entries, error: entriesError } = await this.supabaseService.admin.from('financial_entries').select('id, bank_account_id, entry_type, description, amount, due_date, status, financial_entry_receipts(amount)').not('bank_account_id', 'is', null).neq('status', 'Cancelado');
+    const { data: entries, error: entriesError } = await this.supabaseService.admin.from('financial_entries').select('id, bank_account_id, entry_type, description, amount, discount_amount, due_date, status, financial_entry_receipts(amount)').not('bank_account_id', 'is', null).neq('status', 'Cancelado');
     if (entriesError) throw new BadRequestException(entriesError.message);
 
     const projected = new Map<string, { inflows: any[]; outflows: any[] }>();
@@ -117,7 +117,7 @@ export class BankAccountsService {
       if (entry.status === 'Pago') continue;
       const receipts = Array.isArray(entry.financial_entry_receipts) ? entry.financial_entry_receipts : [];
       const received = receipts.reduce((total: number, receipt: any) => total + Number(receipt.amount || 0), 0);
-      const outstanding = Math.max(0, Number(entry.amount || 0) - received);
+      const outstanding = Math.max(0, Number(entry.amount || 0) - Number(entry.discount_amount || 0) - received);
       if (outstanding === 0 || !entry.bank_account_id) continue;
       const bucket = projected.get(entry.bank_account_id) ?? {
         inflows: [],

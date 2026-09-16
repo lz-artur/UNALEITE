@@ -65,6 +65,37 @@ describe('FinanceService', () => {
       expect((result as any).outstanding_amount).toBe(5000);
       expect((result as any).computed_status).toBe('Parcial');
     });
+
+    it('treats a residual fraction of a cent as settled', async () => {
+      supabaseServiceMock.admin.rpc.mockResolvedValue({ data: 'receipt-1', error: null });
+      supabaseServiceMock.admin.from.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({
+              data: {
+                id: 'entry-1',
+                amount: 1333.333,
+                due_date: '2029-01-01',
+                status: 'Parcial',
+                financial_entry_receipts: [{
+                  id: 'receipt-1', amount: 1333.33, payment_date: '2026-08-30T12:00:00.000Z', payment_method: 'Pix',
+                }],
+              },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      const result = await service.createReceipt('entry-1', {
+        amount: 1333.33,
+        paymentDate: '2026-08-30',
+        paymentMethod: 'Pix',
+      });
+
+      expect((result as any).outstanding_amount).toBe(0);
+      expect((result as any).computed_status).toBe('Pago');
+    });
   });
 
   describe('settleEntry', () => {

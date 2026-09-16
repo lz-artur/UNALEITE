@@ -916,19 +916,24 @@ function mapSalesOrder(row: any): SalesOrderRecord {
   };
 }
 
+function roundCurrency(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round((parsed + Number.EPSILON) * 100) / 100 : 0;
+}
+
 function mapFinancialEntry(row: any): FinancialEntryRecord {
   const recebimentos: FinancialReceiptRecord[] = (row.financial_entry_receipts ?? []).map((receipt: any) => ({
     id: receipt.id,
-    valor: Number(receipt.amount),
+    valor: roundCurrency(receipt.amount),
     dataPagamento: new Date(receipt.payment_date),
     formaPagamento: receipt.payment_method,
     contaBancariaId: receipt.bank_account_id ?? undefined,
     anexoUrl: receipt.attachment_url ?? undefined,
     observacoes: receipt.notes ?? undefined,
   }));
-  const valor = Number(row.amount);
-  const valorRecebido = Number(row.received_amount ?? recebimentos.reduce((sum, receipt) => sum + receipt.valor, 0));
-  const saldoReceber = Number(row.outstanding_amount ?? Math.max(0, valor - valorRecebido));
+  const valor = roundCurrency(row.amount);
+  const valorRecebido = roundCurrency(row.received_amount ?? recebimentos.reduce((sum, receipt) => sum + receipt.valor, 0));
+  const saldoReceber = roundCurrency(row.outstanding_amount ?? Math.max(0, valor - valorRecebido));
   const itensRateio: FinancialEntryItemRecord[] = (row.financial_entry_items ?? []).map((item: any) => ({
     id: item.id,
     valor: Number(item.amount),

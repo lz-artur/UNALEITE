@@ -3,6 +3,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -40,7 +41,7 @@ export class ReturnSalesOrderDto {
   @Min(0)
   discountAmount!: number;
 
-  @IsString()
   @IsOptional()
+  @IsIn(['credit', 'refund'])
   excessHandlingStrategy?: 'credit' | 'refund';
 }

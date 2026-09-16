@@ -236,6 +236,23 @@ export class SalesService {
     payload: ReturnSalesOrderDto,
     user?: AuthenticatedUser,
   ) {
+    const { error } = await this.supabaseService.admin.rpc('process_sales_return', {
+      p_sales_order_id: salesOrderId,
+      p_return_date: payload.returnDate,
+      p_items: payload.items,
+      p_discount_amount: payload.discountAmount,
+      p_excess_handling_strategy: payload.excessHandlingStrategy ?? null,
+      p_user_id: user?.id ?? null,
+    });
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return this.getSalesOrder(salesOrderId);
+
+    /* Legacy, non-atomic flow retained below temporarily for reference while
+       the database migration is rolled out.
     const bundle = await this.loadSalesBundle();
     const salesOrder = bundle.salesOrders.find((entry) => String(entry.id) === salesOrderId);
 
@@ -453,6 +470,9 @@ export class SalesService {
     }
 
     return this.getSalesOrder(salesOrderId);
+  }
+
+    */
   }
 
   private async loadSalesBundle() {

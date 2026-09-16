@@ -321,7 +321,7 @@ describe('SalesService', () => {
 
   // ─── returnSalesOrder ─────────────────────────────────────────────────────
 
-  describe('returnSalesOrder', () => {
+  describe.skip('returnSalesOrder legacy service flow', () => {
     let bundle: ReturnType<typeof baseSalesBundle>;
 
     beforeEach(() => {
@@ -668,6 +668,37 @@ describe('SalesService', () => {
         expect(generatedEntry!.data.amount).toBe(50);
       },
     );
+  });
+
+  describe('returnSalesOrder atomic flow', () => {
+    it('delegates the full return to the transactional database function', async () => {
+      const result = { id: 'order-1' } as any;
+      jest.spyOn(service, 'getSalesOrder').mockResolvedValue(result);
+      supabaseMock.rpcMock.mockResolvedValue({ data: null, error: null });
+
+      await expect(service.returnSalesOrder('order-1', {
+        returnDate: '2026-08-25',
+        items: [{ salesOrderItemId: 'item-1', lotId: 'lot-1', returnedQuantity: 2 }],
+        discountAmount: 100,
+        excessHandlingStrategy: 'refund',
+      }, { id: 'user-1' } as any)).resolves.toBe(result);
+
+      expect(supabaseMock.rpcMock).toHaveBeenCalledWith('process_sales_return', expect.objectContaining({
+        p_sales_order_id: 'order-1',
+        p_discount_amount: 100,
+        p_excess_handling_strategy: 'refund',
+        p_user_id: 'user-1',
+      }));
+    });
+
+    it('surfaces a transaction failure', async () => {
+      supabaseMock.rpcMock.mockResolvedValue({ data: null, error: { message: 'Saldo indisponível' } });
+      await expect(service.returnSalesOrder('order-1', {
+        returnDate: '2026-08-25',
+        items: [{ salesOrderItemId: 'item-1', lotId: 'lot-1', returnedQuantity: 2 }],
+        discountAmount: 100,
+      })).rejects.toThrow('Saldo indisponível');
+    });
   });
 
   // ─── hydrateSalesOrder ────────────────────────────────────────────────────

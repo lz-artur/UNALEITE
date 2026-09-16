@@ -66,10 +66,10 @@ export class FinanceService {
     }
 
     const currentReceipts = Array.isArray(currentEntry.financial_entry_receipts) ? currentEntry.financial_entry_receipts : [];
-    const receivedAmount = currentReceipts.reduce((sum: number, receipt: Record<string, unknown>) => sum + Number(receipt.amount || 0), 0);
-    const originalAmount = Number(currentEntry.amount || 0);
-    const discountAmount = Number(currentEntry.discount_amount || 0);
-    const remainingAmount = originalAmount - discountAmount - receivedAmount;
+    const receivedAmount = this.roundCurrency(currentReceipts.reduce((sum: number, receipt: Record<string, unknown>) => sum + Number(receipt.amount || 0), 0));
+    const originalAmount = this.roundCurrency(currentEntry.amount || 0);
+    const discountAmount = this.roundCurrency(currentEntry.discount_amount || 0);
+    const remainingAmount = this.roundCurrency(originalAmount - discountAmount - receivedAmount);
 
     if (remainingAmount <= 0) {
       throw new BadRequestException('Este lançamento já está totalmente liquidado.');
@@ -99,6 +99,11 @@ export class FinanceService {
       throw new BadRequestException('Data de recebimento inválida.');
     }
 
+    const amount = this.roundCurrency(payload.amount);
+    if (amount <= 0) {
+      throw new BadRequestException('O valor do recebimento deve ser maior que zero.');
+    }
+
     if (payload.paymentMethod === 'Crédito do Cliente') {
       const { data: entryData } = await this.supabaseService.admin.from('financial_entries').select('client_id').eq('id', id).single();
 
@@ -111,7 +116,7 @@ export class FinanceService {
       const { data: clientData } = await this.supabaseService.admin.from('clients').select('credit_balance').eq('id', clientId).single();
 
       const currentBalance = Number(clientData?.credit_balance || 0);
-      const amountToUse = Number(payload.amount);
+      const amountToUse = amount;
 
       if (currentBalance < amountToUse) {
         throw new BadRequestException('Saldo de crédito insuficiente para o cliente.');
@@ -119,7 +124,7 @@ export class FinanceService {
 
       await this.supabaseService.admin
         .from('clients')
-        .update({ credit_balance: currentBalance - amountToUse })
+        .update({ credit_balance: this.roundCurrency(currentBalance - amountToUse) })
         .eq('id', clientId);
 
       await this.supabaseService.admin.from('client_credits').insert({
@@ -135,7 +140,7 @@ export class FinanceService {
 
     const { error } = await this.supabaseService.admin.rpc('register_financial_receipt', {
       p_entry_id: id,
-      p_amount: payload.amount,
+      p_amount: amount,
       p_payment_date: paymentDate.toISOString(),
       p_payment_method: payload.paymentMethod,
       p_bank_account_id: payload.bankAccountId ?? null,
@@ -380,14 +385,14 @@ export class FinanceService {
     const receipts: Array<Record<string, unknown> & { amount: number }> = (Array.isArray(entry.financial_entry_receipts) ? entry.financial_entry_receipts : [])
       .map((receipt: Record<string, unknown>): Record<string, unknown> & { amount: number } => ({
         ...receipt,
-        amount: Number(receipt.amount || 0),
+        amount: this.roundCurrency(receipt.amount || 0),
       }))
       .sort((a, b) => new Date(String(a.payment_date)).getTime() - new Date(String(b.payment_date)).getTime());
-    const receivedAmount = receipts.reduce((sum, receipt) => sum + receipt.amount, 0);
-    const originalAmount = Number(entry.amount || 0);
-    const discountAmount = Number(entry.discount_amount || 0);
-    const totalAmount = originalAmount - discountAmount;
-    const outstandingAmount = Math.max(0, totalAmount - receivedAmount);
+    const receivedAmount = this.roundCurrency(receipts.reduce((sum, receipt) => sum + receipt.amount, 0));
+    const originalAmount = this.roundCurrency(entry.amount || 0);
+    const discountAmount = this.roundCurrency(entry.discount_amount || 0);
+    const totalAmount = this.roundCurrency(originalAmount - discountAmount);
+    const outstandingAmount = Math.max(0, this.roundCurrency(totalAmount - receivedAmount));
     const effectiveStatus = receivedAmount >= totalAmount && totalAmount > 0 ? 'Pago' : receivedAmount > 0 ? 'Parcial' : originalStatus === 'Pago' ? 'Pago' : originalStatus;
     const computedStatus = effectiveStatus === 'Aberto' && new Date(dueDate) < new Date() ? 'Vencido' : effectiveStatus;
     const lastReceipt = receipts[receipts.length - 1];
@@ -416,6 +421,11 @@ export class FinanceService {
       throw new NotFoundException('Lançamento financeiro não encontrado');
     }
     return this.normalizeEntry(data);
+  }
+
+  private roundCurrency(value: unknown) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.round((parsed + Number.EPSILON) * 100) / 100 : 0;
   }
 
   private isOnOrAfter(dateValue: unknown, filterValue: string) {
