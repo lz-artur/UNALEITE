@@ -393,6 +393,12 @@ export class ProductionService {
 
     const milkLot = await this.getById('milk_lots', String(order.milk_lot_id));
     const product = await this.getById('finished_products', String(order.product_id));
+    if (product.category === 'Queijo' && (!Number.isInteger(payload.actualPiecesProduced) || Number(payload.actualPiecesProduced) <= 0)) {
+      throw new BadRequestException('Informe a quantidade de peças produzidas para finalizar a OP de queijo');
+    }
+    if (product.category !== 'Queijo' && payload.actualPiecesProduced != null) {
+      throw new BadRequestException('A quantidade de peças é aplicável somente a produtos de queijo');
+    }
     const productSpec = await this.getActiveProductSpec(String(order.product_id));
 
     let supplyConsumptions = payload.supplyConsumptions;
@@ -711,6 +717,8 @@ export class ProductionService {
         lot_code: finishedProductLotCode,
         quantity_produced: payload.actualQuantityProduced,
         available_quantity: payload.actualQuantityProduced,
+        quantity_pieces: payload.actualPiecesProduced ?? null,
+        available_pieces: payload.actualPiecesProduced ?? null,
         produced_at: new Date().toISOString(),
         expiration_date: expirationDate.toISOString(),
         storage_location_id: await this.getDefaultFinishedProductLocationId(),

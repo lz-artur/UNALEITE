@@ -844,10 +844,10 @@ export default function LotesEstoqueDetalhado() {
  <td className="px-6 py-4 font-medium">{product?.name || '-'}</td>
  <td className="px-6 py-4 text-sm">{stock.lote}</td>
  <td className="px-6 py-4">
- {stock.quantidade} {getUnitSymbol(product?.unitId)}
+ {stock.quantidade} {getUnitSymbol(product?.unitId)}{stock.quantidadePecas != null ? <span className="block text-xs text-gray-500">{stock.quantidadePecas} peças</span> : null}
  </td>
  <td className="px-6 py-4 font-medium text-green-600">
- {stock.disponivel} {getUnitSymbol(product?.unitId)}
+ {stock.disponivel} {getUnitSymbol(product?.unitId)}{stock.disponivelPecas != null ? <span className="block text-xs text-green-700">{stock.disponivelPecas} peças</span> : null}
  </td>
  <td className="px-6 py-4 font-medium text-red-600">
  {stock.devolvido || 0} {getUnitSymbol(product?.unitId)}

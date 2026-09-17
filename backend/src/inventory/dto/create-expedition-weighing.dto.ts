@@ -19,6 +19,11 @@ export class CreateExpeditionWeighingDto {
   quantity!: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(1)
+  piecesQuantity?: number;
+
+  @IsOptional()
   @IsString()
   @MaxLength(500)
   notes?: string;

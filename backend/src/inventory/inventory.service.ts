@@ -653,7 +653,7 @@ export class InventoryService {
     const lotIds = [...new Set((lines ?? []).map((line: any) => line.finished_product_lot_id))];
     const [{ data: products, error: productError }, { data: lots, error: lotError }, { data: weighings, error: weighingError }, { data: client, error: clientError }] = await Promise.all([
       productIds.length ? this.supabaseService.admin.from('finished_products').select('id, name, code, unit_id').in('id', productIds) : Promise.resolve({ data: [], error: null }),
-      lotIds.length ? this.supabaseService.admin.from('finished_product_lots').select('id, lot_code, product_id, available_quantity').in('id', lotIds) : Promise.resolve({ data: [], error: null }),
+      lotIds.length ? this.supabaseService.admin.from('finished_product_lots').select('id, lot_code, product_id, available_quantity, available_pieces').in('id', lotIds) : Promise.resolve({ data: [], error: null }),
       lineIds.length ? this.supabaseService.admin.from('sale_expedition_weighings').select('*').in('expedition_line_id', lineIds).order('weighed_at') : Promise.resolve({ data: [], error: null }),
       this.supabaseService.admin.from('clients').select('id, name').eq('id', order.client_id).maybeSingle(),
     ]);
@@ -677,6 +677,7 @@ export class InventoryService {
         lot: lotById.get(line.finished_product_lot_id),
         weighings: weighingsByLine.get(line.id) ?? [],
         weighed_quantity: (weighingsByLine.get(line.id) ?? []).reduce((sum, weighing) => sum + Number(weighing.quantity), 0),
+        weighed_pieces: (weighingsByLine.get(line.id) ?? []).reduce((sum, weighing) => sum + Number(weighing.pieces_quantity ?? 0), 0),
       });
       linesByItem.set(line.sales_order_item_id, collection);
     });
@@ -714,11 +715,12 @@ export class InventoryService {
       p_sales_order_item_id: payload.salesOrderItemId,
       p_finished_product_lot_id: payload.finishedProductLotId,
       p_quantity: payload.quantity,
+      p_pieces_quantity: payload.piecesQuantity ?? null,
       p_notes: payload.notes?.trim() || null,
       p_user_id: actor.id,
     });
     if (error) throw new BadRequestException(error.message);
-    await this.insertExpeditionLog(expeditionId, 'pesagem_registrada', actor, { item_id: payload.salesOrderItemId, lot_id: payload.finishedProductLotId, quantidade: payload.quantity });
+    await this.insertExpeditionLog(expeditionId, 'pesagem_registrada', actor, { item_id: payload.salesOrderItemId, lot_id: payload.finishedProductLotId, quantidade: payload.quantity, pecas: payload.piecesQuantity ?? null });
     return this.getSaleExpedition(expeditionId, user);
   }
 

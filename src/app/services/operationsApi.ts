@@ -182,9 +182,10 @@ export interface SaleExpedition {
       lines: Array<{
         id: string;
         finished_product_lot_id: string;
-        lot?: { id: string; lot_code: string; available_quantity: number };
+        lot?: { id: string; lot_code: string; available_quantity: number; available_pieces?: number | null };
         weighed_quantity: number;
-        weighings: Array<{ id: string; quantity: number; weighed_at: string; notes?: string | null }>;
+        weighed_pieces: number;
+        weighings: Array<{ id: string; quantity: number; pieces_quantity?: number | null; weighed_at: string; notes?: string | null }>;
       }>;
     }>;
   };
@@ -771,6 +772,8 @@ function mapFinishedProductLot(row: any): EstoqueProduto {
     lote: row.lot_code,
     disponivel: Number(row.available_quantity),
     devolvido: Number(row.returned_quantity) || 0,
+    quantidadePecas: row.quantity_pieces == null ? undefined : Number(row.quantity_pieces),
+    disponivelPecas: row.available_pieces == null ? undefined : Number(row.available_pieces),
   };
 }
 
@@ -1157,6 +1160,7 @@ export async function updateProductionOrder(orderId: string, payload: {
 export async function completeProductionOrder(payload: {
   orderId: string;
   actualQuantityProduced: number;
+  actualPiecesProduced?: number;
   supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
   finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number }>;
   generatedCoProducts?: Array<{ productId: string; quantity: number }>;
@@ -1165,6 +1169,7 @@ export async function completeProductionOrder(payload: {
     method: 'POST',
     body: JSON.stringify({
       actualQuantityProduced: payload.actualQuantityProduced,
+      actualPiecesProduced: payload.actualPiecesProduced,
       supplyConsumptions: payload.supplyConsumptions,
       finishedProductConsumptions: payload.finishedProductConsumptions,
       generatedCoProducts: payload.generatedCoProducts,
@@ -1310,10 +1315,10 @@ export function createSaleExpedition(salesOrderId: string): Promise<SaleExpediti
   return apiRequest<SaleExpedition>('/inventory/expeditions', { method: 'POST', body: JSON.stringify({ salesOrderId }) });
 }
 
-export function addExpeditionWeighing(payload: { expeditionId: string; salesOrderItemId: string; finishedProductLotId: string; quantity: number; notes?: string }): Promise<SaleExpedition> {
+export function addExpeditionWeighing(payload: { expeditionId: string; salesOrderItemId: string; finishedProductLotId: string; quantity: number; piecesQuantity?: number; notes?: string }): Promise<SaleExpedition> {
   return apiRequest<SaleExpedition>(`/inventory/expeditions/${payload.expeditionId}/weighings`, {
     method: 'POST',
-    body: JSON.stringify({ salesOrderItemId: payload.salesOrderItemId, finishedProductLotId: payload.finishedProductLotId, quantity: payload.quantity, notes: payload.notes }),
+    body: JSON.stringify({ salesOrderItemId: payload.salesOrderItemId, finishedProductLotId: payload.finishedProductLotId, quantity: payload.quantity, piecesQuantity: payload.piecesQuantity, notes: payload.notes }),
   });
 }
 

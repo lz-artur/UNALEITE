@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { usePermissions } from '../context/PermissionsContext';
+import { useCadastros } from '../context/CadastrosContext';
 import {
   addExpeditionWeighing,
   confirmSaleExpedition,
@@ -39,15 +40,16 @@ function dateTime(value?: string | null) {
 
 export default function Expedicao() {
   const { hasPermission } = usePermissions();
+  const { getFinishedProductById } = useCadastros();
   const canCreate = hasPermission('expedicao', 'create');
   const canEdit = hasPermission('expedicao', 'edit');
   const [expeditions, setExpeditions] = useState<SaleExpeditionSummary[]>([]);
   const [orders, setOrders] = useState<SalesOrderRecord[]>([]);
-  const [lots, setLots] = useState<Array<{ id: string; produtoId: string; lote: string; disponivel: number }>>([]);
+  const [lots, setLots] = useState<Array<{ id: string; produtoId: string; lote: string; disponivel: number; disponivelPecas?: number }>>([]);
   const [active, setActive] = useState<SaleExpedition | null>(null);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
-  const [weighingForms, setWeighingForms] = useState<Record<string, { lotId: string; quantity: string }>>({});
+  const [weighingForms, setWeighingForms] = useState<Record<string, { lotId: string; quantity: string; pieces: string }>>({});
 
   const loadOverview = async () => {
     setLoading(true);
@@ -59,7 +61,7 @@ export default function Expedicao() {
       ]);
       setExpeditions(nextExpeditions);
       setOrders(nextOrders);
-      setLots(nextLots.map((lot) => ({ id: lot.id, produtoId: lot.produtoId, lote: lot.lote, disponivel: lot.disponivel })));
+      setLots(nextLots.map((lot) => ({ id: lot.id, produtoId: lot.produtoId, lote: lot.lote, disponivel: lot.disponivel, disponivelPecas: lot.disponivelPecas })));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Não foi possível carregar a expedição.');
     } finally {
@@ -94,14 +96,16 @@ export default function Expedicao() {
 
   const addWeighing = async (itemId: string) => {
     if (!active) return;
-    const form = weighingForms[itemId] ?? { lotId: '', quantity: '' };
+    const form = weighingForms[itemId] ?? { lotId: '', quantity: '', pieces: '' };
     const amount = parseQuantity(form.quantity);
-    if (!form.lotId || amount === null) { toast.error('Selecione o lote e informe uma pesagem válida.'); return; }
+    const pieces = form.pieces ? parseQuantity(form.pieces) : null;
+    const isCheese = itemIsCheese(itemId);
+    if (!form.lotId || amount === null || (isCheese && (!pieces || !Number.isInteger(pieces)))) { toast.error(isCheese ? 'Selecione o lote e informe KG e peças válidos.' : 'Selecione o lote e informe uma pesagem válida.'); return; }
     setWorking(true);
     try {
-      const expedition = await addExpeditionWeighing({ expeditionId: active.id, salesOrderItemId: itemId, finishedProductLotId: form.lotId, quantity: amount });
+      const expedition = await addExpeditionWeighing({ expeditionId: active.id, salesOrderItemId: itemId, finishedProductLotId: form.lotId, quantity: amount, piecesQuantity: isCheese ? pieces! : undefined });
       setActive(expedition);
-      setWeighingForms((current) => ({ ...current, [itemId]: { lotId: form.lotId, quantity: '' } }));
+      setWeighingForms((current) => ({ ...current, [itemId]: { lotId: form.lotId, quantity: '', pieces: '' } }));
       toast.success(`${quantity(amount)} registrado na pesagem.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Não foi possível registrar a pesagem.');
@@ -136,6 +140,10 @@ export default function Expedicao() {
 
   const activeOrderIds = useMemo(() => new Set(expeditions.filter((entry) => entry.status === 'em_pesagem').map((entry) => entry.sales_order_id)), [expeditions]);
   const pendingOrders = useMemo(() => orders.filter((order) => order.status !== 'Atendido' && order.status !== 'Cancelado' && order.items.some((item) => item.pendingQuantity > 0)), [orders]);
+  const itemIsCheese = (itemId: string) => {
+    const item = active?.order.items.find((entry) => entry.id === itemId);
+    return item ? getFinishedProductById(item.product_id)?.category === 'Queijo' : false;
+  };
 
   if (active) {
     const editable = active.status === 'em_pesagem' && (canCreate || canEdit);
@@ -148,12 +156,14 @@ export default function Expedicao() {
         const weighed = item.lines.reduce((sum, line) => sum + line.weighed_quantity, 0);
         const remaining = Math.max(0, item.pending_quantity - weighed);
         const availableLots = lots.filter((lot) => lot.produtoId === item.product_id && lot.disponivel > 0);
-        const form = weighingForms[item.id] ?? { lotId: item.lines[0]?.finished_product_lot_id ?? '', quantity: '' };
+        const form = weighingForms[item.id] ?? { lotId: item.lines[0]?.finished_product_lot_id ?? '', quantity: '', pieces: '' };
+        const isCheese = itemIsCheese(item.id);
+        const weighedPieces = item.lines.reduce((sum, line) => sum + line.weighed_pieces, 0);
         return <article key={item.id} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-bold text-gray-900">{item.product_name}</p><p className="mt-0.5 text-xs text-gray-500">{item.product_code ?? 'Produto acabado'} · Pedido: {quantity(item.ordered_quantity)}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${remaining <= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>{remaining <= 0 ? 'Quantidade atingida' : `Faltam ${quantity(remaining)}`}</span></div>
-          <div className="mt-4 grid grid-cols-2 gap-2"><Metric label="Já atendido" value={quantity(item.fulfilled_quantity)} /><Metric label="Nesta expedição" value={quantity(weighed)} tone="blue" /></div>
+          <div className={`mt-4 grid gap-2 ${isCheese ? 'grid-cols-3' : 'grid-cols-2'}`}><Metric label="Já atendido" value={`${quantity(item.fulfilled_quantity)} kg`} /><Metric label="Nesta expedição" value={`${quantity(weighed)} kg`} tone="blue" />{isCheese && <Metric label="Peças nesta expedição" value={quantity(weighedPieces)} tone="blue" />}</div>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100"><div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${Math.min(100, item.pending_quantity ? (weighed / item.pending_quantity) * 100 : 100)}%` }} /></div>
-          {editable && remaining > 0 && <div className="mt-4 min-w-0 rounded-xl border border-gray-200 bg-slate-50 p-3"><p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-700"><Scale className="h-4 w-4 text-blue-600" />Registrar nova pesagem</p><div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_150px_auto]"><select value={form.lotId} onChange={(event) => setWeighingForms((current) => ({ ...current, [item.id]: { ...form, lotId: event.target.value } }))} className="h-11 w-full min-w-0 rounded-xl border border-gray-200 bg-white px-3 text-sm"><option value="">Selecione o lote</option>{availableLots.map((lot) => <option key={lot.id} value={lot.id}>{lot.lote} · disponível {quantity(lot.disponivel)}</option>)}</select><input inputMode="decimal" value={form.quantity} onChange={(event) => setWeighingForms((current) => ({ ...current, [item.id]: { ...form, quantity: event.target.value } }))} placeholder="Peso" className="h-11 w-full min-w-0 rounded-xl border border-gray-200 px-3 text-sm outline-none ring-blue-500 focus:ring-2" /><button disabled={working} onClick={() => void addWeighing(item.id)} className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"><Plus className="h-4 w-4" />Adicionar</button></div></div>}
-          {item.lines.flatMap((line) => line.weighings.map((weighing) => ({ ...weighing, lotCode: line.lot?.lot_code ?? 'Lote' }))).length > 0 && <div className="mt-4 border-t border-gray-100 pt-3"><p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Histórico de pesagens</p><div className="space-y-2">{item.lines.flatMap((line) => line.weighings.map((weighing) => ({ ...weighing, lotCode: line.lot?.lot_code ?? 'Lote' }))).map((weighing) => <div key={weighing.id} className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 text-sm"><Scale className="h-4 w-4 text-blue-600" /><span className="font-semibold text-gray-800">{quantity(weighing.quantity)}</span><span className="text-xs text-gray-500">{weighing.lotCode} · {dateTime(weighing.weighed_at)}</span>{editable && <button disabled={working} onClick={() => void removeWeighing(weighing.id)} className="ml-auto rounded-lg p-1.5 text-rose-600 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button>}</div>)}</div></div>}
+          {editable && remaining > 0 && <div className="mt-4 min-w-0 rounded-xl border border-gray-200 bg-slate-50 p-3"><p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-700"><Scale className="h-4 w-4 text-blue-600" />Registrar nova pesagem</p><div className={`grid min-w-0 gap-2 ${isCheese ? 'sm:grid-cols-[minmax(0,1fr)_130px_120px_auto]' : 'sm:grid-cols-[minmax(0,1fr)_150px_auto]'}`}><select value={form.lotId} onChange={(event) => setWeighingForms((current) => ({ ...current, [item.id]: { ...form, lotId: event.target.value } }))} className="h-11 w-full min-w-0 rounded-xl border border-gray-200 bg-white px-3 text-sm"><option value="">Selecione o lote</option>{availableLots.map((lot) => <option key={lot.id} value={lot.id}>{lot.lote} · {quantity(lot.disponivel)} kg{isCheese ? ` · ${quantity(lot.disponivelPecas ?? 0)} peças` : ''}</option>)}</select><input inputMode="decimal" value={form.quantity} onChange={(event) => setWeighingForms((current) => ({ ...current, [item.id]: { ...form, quantity: event.target.value } }))} placeholder="KG" className="h-11 w-full min-w-0 rounded-xl border border-gray-200 px-3 text-sm outline-none ring-blue-500 focus:ring-2" />{isCheese && <input inputMode="numeric" value={form.pieces} onChange={(event) => setWeighingForms((current) => ({ ...current, [item.id]: { ...form, pieces: event.target.value } }))} placeholder="Peças" className="h-11 w-full min-w-0 rounded-xl border border-gray-200 px-3 text-sm outline-none ring-blue-500 focus:ring-2" />}<button disabled={working} onClick={() => void addWeighing(item.id)} className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"><Plus className="h-4 w-4" />Adicionar</button></div></div>}
+          {item.lines.flatMap((line) => line.weighings.map((weighing) => ({ ...weighing, lotCode: line.lot?.lot_code ?? 'Lote' }))).length > 0 && <div className="mt-4 border-t border-gray-100 pt-3"><p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Histórico de pesagens</p><div className="space-y-2">{item.lines.flatMap((line) => line.weighings.map((weighing) => ({ ...weighing, lotCode: line.lot?.lot_code ?? 'Lote' }))).map((weighing) => <div key={weighing.id} className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 text-sm"><Scale className="h-4 w-4 text-blue-600" /><span className="font-semibold text-gray-800">{quantity(weighing.quantity)} kg{weighing.pieces_quantity != null ? ` · ${quantity(weighing.pieces_quantity)} peças` : ''}</span><span className="text-xs text-gray-500">{weighing.lotCode} · {dateTime(weighing.weighed_at)}</span>{editable && <button disabled={working} onClick={() => void removeWeighing(weighing.id)} className="ml-auto rounded-lg p-1.5 text-rose-600 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button>}</div>)}</div></div>}
         </article>;
       })}</div>
       {active.logs.length > 0 && <section className="rounded-2xl border border-gray-200 bg-white p-4"><h2 className="mb-3 flex items-center gap-2 font-bold text-gray-900"><History className="h-5 w-5 text-blue-600" />Rastreio da expedição</h2>{active.logs.map((log) => <div key={log.id} className="mb-3 flex gap-3 text-sm"><span className="mt-1.5 h-2 w-2 rounded-full bg-blue-500" /><div><p className="font-medium text-gray-800">{log.actor_name} · {log.action.replaceAll('_', ' ')}</p><p className="text-xs text-gray-500">{dateTime(log.created_at)}</p></div></div>)}</section>}
