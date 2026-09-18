@@ -252,15 +252,15 @@ export default function Producao() {
  }
 
  const actualQuantityProduced = Number(completeForm.actualQuantityProduced);
- const isCheeseOrder = getFinishedProductById(selectedOrder.produtoId)?.category === 'Queijo';
+ const tracksPieces = getFinishedProductById(selectedOrder.produtoId)?.tracksPieces === true;
  const actualPiecesProduced = Number(completeForm.actualPiecesProduced);
 
  if (actualQuantityProduced <= 0) {
  setSubmitError('Informe a quantidade produzida para finalizar a OP.');
  return;
  }
- if (isCheeseOrder && (!Number.isInteger(actualPiecesProduced) || actualPiecesProduced <= 0)) {
- setSubmitError('Informe a quantidade de peças produzidas para finalizar a OP de queijo.');
+ if (tracksPieces && (!Number.isInteger(actualPiecesProduced) || actualPiecesProduced <= 0)) {
+ setSubmitError('Informe a quantidade de peças produzidas para finalizar a OP.');
  return;
  }
 
@@ -278,7 +278,7 @@ export default function Producao() {
       await completeProductionOrder({
         orderId: selectedOrder.id,
         actualQuantityProduced,
-        actualPiecesProduced: isCheeseOrder ? actualPiecesProduced : undefined,
+        actualPiecesProduced: tracksPieces ? actualPiecesProduced : undefined,
         generatedCoProducts: formattedCoProducts.length > 0 ? formattedCoProducts : undefined,
       });
  setSelectedOrder(null);
@@ -338,11 +338,6 @@ export default function Producao() {
  <h2 className="text-2xl font-bold text-gray-900">Producao</h2>
  <p className="text-gray-600">Ordens de producao, consumo de leite e rendimento real</p>
  </div>
- {getFinishedProductById(selectedOrder.produtoId)?.category === 'Queijo' ? <div>
- <label className="mb-1 block text-sm font-medium text-gray-700">Peças produzidas *</label>
- <input type="number" min="1" step="1" inputMode="numeric" value={completeForm.actualPiecesProduced} onChange={(event) => setCompleteForm({ ...completeForm, actualPiecesProduced: event.target.value })} placeholder="0" className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" />
- <p className="mt-1 text-xs text-gray-500">Registre o total de peças correspondente ao peso produzido.</p>
- </div> : null}
  <button
  onClick={() => setShowCreateModal(true)}
  className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
@@ -957,6 +952,12 @@ export default function Producao() {
  Se nenhum consumo for informado, o sistema calcula a receita pela ficha técnica e aplica FIFO aos insumos automaticamente.
  </p>
  </div>
+
+ {getFinishedProductById(selectedOrder.produtoId)?.tracksPieces === true ? <div className="mt-4">
+ <label className="mb-1 block text-sm font-medium text-gray-700">Peças produzidas *</label>
+ <input type="number" min="1" step="1" inputMode="numeric" value={completeForm.actualPiecesProduced} onChange={(event) => setCompleteForm({ ...completeForm, actualPiecesProduced: event.target.value })} placeholder="0" className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" />
+ <p className="mt-1 text-xs text-gray-500">Registre o total de peças correspondente ao peso produzido.</p>
+ </div> : null}
 
  <div className="mt-6 border-t border-gray-200 pt-4">
  <div className="mb-2 flex items-center justify-between">

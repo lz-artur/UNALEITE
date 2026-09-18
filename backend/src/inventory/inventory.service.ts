@@ -176,7 +176,7 @@ export class InventoryService {
   async createManualExit(payload: CreateManualExitDto, user?: AuthenticatedUser) {
     const { data: lot, error: findError } = await this.supabaseService.admin
       .from('finished_product_lots')
-      .select('id, available_quantity, lot_code')
+      .select('id, available_quantity, available_pieces, lot_code')
       .eq('id', payload.finishedProductLotId)
       .maybeSingle();
 
@@ -194,6 +194,7 @@ export class InventoryService {
       .insert({
         finished_product_lot_id: payload.finishedProductLotId,
         quantity: payload.quantity,
+        pieces: payload.pieces ?? null,
         reason: payload.reason,
         notes: payload.notes ?? null,
         exit_date: exitDate,
@@ -207,12 +208,24 @@ export class InventoryService {
       throw new BadRequestException(exitError.message);
     }
 
+    const lotUpdateData: any = {
+      available_quantity: Number(lot.available_quantity) - payload.quantity,
+      updated_by: user?.id ?? null,
+    };
+
+    if (payload.pieces) {
+      if (lot.available_pieces == null) {
+        throw new BadRequestException('Este lote não controla saldo em peças.');
+      }
+      if (payload.pieces > Number(lot.available_pieces)) {
+        throw new BadRequestException(`O lote ${String(lot.lot_code)} não tem peças disponíveis suficientes (Disponível: ${lot.available_pieces})`);
+      }
+      lotUpdateData.available_pieces = Number(lot.available_pieces) - payload.pieces;
+    }
+
     const { error: lotUpdateError } = await this.supabaseService.admin
       .from('finished_product_lots')
-      .update({
-        available_quantity: Number(lot.available_quantity) - payload.quantity,
-        updated_by: user?.id ?? null,
-      })
+      .update(lotUpdateData)
       .eq('id', payload.finishedProductLotId);
 
     if (lotUpdateError) {
@@ -348,7 +361,7 @@ export class InventoryService {
         .select('id, supply_item_id, internal_lot_code, available_quantity, supply_item_name, unit_id'),
       this.supabaseService.admin
         .from('finished_product_lots')
-        .select('id, product_id, lot_code, available_quantity, finished_products(name, code, unit_id, units(symbol))'),
+        .select('id, product_id, lot_code, available_quantity, available_pieces, finished_products(name, code, unit_id, tracks_pieces, units(symbol))'),
     ]);
 
     if (supplyError) throw new BadRequestException(supplyError.message);
@@ -370,6 +383,7 @@ export class InventoryService {
       lot_code: lot.internal_lot_code,
       unit_symbol: null,
       system_quantity: Number(lot.available_quantity),
+      tracks_pieces: false,
     }));
     const productItems = (finishedLots ?? []).map((lot: any) => {
       const product = Array.isArray(lot.finished_products) ? lot.finished_products[0] : lot.finished_products;
@@ -384,6 +398,8 @@ export class InventoryService {
         lot_code: lot.lot_code,
         unit_symbol: unit?.symbol ?? null,
         system_quantity: Number(lot.available_quantity),
+        system_pieces: product?.tracks_pieces ? (lot.available_pieces != null ? Number(lot.available_pieces) : 0) : null,
+        tracks_pieces: Boolean(product?.tracks_pieces),
       };
     });
 
@@ -417,7 +433,7 @@ export class InventoryService {
     }
     const { data: existingItems, error } = await this.supabaseService.admin
       .from('inventory_count_items')
-      .select('id, system_quantity')
+      .select('id, system_quantity, system_pieces, tracks_pieces')
       .eq('inventory_session_id', sessionId)
       .in('id', ids);
     if (error) throw new BadRequestException(error.message);
@@ -428,11 +444,15 @@ export class InventoryService {
     const quantityById = new Map(payload.items.map((item) => [item.id, item]));
     await Promise.all((existingItems ?? []).map(async (item: any) => {
       const value = quantityById.get(item.id)!;
+      const differenceQuantity = value.countedQuantity - Number(item.system_quantity);
+      const differencePieces = item.tracks_pieces ? (value.countedPieces ?? 0) - Number(item.system_pieces ?? 0) : null;
       const { error: updateError } = await this.supabaseService.admin
         .from('inventory_count_items')
         .update({
           counted_quantity: value.countedQuantity,
-          difference_quantity: value.countedQuantity - Number(item.system_quantity),
+          difference_quantity: differenceQuantity,
+          counted_pieces: item.tracks_pieces ? (value.countedPieces ?? null) : null,
+          difference_pieces: differencePieces,
           notes: value.notes?.trim() || null,
           status: 'nao_contado',
           updated_at: new Date().toISOString(),

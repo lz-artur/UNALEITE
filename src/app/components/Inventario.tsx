@@ -82,6 +82,7 @@ export default function Inventario() {
   const [query, setQuery] = useState('');
   const [onlyDivergences, setOnlyDivergences] = useState(false);
   const [physicalValues, setPhysicalValues] = useState<Record<string, string>>({});
+  const [physicalPiecesValues, setPhysicalPiecesValues] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
 
@@ -106,6 +107,7 @@ export default function Inventario() {
       const session = await loadInventorySession(id);
       setActiveSession(session);
       setPhysicalValues(Object.fromEntries(session.items.map((item) => [item.id, item.counted_quantity == null ? '' : String(item.counted_quantity)])));
+      setPhysicalPiecesValues(Object.fromEntries(session.items.map((item) => [item.id, item.counted_pieces == null ? '' : String(item.counted_pieces)])));
       setNotes(Object.fromEntries(session.items.map((item) => [item.id, item.notes ?? ''])));
       setQuery('');
       setOnlyDivergences(false);
@@ -122,6 +124,7 @@ export default function Inventario() {
       const session = await createInventorySession();
       setActiveSession(session);
       setPhysicalValues({});
+      setPhysicalPiecesValues({});
       setNotes({});
       await refreshSessions();
       toast.success('Inventário iniciado. Informe as quantidades físicas.');
@@ -139,9 +142,10 @@ export default function Inventario() {
       .map((item) => ({
         id: item.id,
         countedQuantity: asNumber(physicalValues[item.id]),
+        countedPieces: item.tracks_pieces ? asNumber(physicalPiecesValues[item.id]) : undefined,
         notes: notes[item.id],
       }))
-      .filter((item): item is { id: string; countedQuantity: number; notes?: string } => item.countedQuantity !== null);
+      .filter((item): item is { id: string; countedQuantity: number; countedPieces?: number; notes?: string } => item.countedQuantity !== null && (!item.countedPieces || item.countedPieces !== null));
   };
 
   const saveDraft = async () => {
@@ -165,9 +169,13 @@ export default function Inventario() {
 
   const submit = async () => {
     if (!activeSession) return;
-    const invalidValue = activeSession.items.some((item) => asNumber(physicalValues[item.id] ?? '') === null);
+    const invalidValue = activeSession.items.some((item) => {
+      const q = asNumber(physicalValues[item.id] ?? '');
+      const p = item.tracks_pieces ? asNumber(physicalPiecesValues[item.id] ?? '') : null;
+      return q === null || (item.tracks_pieces && p === null);
+    });
     if (invalidValue) {
-      toast.error('Informe uma quantidade física válida para todos os itens antes de enviar.');
+      toast.error('Informe uma quantidade física válida (peso e peças se aplicável) para todos os itens antes de enviar.');
       return;
     }
     setWorking(true);
@@ -212,19 +220,29 @@ export default function Inventario() {
       const hasDifference = activeSession.status === 'em_contagem'
         ? (() => {
           const value = asNumber(physicalValues[item.id] ?? '');
-          return value !== null && value !== item.system_quantity;
+          const diffQuantity = value !== null && value !== item.system_quantity;
+          if (item.tracks_pieces) {
+            const pieces = asNumber(physicalPiecesValues[item.id] ?? '');
+            return diffQuantity || (pieces !== null && pieces !== (item.system_pieces ?? 0));
+          }
+          return diffQuantity;
         })()
-        : Number(item.difference_quantity) !== 0;
+        : Number(item.difference_quantity) !== 0 || (item.tracks_pieces && Number(item.difference_pieces) !== 0);
       return matchesSearch && (!onlyDivergences || hasDifference);
     });
   }, [activeSession, onlyDivergences, physicalValues, query]);
 
-  const counted = activeSession?.items.filter((item) => asNumber(physicalValues[item.id] ?? '') !== null).length ?? 0;
+  const counted = activeSession?.items.filter((item) => asNumber(physicalValues[item.id] ?? '') !== null && (!item.tracks_pieces || asNumber(physicalPiecesValues[item.id] ?? '') !== null)).length ?? 0;
   const discrepancies = activeSession?.items.filter((item) => {
-    const current = activeSession.status === 'em_contagem'
-      ? asNumber(physicalValues[item.id] ?? '')
-      : item.counted_quantity;
-    return current !== null && current !== undefined && Number(current) !== Number(item.system_quantity);
+    if (activeSession.status === 'em_contagem') {
+      const q = asNumber(physicalValues[item.id] ?? '');
+      const p = item.tracks_pieces ? asNumber(physicalPiecesValues[item.id] ?? '') : null;
+      return (q !== null && q !== undefined && Number(q) !== Number(item.system_quantity)) ||
+             (item.tracks_pieces && p !== null && p !== undefined && Number(p) !== Number(item.system_pieces ?? 0));
+    } else {
+      return (item.counted_quantity !== null && item.counted_quantity !== undefined && Number(item.counted_quantity) !== Number(item.system_quantity)) ||
+             (item.tracks_pieces && item.counted_pieces !== null && item.counted_pieces !== undefined && Number(item.counted_pieces) !== Number(item.system_pieces ?? 0));
+    }
   }).length ?? 0;
 
   if (activeSession) {
@@ -274,11 +292,13 @@ export default function Inventario() {
               item={item}
               editable={editable}
               physicalValue={physicalValues[item.id] ?? ''}
+              physicalPiecesValue={physicalPiecesValues[item.id] ?? ''}
               note={notes[item.id] ?? ''}
               reviewNote={reviewNotes[item.id] ?? ''}
               showReview={isAdmin && item.status === 'aguardando_aprovacao'}
               disabled={working}
               onPhysicalChange={(value) => setPhysicalValues((current) => ({ ...current, [item.id]: value }))}
+              onPhysicalPiecesChange={(value) => setPhysicalPiecesValues((current) => ({ ...current, [item.id]: value }))}
               onNoteChange={(value) => setNotes((current) => ({ ...current, [item.id]: value }))}
               onReviewNoteChange={(value) => setReviewNotes((current) => ({ ...current, [item.id]: value }))}
               onApprove={() => void reviewItem(item, 'approve')}
@@ -354,15 +374,17 @@ function Stat({ label, value, tone = 'slate' }: { label: string; value: number; 
   return <div className={`rounded-2xl border p-3 text-center sm:p-4 ${colors[tone]}`}><p className="text-lg font-bold text-gray-900 sm:text-xl">{value}</p><p className="mt-0.5 text-[11px] font-medium text-gray-500 sm:text-xs">{label}</p></div>;
 }
 
-function InventoryItemCard({ item, editable, physicalValue, note, reviewNote, showReview, disabled, onPhysicalChange, onNoteChange, onReviewNoteChange, onApprove, onReject }: {
+function InventoryItemCard({ item, editable, physicalValue, physicalPiecesValue, note, reviewNote, showReview, disabled, onPhysicalChange, onPhysicalPiecesChange, onNoteChange, onReviewNoteChange, onApprove, onReject }: {
   item: InventoryCountItem;
   editable: boolean;
   physicalValue: string;
+  physicalPiecesValue?: string;
   note: string;
   reviewNote: string;
   showReview: boolean;
   disabled: boolean;
   onPhysicalChange: (value: string) => void;
+  onPhysicalPiecesChange?: (value: string) => void;
   onNoteChange: (value: string) => void;
   onReviewNoteChange: (value: string) => void;
   onApprove: () => void;
@@ -370,17 +392,39 @@ function InventoryItemCard({ item, editable, physicalValue, note, reviewNote, sh
 }) {
   const shownPhysical = editable ? asNumber(physicalValue) : item.counted_quantity;
   const difference = shownPhysical === null || shownPhysical === undefined ? null : Number(shownPhysical) - Number(item.system_quantity);
-  const hasDifference = difference !== null && difference !== 0;
+  const shownPieces = editable ? (physicalPiecesValue ? asNumber(physicalPiecesValue) : null) : item.counted_pieces;
+  const differencePieces = !item.tracks_pieces || shownPieces === null || shownPieces === undefined ? null : Number(shownPieces) - Number(item.system_pieces ?? 0);
+  const hasDifference = (difference !== null && difference !== 0) || (item.tracks_pieces && differencePieces !== null && differencePieces !== 0);
   const status = ITEM_STATUS[item.status];
   return <article className={`rounded-2xl border bg-white p-4 shadow-sm ${hasDifference ? 'border-amber-200' : 'border-gray-200'}`}>
     <div className="flex gap-3">
       <div className={`flex h-10 w-10 flex-none items-center justify-center rounded-xl ${item.lot_type === 'Insumo' ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700'}`}><PackageCheck className="h-5 w-5" /></div>
       <div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><p className="truncate font-semibold text-gray-900">{item.product_name}</p><p className="mt-0.5 text-xs text-gray-500">{item.lot_type} · Lote {item.lot_code}{item.product_code ? ` · ${item.product_code}` : ''}</p></div>{!editable && <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${status.className}`}>{status.label}</span>}</div>
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:max-w-md">
-          <div className="rounded-xl bg-slate-50 p-2.5"><p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Sistema</p><p className="mt-1 font-bold text-gray-900">{quantity(item.system_quantity)} <span className="text-xs font-medium text-gray-500">{item.unit_symbol ?? 'un.'}</span></p></div>
-          {editable ? <label className="rounded-xl border border-blue-200 bg-blue-50 p-2.5"><span className="block text-[11px] font-medium uppercase tracking-wide text-blue-700">Físico</span><input aria-label={`Quantidade física de ${item.product_name}`} inputMode="decimal" value={physicalValue} onChange={(event) => onPhysicalChange(event.target.value)} placeholder="0" className="mt-1 w-full bg-transparent font-bold text-gray-900 outline-none placeholder:text-blue-300" /></label> : <div className={`rounded-xl p-2.5 ${hasDifference ? 'bg-amber-50' : 'bg-emerald-50'}`}><p className={`text-[11px] font-medium uppercase tracking-wide ${hasDifference ? 'text-amber-700' : 'text-emerald-700'}`}>Físico</p><p className="mt-1 font-bold text-gray-900">{item.counted_quantity == null ? '—' : quantity(item.counted_quantity)} {item.counted_quantity != null && <span className="text-xs font-medium text-gray-500">{item.unit_symbol ?? 'un.'}</span>}</p></div>}
+        <div className={`mt-4 grid gap-2 sm:max-w-md ${item.tracks_pieces ? 'grid-cols-2' : 'grid-cols-2'}`}>
+          <div className="rounded-xl bg-slate-50 p-2.5 space-y-2">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Sistema</p>
+              <p className="mt-1 font-bold text-gray-900">{quantity(item.system_quantity)} <span className="text-xs font-medium text-gray-500">{item.unit_symbol ?? 'un.'}</span></p>
+            </div>
+            {item.tracks_pieces && (
+              <div className="pt-2 border-t border-gray-200">
+                <p className="font-bold text-gray-900">{quantity(item.system_pieces)} <span className="text-xs font-medium text-gray-500">peças</span></p>
+              </div>
+            )}
+          </div>
+          <div className={`rounded-xl p-2.5 space-y-2 ${editable ? 'border border-blue-200 bg-blue-50' : hasDifference ? 'bg-amber-50' : 'bg-emerald-50'}`}>
+            <div>
+              <p className={`text-[11px] font-medium uppercase tracking-wide ${editable ? 'text-blue-700' : hasDifference ? 'text-amber-700' : 'text-emerald-700'}`}>Físico</p>
+              {editable ? <input aria-label={`Quantidade física de ${item.product_name}`} inputMode="decimal" value={physicalValue} onChange={(event) => onPhysicalChange(event.target.value)} placeholder="0" className="mt-1 w-full bg-transparent font-bold text-gray-900 outline-none placeholder:text-blue-300" /> : <p className="mt-1 font-bold text-gray-900">{item.counted_quantity == null ? '—' : quantity(item.counted_quantity)} {item.counted_quantity != null && <span className="text-xs font-medium text-gray-500">{item.unit_symbol ?? 'un.'}</span>}</p>}
+            </div>
+            {item.tracks_pieces && (
+              <div className={`pt-2 border-t ${editable ? 'border-blue-200' : hasDifference ? 'border-amber-200' : 'border-emerald-200'}`}>
+                {editable ? <input aria-label={`Peças físicas de ${item.product_name}`} inputMode="numeric" value={physicalPiecesValue} onChange={(event) => onPhysicalPiecesChange && onPhysicalPiecesChange(event.target.value)} placeholder="0 peças" className="w-full bg-transparent font-bold text-gray-900 outline-none placeholder:text-blue-300" /> : <p className="font-bold text-gray-900">{item.counted_pieces == null ? '—' : quantity(item.counted_pieces)} {item.counted_pieces != null && <span className="text-xs font-medium text-gray-500">peças</span>}</p>}
+              </div>
+            )}
+          </div>
         </div>
-        {difference !== null && <p className={`mt-3 text-sm font-medium ${hasDifference ? 'text-amber-800' : 'text-emerald-700'}`}>{hasDifference ? `Diferença: ${difference > 0 ? '+' : ''}${quantity(difference)} ${item.unit_symbol ?? 'un.'}` : <><Check className="mr-1 inline h-4 w-4" />Quantidade confere</>}</p>}
+        {(difference !== null || differencePieces !== null) && <p className={`mt-3 text-sm font-medium ${hasDifference ? 'text-amber-800' : 'text-emerald-700'}`}>{hasDifference ? `Diferença: ${difference !== null && difference !== 0 ? (difference > 0 ? '+' : '') + quantity(difference) + ' ' + (item.unit_symbol ?? 'un.') : ''} ${differencePieces !== null && differencePieces !== 0 ? (differencePieces > 0 ? '+' : '') + quantity(differencePieces) + ' peças' : ''}` : <><Check className="mr-1 inline h-4 w-4" />Quantidade e peças conferem</>}</p>}
         {editable && <input value={note} onChange={(event) => onNoteChange(event.target.value)} placeholder="Observação (opcional)" className="mt-3 h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none ring-blue-500 focus:ring-2" />}
         {!editable && item.review_note && <p className="mt-3 rounded-lg bg-slate-50 p-2 text-xs text-gray-600">{item.status === 'recusado' ? 'Motivo da recusa' : 'Observação do administrador'}: {item.review_note}</p>}
       </div>

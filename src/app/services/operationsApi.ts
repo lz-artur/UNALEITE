@@ -97,6 +97,13 @@ export interface WarehouseWithdrawal {
 export type InventorySessionStatus = 'em_contagem' | 'aguardando_aprovacao' | 'concluido';
 export type InventoryCountItemStatus = 'nao_contado' | 'confere' | 'aguardando_aprovacao' | 'aprovado' | 'recusado';
 
+export interface SaveInventoryCountItem {
+  id: string;
+  countedQuantity: number;
+  countedPieces?: number;
+  notes?: string;
+}
+
 export interface InventoryCountItem {
   id: string;
   inventory_session_id: string;
@@ -110,6 +117,10 @@ export interface InventoryCountItem {
   system_quantity: number;
   counted_quantity?: number | null;
   difference_quantity?: number | null;
+  system_pieces?: number | null;
+  counted_pieces?: number | null;
+  difference_pieces?: number | null;
+  tracks_pieces: boolean;
   notes?: string | null;
   status: InventoryCountItemStatus;
   submitted_at?: string | null;
@@ -2064,6 +2075,7 @@ export async function deletePurchase(id: string) {
 export async function createManualProductExit(payload: {
   finishedProductLotId: string;
   quantity: number;
+  pieces?: number;
   reason: string;
   notes?: string;
   exitDate?: string;

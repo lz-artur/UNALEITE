@@ -64,6 +64,7 @@ export default function LotesEstoqueDetalhado() {
  const [exitModalOpen, setExitModalOpen] = useState(false);
  const [exitLotId, setExitLotId] = useState<string | null>(null);
  const [exitQuantity, setExitQuantity] = useState('');
+ const [exitPieces, setExitPieces] = useState('');
  const [exitReason, setExitReason] = useState('Doação');
  const [exitNotes, setExitNotes] = useState('');
  const [isExiting, setIsExiting] = useState(false);
@@ -229,6 +230,7 @@ export default function LotesEstoqueDetalhado() {
       await createManualProductExit({
         finishedProductLotId: exitLotId,
         quantity: Number(exitQuantity),
+        pieces: exitPieces ? Number(exitPieces) : undefined,
         reason: exitReason,
         notes: exitNotes,
       });
@@ -236,6 +238,7 @@ export default function LotesEstoqueDetalhado() {
       setExitModalOpen(false);
       setExitLotId(null);
       setExitQuantity('');
+      setExitPieces('');
       setExitReason('Doação');
       setExitNotes('');
       await loadData();
@@ -1136,7 +1139,10 @@ export default function LotesEstoqueDetalhado() {
         </div>
       )}
 
-      {exitModalOpen && exitLotId && (
+      {exitModalOpen && exitLotId && (() => {
+        const selectedExitLot = estoquesProdutos.find(l => l.id === exitLotId);
+        const requiresPieces = selectedExitLot && selectedExitLot.disponivelPecas != null;
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6">
             <div className="mb-4 flex items-center justify-between">
@@ -1150,18 +1156,35 @@ export default function LotesEstoqueDetalhado() {
             </div>
             
             <form onSubmit={handleExitSubmit} className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Quantidade</label>
-                <input
-                  type="number"
-                  required
-                  step="0.0001"
-                  min="0.0001"
-                  value={exitQuantity}
-                  onChange={(e) => setExitQuantity(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  placeholder="0.00"
-                />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Quantidade</label>
+                  <input
+                    type="number"
+                    required
+                    step="0.0001"
+                    min="0.0001"
+                    value={exitQuantity}
+                    onChange={(e) => setExitQuantity(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="0.00"
+                  />
+                </div>
+                {requiresPieces && (
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">Peças *</label>
+                    <input
+                      type="number"
+                      required
+                      step="1"
+                      min="1"
+                      value={exitPieces}
+                      onChange={(e) => setExitPieces(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      placeholder="0"
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1211,7 +1234,8 @@ export default function LotesEstoqueDetalhado() {
             </form>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {disposalLot && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

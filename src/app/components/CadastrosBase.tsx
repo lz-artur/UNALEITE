@@ -625,6 +625,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  name: '',
  category: '',
  unitId: 'unit-kg',
+ tracksPieces: false,
  standardWeight: 0,
  shelfLifeDays: 0,
  storageTemperature: 4,
@@ -1235,7 +1236,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  );
  case 'finishedProducts':
  return (
- <TableShell headers={['Código', 'Produto', 'Categoria', 'Unidade', 'Validade', 'Rendimento', 'Ações']}>
+ <TableShell headers={['Código', 'Produto', 'Categoria', 'Unidade', 'Peças?', 'Validade', 'Rendimento', 'Ações']}>
  {filteredRecords.map((record) => {
  const item = record as FinishedProductRecord;
  return (
@@ -1244,6 +1245,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  <Td>{item.name}</Td>
  <Td>{item.category}</Td>
  <Td>{getUnitSymbol(item.unitId)}</Td>
+ <Td>{item.tracksPieces ? 'Sim' : 'Não'}</Td>
  <Td>{item.shelfLifeDays} dias</Td>
  <Td>{item.theoreticalYield}</Td>
  <Td>{renderActions(item)}</Td>
@@ -1787,6 +1789,17 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
  <Field label="Código" required value={String(formState.code || '')} onChange={(value) => updateField('code', value)} />
  <Field label="Nome do produto" required value={String(formState.name || '')} onChange={(value) => updateField('name', value)} />
+ <div className="flex items-center mt-6">
+   <label className="flex items-center gap-3 border border-gray-200 rounded-lg px-3 py-2 w-full cursor-pointer hover:bg-gray-50">
+     <input
+       type="checkbox"
+       checked={Boolean(formState.tracksPieces)}
+       onChange={(e) => updateField('tracksPieces', e.target.checked)}
+       className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+     />
+     <span className="text-sm font-medium text-gray-700">Controla saldo em peças?</span>
+   </label>
+ </div>
  <SelectField
  label="Unidade"
  required
