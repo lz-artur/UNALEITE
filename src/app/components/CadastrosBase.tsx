@@ -626,6 +626,8 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  category: '',
  unitId: 'unit-kg',
  tracksPieces: false,
+ tracksQuantityAndWeight: false,
+ weightVariancePercent: 0,
  standardWeight: 0,
  shelfLifeDays: 0,
  storageTemperature: 4,
@@ -970,6 +972,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  ...(formState as unknown as FinishedProductRecord),
  id: String(formState.id || generateId('product')),
  standardWeight: Number(formState.standardWeight) || undefined,
+ weightVariancePercent: Number(formState.weightVariancePercent) || 0,
  shelfLifeDays: Number(formState.shelfLifeDays),
  storageTemperature: Number(formState.storageTemperature) || undefined,
  theoreticalYield: Number(formState.theoreticalYield),
@@ -1236,7 +1239,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  );
  case 'finishedProducts':
  return (
- <TableShell headers={['Código', 'Produto', 'Categoria', 'Unidade', 'Peças?', 'Validade', 'Rendimento', 'Ações']}>
+ <TableShell headers={['Código', 'Produto', 'Categoria', 'Unidade', 'Qtd. e peso?', 'Tolerância', 'Validade', 'Rendimento', 'Ações']}>
  {filteredRecords.map((record) => {
  const item = record as FinishedProductRecord;
  return (
@@ -1245,7 +1248,8 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  <Td>{item.name}</Td>
  <Td>{item.category}</Td>
  <Td>{getUnitSymbol(item.unitId)}</Td>
- <Td>{item.tracksPieces ? 'Sim' : 'Não'}</Td>
+ <Td>{item.tracksQuantityAndWeight ? 'Sim' : 'Não'}</Td>
+ <Td>{item.weightVariancePercent.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</Td>
  <Td>{item.shelfLifeDays} dias</Td>
  <Td>{item.theoreticalYield}</Td>
  <Td>{renderActions(item)}</Td>
@@ -1793,11 +1797,14 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
    <label className="flex items-center gap-3 border border-gray-200 rounded-lg px-3 py-2 w-full cursor-pointer hover:bg-gray-50">
      <input
        type="checkbox"
-       checked={Boolean(formState.tracksPieces)}
-       onChange={(e) => updateField('tracksPieces', e.target.checked)}
+       checked={Boolean(formState.tracksQuantityAndWeight)}
+       onChange={(e) => {
+         updateField('tracksQuantityAndWeight', e.target.checked);
+         updateField('tracksPieces', e.target.checked);
+       }}
        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
      />
-     <span className="text-sm font-medium text-gray-700">Controla saldo em peças?</span>
+     <span className="text-sm font-medium text-gray-700">Controla quantidade de peças e peso?</span>
    </label>
  </div>
  <SelectField
@@ -1842,6 +1849,7 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  ]}
  />
  <Field label="Peso padrão" type="number" step="0.001" value={String(formState.standardWeight || 0)} onChange={(value) => updateField('standardWeight', value)} />
+ <Field label="Variação de peso permitida (%)" type="number" min="0" max="100" step="0.01" value={String(formState.weightVariancePercent || 0)} onChange={(value) => updateField('weightVariancePercent', value)} />
  <Field label="Prazo de validade (dias)" type="number" required value={String(formState.shelfLifeDays || 0)} onChange={(value) => updateField('shelfLifeDays', value)} />
  <Field label="Temperatura de armazenamento" type="number" step="0.1" value={String(formState.storageTemperature || 0)} onChange={(value) => updateField('storageTemperature', value)} />
  <Field label="Rendimento teórico" type="number" step="0.01" required value={String(formState.theoreticalYield || 0)} onChange={(value) => updateField('theoreticalYield', value)} />

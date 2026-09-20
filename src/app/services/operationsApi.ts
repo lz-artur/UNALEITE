@@ -162,7 +162,7 @@ export interface SaleExpeditionSummary {
   id: string;
   sales_order_id: string;
   expedition_number: string;
-  status: 'em_pesagem' | 'expedida' | 'cancelada';
+  status: 'em_pesagem' | 'aguardando_aceite_comercial' | 'expedida' | 'cancelada' | 'recusada_comercial';
   created_at: string;
   dispatched_at?: string | null;
   order_number: string;
@@ -173,7 +173,7 @@ export interface SaleExpedition {
   id: string;
   sales_order_id: string;
   expedition_number: string;
-  status: 'em_pesagem' | 'expedida' | 'cancelada';
+  status: 'em_pesagem' | 'aguardando_aceite_comercial' | 'expedida' | 'cancelada' | 'recusada_comercial';
   created_at: string;
   dispatched_at?: string | null;
   order: {
@@ -196,7 +196,7 @@ export interface SaleExpedition {
         lot?: { id: string; lot_code: string; available_quantity: number; available_pieces?: number | null };
         weighed_quantity: number;
         weighed_pieces: number;
-        weighings: Array<{ id: string; quantity: number; pieces_quantity?: number | null; weighed_at: string; notes?: string | null }>;
+        weighings: Array<{ id: string; quantity: number; pieces_quantity?: number | null; photo_url?: string | null; weighed_at: string; notes?: string | null }>;
       }>;
     }>;
   };
@@ -1326,10 +1326,18 @@ export function createSaleExpedition(salesOrderId: string): Promise<SaleExpediti
   return apiRequest<SaleExpedition>('/inventory/expeditions', { method: 'POST', body: JSON.stringify({ salesOrderId }) });
 }
 
-export function addExpeditionWeighing(payload: { expeditionId: string; salesOrderItemId: string; finishedProductLotId: string; quantity: number; piecesQuantity?: number; notes?: string }): Promise<SaleExpedition> {
+export async function uploadExpeditionWeighingPhoto(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) throw new Error('Envie uma imagem da balança.');
+  const form = new FormData();
+  form.append('photo', file);
+  const result = await apiRequest<{ path: string }>('/inventory/expedition-weighing-photos', { method: 'POST', body: form });
+  return result.path;
+}
+
+export function addExpeditionWeighing(payload: { expeditionId: string; salesOrderItemId: string; finishedProductLotId: string; quantity: number; piecesQuantity?: number; photoUrl: string; notes?: string }): Promise<SaleExpedition> {
   return apiRequest<SaleExpedition>(`/inventory/expeditions/${payload.expeditionId}/weighings`, {
     method: 'POST',
-    body: JSON.stringify({ salesOrderItemId: payload.salesOrderItemId, finishedProductLotId: payload.finishedProductLotId, quantity: payload.quantity, piecesQuantity: payload.piecesQuantity, notes: payload.notes }),
+    body: JSON.stringify({ salesOrderItemId: payload.salesOrderItemId, finishedProductLotId: payload.finishedProductLotId, quantity: payload.quantity, piecesQuantity: payload.piecesQuantity, photoUrl: payload.photoUrl, notes: payload.notes }),
   });
 }
 
@@ -1339,6 +1347,10 @@ export function deleteExpeditionWeighing(expeditionId: string, weighingId: strin
 
 export function confirmSaleExpedition(expeditionId: string): Promise<SaleExpedition> {
   return apiRequest<SaleExpedition>(`/inventory/expeditions/${expeditionId}/confirm`, { method: 'POST', body: JSON.stringify({}) });
+}
+
+export function reviewExpeditionVariance(salesOrderId: string, decision: 'aceita' | 'recusada', note?: string): Promise<SalesOrderRecord> {
+  return apiRequest<any>(`/sales-orders/${salesOrderId}/expedition-variance/review`, { method: 'POST', body: JSON.stringify({ decision, note }) }).then(mapSalesOrder);
 }
 
 export async function loadFinancialEntries(filters?: FinancialEntryFilters) {

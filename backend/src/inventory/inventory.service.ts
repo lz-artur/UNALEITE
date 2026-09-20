@@ -10,6 +10,7 @@ import { CreateExpeditionWeighingDto } from './dto/create-expedition-weighing.dt
 import { CreateWarehouseWithdrawalDto } from './dto/create-warehouse-withdrawal.dto';
 import { CreateExpiredLotDisposalDto } from './dto/create-expired-lot-disposal.dto';
 import { ReviewExpiredLotDisposalDto } from './dto/review-expired-lot-disposal.dto';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class InventoryService {
@@ -684,7 +685,15 @@ export class InventoryService {
     const productById = new Map((products ?? []).map((product: any) => [product.id, product]));
     const lotById = new Map((lots ?? []).map((lot: any) => [lot.id, lot]));
     const weighingsByLine = new Map<string, any[]>();
-    (weighings ?? []).forEach((weighing: any) => {
+    const hydratedWeighings = await Promise.all((weighings ?? []).map(async (weighing: any) => {
+      if (!weighing.photo_url) return weighing;
+      const { data, error } = await this.supabaseService.admin.storage
+        .from('expedition-weighing-photos')
+        .createSignedUrl(weighing.photo_url, 300);
+      if (error) throw new BadRequestException('Não foi possível acessar a foto da pesagem.');
+      return { ...weighing, photo_url: data.signedUrl };
+    }));
+    hydratedWeighings.forEach((weighing: any) => {
       const collection = weighingsByLine.get(weighing.expedition_line_id) ?? [];
       collection.push(weighing);
       weighingsByLine.set(weighing.expedition_line_id, collection);
@@ -736,12 +745,24 @@ export class InventoryService {
       p_finished_product_lot_id: payload.finishedProductLotId,
       p_quantity: payload.quantity,
       p_pieces_quantity: payload.piecesQuantity ?? null,
+      p_photo_url: payload.photoUrl,
       p_notes: payload.notes?.trim() || null,
       p_user_id: actor.id,
     });
     if (error) throw new BadRequestException(error.message);
     await this.insertExpeditionLog(expeditionId, 'pesagem_registrada', actor, { item_id: payload.salesOrderItemId, lot_id: payload.finishedProductLotId, quantidade: payload.quantity, pecas: payload.piecesQuantity ?? null });
     return this.getSaleExpedition(expeditionId, user);
+  }
+
+  async uploadExpeditionWeighingPhoto(file: { buffer: Buffer; originalname?: string; mimetype?: string }, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const extension = (file.originalname?.split('.').pop() || 'jpg').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
+    const path = `${actor.id}/${randomUUID()}.${extension}`;
+    const { error } = await this.supabaseService.admin.storage
+      .from('expedition-weighing-photos')
+      .upload(path, file.buffer, { contentType: file.mimetype || 'image/jpeg', upsert: false });
+    if (error) throw new BadRequestException('Não foi possível enviar a foto da balança.');
+    return { path };
   }
 
   async deleteExpeditionWeighing(expeditionId: string, weighingId: string, user: AuthenticatedUser) {

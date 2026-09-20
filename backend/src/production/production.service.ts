@@ -393,11 +393,12 @@ export class ProductionService {
 
     const milkLot = await this.getById('milk_lots', String(order.milk_lot_id));
     const product = await this.getById('finished_products', String(order.product_id));
-    if (product.category === 'Queijo' && (!Number.isInteger(payload.actualPiecesProduced) || Number(payload.actualPiecesProduced) <= 0)) {
-      throw new BadRequestException('Informe a quantidade de peças produzidas para finalizar a OP de queijo');
+    const tracksPieces = Boolean(product.tracks_quantity_and_weight ?? product.tracks_pieces);
+    if (tracksPieces && (!Number.isInteger(payload.actualPiecesProduced) || Number(payload.actualPiecesProduced) <= 0)) {
+      throw new BadRequestException('Informe a quantidade de peças produzidas para finalizar a OP deste produto');
     }
-    if (product.category !== 'Queijo' && payload.actualPiecesProduced != null) {
-      throw new BadRequestException('A quantidade de peças é aplicável somente a produtos de queijo');
+    if (!tracksPieces && payload.actualPiecesProduced != null) {
+      throw new BadRequestException('Este produto não está configurado para controle de peças e peso');
     }
     const productSpec = await this.getActiveProductSpec(String(order.product_id));
 

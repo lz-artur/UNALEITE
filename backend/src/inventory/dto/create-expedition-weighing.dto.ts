@@ -23,6 +23,11 @@ export class CreateExpeditionWeighingDto {
   @Min(1)
   piecesQuantity?: number;
 
+  @IsNotEmpty({ message: 'A foto da balança é obrigatória' })
+  @IsString()
+  @MaxLength(2000)
+  photoUrl!: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(500)

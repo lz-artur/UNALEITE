@@ -11,6 +11,7 @@ import { CreateSalesOrderDto } from './dto/create-sales-order.dto';
 import { FulfillSalesOrderDto } from './dto/fulfill-sales-order.dto';
 import { ListSalesOrdersDto } from './dto/list-sales-orders.dto';
 import { ReturnSalesOrderDto } from './dto/return-sales-order.dto';
+import { ReviewExpeditionVarianceDto } from './dto/review-expedition-variance.dto';
 
 @Injectable()
 export class SalesService {
@@ -183,6 +184,28 @@ export class SalesService {
       p_installment_entries: installmentEntries,
     });
     if (error) throw new BadRequestException(error.message);
+    return this.getSalesOrder(salesOrderId);
+  }
+
+  async reviewExpeditionVariance(salesOrderId: string, payload: ReviewExpeditionVarianceDto, user?: AuthenticatedUser) {
+    const { data: expedition, error } = await this.supabaseService.admin
+      .from('sale_expeditions')
+      .select('id, status')
+      .eq('sales_order_id', salesOrderId)
+      .eq('status', 'aguardando_aceite_comercial')
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!expedition) throw new BadRequestException('Não há uma variação de expedição aguardando conferência comercial.');
+    const nextStatus = payload.decision === 'aceita' ? 'expedida' : 'recusada_comercial';
+    const { error: updateError } = await this.supabaseService.admin.from('sale_expeditions').update({
+      status: nextStatus, commercial_decision: payload.decision, commercial_note: payload.note?.trim() || null,
+      commercial_decided_at: new Date().toISOString(), commercial_decided_by: user?.id ?? null,
+    }).eq('id', expedition.id);
+    if (updateError) throw new BadRequestException(updateError.message);
+    if (payload.decision === 'aceita') {
+      const { error: orderError } = await this.supabaseService.admin.from('sales_orders').update({ status: 'Conferido', updated_at: new Date().toISOString(), updated_by: user?.id ?? null }).eq('id', salesOrderId);
+      if (orderError) throw new BadRequestException(orderError.message);
+    }
     return this.getSalesOrder(salesOrderId);
   }
 

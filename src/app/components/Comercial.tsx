@@ -7,6 +7,9 @@ import {
   createClient,
   createSalesOrder,
   finalizeConferredSalesOrder,
+  loadSaleExpedition,
+  loadSaleExpeditions,
+  reviewExpeditionVariance,
   fulfillSalesOrder,
   cancelAttendance,
   loadClients,
@@ -19,6 +22,7 @@ import {
   type ClientRecord,
   type SalesOrderFilters,
   type SalesOrderRecord,
+  type SaleExpedition,
 } from '../services/operationsApi';
 import {
   AlertDialog,
@@ -65,6 +69,7 @@ export default function Comercial() {
   const [showFulfillModal, setShowFulfillModal] = useState(false);
   const [showFinalizeModal, setShowFinalizeModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [varianceExpedition, setVarianceExpedition] = useState<SaleExpedition | null>(null);
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [editingClient, setEditingClient] = useState<ClientRecord | null>(null);
   const [orderFilters, setOrderFilters] = useState<SalesOrderFilters>({});
@@ -425,6 +430,28 @@ export default function Comercial() {
       setShowFinalizeModal(true);
     } catch (error) { setErrorMessage(getErrorMessage(error)); }
     finally { setLoadingDetail(false); }
+  };
+
+  const openVarianceReview = async (salesOrderId: string) => {
+    setLoadingDetail(true);
+    try {
+      const summary = (await loadSaleExpeditions()).find((item) => item.sales_order_id === salesOrderId && item.status === 'aguardando_aceite_comercial');
+      if (!summary) throw new Error('Não há expedição aguardando conferência comercial.');
+      setVarianceExpedition(await loadSaleExpedition(summary.id));
+    } catch (error) { setErrorMessage(getErrorMessage(error)); }
+    finally { setLoadingDetail(false); }
+  };
+
+  const decideVariance = async (decision: 'aceita' | 'recusada') => {
+    if (!varianceExpedition) return;
+    setSaving(true);
+    try {
+      const updated = await reviewExpeditionVariance(varianceExpedition.sales_order_id, decision);
+      setSalesOrders((current) => current.map((order) => order.id === updated.id ? updated : order));
+      setSelectedOrder(updated); setVarianceExpedition(null);
+      toast.success(decision === 'aceita' ? 'Variação aceita. A venda pode ser finalizada.' : 'Variação recusada e registrada.');
+    } catch (error) { setErrorMessage(getErrorMessage(error)); }
+    finally { setSaving(false); }
   };
 
   const handleFinalizeOrder = async () => {
@@ -832,6 +859,9 @@ export default function Comercial() {
                                 Finalizar venda
                               </button>
                             )}
+                            {order.status === 'Aguardando Aceite Comercial' && (
+                              <button onClick={() => void openVarianceReview(order.id)} disabled={loadingDetail} className="rounded-lg bg-amber-600 px-3 py-2 text-sm text-white hover:bg-amber-700 disabled:opacity-60">Conferir variação</button>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="w-12">
@@ -1150,6 +1180,12 @@ export default function Comercial() {
             {fulfillForm.parcelas.map((entry, index) => <div key={entry.id} className="flex items-end gap-3"><div className="flex-1"><InputField label={`Valor da parcela ${index + 1}`} type="number" value={entry.amount} onChange={(value) => setFulfillForm((current) => ({ ...current, parcelas: current.parcelas.map((item) => item.id === entry.id ? { ...item, amount: value } : item) }))} /></div><div className="flex-1"><InputField label="Vencimento" type="date" value={entry.dueDate} onChange={(value) => setFulfillForm((current) => ({ ...current, parcelas: current.parcelas.map((item) => item.id === entry.id ? { ...item, dueDate: value } : item) }))} /></div>{fulfillForm.parcelas.length > 1 && <button type="button" onClick={() => setFulfillForm((current) => ({ ...current, parcelas: current.parcelas.filter((item) => item.id !== entry.id) }))} className="mb-1 rounded p-2 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}</div>)}
             <button type="button" onClick={() => setFulfillForm((current) => ({ ...current, parcelas: [...current.parcelas, { id: crypto.randomUUID(), dueDate: '', amount: '' }] }))} className="text-sm font-medium text-blue-700">+ Adicionar parcela</button>
           </div>}
+        </ModalShell>
+      ) : null}
+
+      {varianceExpedition && selectedOrder ? (
+        <ModalShell title={`Conferir variação — Pedido ${selectedOrder.number}`} onClose={() => setVarianceExpedition(null)} maxWidth="max-w-4xl" hideCancel={true} extraFooterActions={<div className="flex w-full justify-end gap-3"><button disabled={saving} onClick={() => void decideVariance('recusada')} className="rounded-lg border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50">Recusar alteração</button><button disabled={saving} onClick={() => void decideVariance('aceita')} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Aceitar alteração</button></div>}>
+          <div className="space-y-4"><div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">A expedição informou pesos diferentes do pedido. Confira as pesagens e as fotos da balança antes de decidir.</div>{varianceExpedition.order.items.map((item) => { const weighed = item.lines.reduce((sum, line) => sum + line.weighed_quantity, 0); const diff = weighed - item.pending_quantity; return <section key={item.id} className="rounded-xl border border-gray-200 p-4"><div className="flex justify-between gap-3"><div><h3 className="font-bold text-gray-900">{item.product_name}</h3><p className="text-sm text-gray-500">Pedido: {item.pending_quantity.toLocaleString('pt-BR')} kg · Expedido: {weighed.toLocaleString('pt-BR')} kg</p></div><span className={`font-bold ${diff === 0 ? 'text-emerald-700' : 'text-amber-700'}`}>{diff >= 0 ? '+' : ''}{diff.toLocaleString('pt-BR')} kg</span></div><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">{item.lines.flatMap((line) => line.weighings).map((weighing) => <a key={weighing.id} href={weighing.photo_url || '#'} target="_blank" rel="noreferrer" className="overflow-hidden rounded-lg border border-gray-200 hover:border-blue-400"><img src={weighing.photo_url || ''} alt={`Balança: ${weighing.quantity} kg`} className="h-28 w-full object-cover" /><p className="p-2 text-xs font-semibold text-gray-700">{weighing.quantity.toLocaleString('pt-BR')} kg</p></a>)}</div></section>; })}</div>
         </ModalShell>
       ) : null}
 

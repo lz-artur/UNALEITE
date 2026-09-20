@@ -1,4 +1,5 @@
-import { Controller, Delete, Get, Param, UseGuards, Post, Body } from '@nestjs/common';
+import { BadRequestException, Controller, Delete, Get, Param, UseGuards, Post, Body, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SupabaseAuthGuard } from '../common/guards/supabase-auth.guard';
 import { InventoryService } from './inventory.service';
@@ -166,6 +167,13 @@ export class InventoryController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.inventoryService.createExpeditionWeighing(expeditionId, payload, user);
+  }
+
+  @Post('expedition-weighing-photos')
+  @UseInterceptors(FileInterceptor('photo', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  uploadExpeditionWeighingPhoto(@UploadedFile() file: { buffer: Buffer; originalname?: string; mimetype?: string }, @CurrentUser() user: AuthenticatedUser) {
+    if (!file?.buffer || !file.mimetype?.startsWith('image/')) throw new BadRequestException('Envie uma imagem da balança.');
+    return this.inventoryService.uploadExpeditionWeighingPhoto(file, user);
   }
 
   @Delete('expeditions/:expeditionId/weighings/:weighingId')
