@@ -516,14 +516,17 @@ export class InventoryService {
     const { actor } = await this.saveCountValues(sessionId, payload, user);
     const { data: items, error: itemsError } = await this.supabaseService.admin
       .from('inventory_count_items')
-      .select('id, counted_quantity, difference_quantity')
+      .select('id, counted_quantity, counted_pieces, tracks_pieces, difference_quantity, difference_pieces')
       .eq('inventory_session_id', sessionId);
     if (itemsError) throw new BadRequestException(itemsError.message);
     if ((items ?? []).some((item: any) => item.counted_quantity === null)) {
       throw new BadRequestException('Informe a quantidade física de todos os itens antes de enviar.');
     }
 
-    const divergentItems = (items ?? []).filter((item: any) => Number(item.difference_quantity) !== 0);
+    const divergentItems = (items ?? []).filter((item: any) =>
+      Number(item.difference_quantity) !== 0
+      || (item.tracks_pieces && Number(item.difference_pieces) !== 0),
+    );
     const now = new Date().toISOString();
     const { error: itemUpdateError } = await this.supabaseService.admin
       .from('inventory_count_items')

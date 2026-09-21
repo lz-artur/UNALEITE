@@ -140,7 +140,7 @@ export default function Comercial() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const { finishedProducts, bankAccounts, getUnitSymbol, getFinishedProductById } = useCadastros();
+  const { finishedProducts, bankAccounts, getUnitSymbol } = useCadastros();
 
   const loadData = async (filters: SalesOrderFilters = orderFilters) => {
     setLoading(true);
@@ -385,8 +385,20 @@ export default function Comercial() {
     setErrorMessage(null);
 
     try {
-      const detail = await loadSalesOrderDetail(salesOrderId);
+      const [detail, refreshedLots] = await Promise.all([
+        loadSalesOrderDetail(salesOrderId),
+        loadFinishedProductLots({ requireLive: true }),
+      ]);
       setSelectedOrder(detail);
+      setFinishedLots(
+        refreshedLots.map((lot) => ({
+          id: lot.id,
+          productId: lot.produtoId,
+          lote: lot.lote,
+          disponivel: lot.disponivel,
+          disponivelPecas: lot.disponivelPecas,
+        })),
+      );
       const nextItems = detail.items.reduce<Record<string, Array<{ localId: string; finishedProductLotId: string; quantity: string; pieces: string }>>>(
         (accumulator, item) => {
           if (item.pendingQuantity <= 0) return accumulator;
@@ -521,10 +533,11 @@ export default function Comercial() {
       return;
     }
 
-    if (items.some(({ item, values }) =>
-      getFinishedProductById(item.productId)?.tracksQuantityAndWeight
-      && (!Number.isInteger(Number(values.pieces)) || Number(values.pieces) <= 0),
-    )) {
+    if (items.some(({ values }) => {
+      const selectedLot = finishedLots.find((lot) => lot.id === values.finishedProductLotId);
+      return selectedLot?.disponivelPecas != null
+        && (!Number.isInteger(Number(values.pieces)) || Number(values.pieces) <= 0);
+    })) {
       setErrorMessage('Informe uma quantidade inteira de peças para todos os produtos que controlam peso e quantidade.');
       return;
     }
@@ -546,14 +559,17 @@ export default function Comercial() {
             }))
           : undefined,
         bankAccountId: fulfillForm.bankAccountId,
-        items: items.map(({ item, values }) => ({
-          salesOrderItemId: item.id,
-          finishedProductLotId: values.finishedProductLotId,
-          quantity: Number(values.quantity),
-          piecesQuantity: getFinishedProductById(item.productId)?.tracksQuantityAndWeight
-            ? Number(values.pieces)
-            : undefined,
-        })),
+        items: items.map(({ item, values }) => {
+          const selectedLot = finishedLots.find((lot) => lot.id === values.finishedProductLotId);
+          return {
+            salesOrderItemId: item.id,
+            finishedProductLotId: values.finishedProductLotId,
+            quantity: Number(values.quantity),
+            piecesQuantity: selectedLot?.disponivelPecas != null
+              ? Number(values.pieces)
+              : undefined,
+          };
+        }),
       });
 
       setSalesOrders((current) =>
@@ -687,11 +703,12 @@ export default function Comercial() {
   };
 
   const availableLotsByProduct = (productId: string) => {
-    const requiresPieces = getFinishedProductById(productId)?.tracksQuantityAndWeight;
     return finishedLots.filter((lot) =>
       lot.productId === productId
       && lot.disponivel > 0
-      && (!requiresPieces || (lot.disponivelPecas ?? 0) > 0),
+      // Lotes antigos podem ter sido criados antes do controle em peças.
+      // Neles, null significa controle somente por peso, não saldo zerado.
+      && (lot.disponivelPecas == null || lot.disponivelPecas > 0),
     );
   };
 
@@ -718,7 +735,6 @@ export default function Comercial() {
     for (const item of selectedOrder.items) {
       if (item.pendingQuantity <= 0) continue;
       const itemLots = fulfillForm.items[item.id] || [];
-      const requiresPieces = getFinishedProductById(item.productId)?.tracksQuantityAndWeight;
       const itemFulfilledQty = itemLots.reduce((qSum, lot) => qSum + Number(lot.quantity || 0), 0);
       
       // Add a small tolerance for floating point errors
@@ -730,8 +746,9 @@ export default function Comercial() {
         if (!lot.finishedProductLotId) continue;
         const availableLot = finishedLots.find(l => l.id === lot.finishedProductLotId);
         if (availableLot && Number(lot.quantity || 0) > availableLot.disponivel) return true;
-        if (requiresPieces && (!Number.isInteger(Number(lot.pieces)) || Number(lot.pieces) <= 0)) return true;
-        if (requiresPieces && availableLot && Number(lot.pieces) > (availableLot.disponivelPecas ?? 0)) return true;
+        const lotTracksPieces = availableLot?.disponivelPecas != null;
+        if (lotTracksPieces && (!Number.isInteger(Number(lot.pieces)) || Number(lot.pieces) <= 0)) return true;
+        if (lotTracksPieces && Number(lot.pieces) > Number(availableLot?.disponivelPecas)) return true;
       }
     }
     
@@ -741,7 +758,7 @@ export default function Comercial() {
     }
     
     return false;
-  }, [selectedOrder, fulfillForm, finishedLots, showFulfillModal, totalFulfillmentValue, getFinishedProductById]);
+  }, [selectedOrder, fulfillForm, finishedLots, showFulfillModal, totalFulfillmentValue]);
 
   return (
     <div className="space-y-6">
@@ -1348,7 +1365,6 @@ export default function Comercial() {
                 const baseLotOptions = availableLotsByProduct(item.productId);
                 const itemLots = fulfillForm.items[item.id] || [];
                 const fulfilledQty = itemLots.reduce((sum, lot) => sum + Number(lot.quantity || 0), 0);
-                const requiresPieces = getFinishedProductById(item.productId)?.tracksQuantityAndWeight;
                 // Add a small tolerance for floating point errors
                 const isOverfulfilled = fulfilledQty > item.pendingQuantity + 0.001;
 
@@ -1396,13 +1412,14 @@ export default function Comercial() {
                       const lotOptions = baseLotOptions.filter(lot => !selectedLotIds.includes(lot.id) || lot.id === lotValue.finishedProductLotId);
                       
                       const selectedLotData = baseLotOptions.find(l => l.id === lotValue.finishedProductLotId);
+                      const lotTracksPieces = selectedLotData?.disponivelPecas != null;
                       const isOverLotDisponivel = selectedLotData && Number(lotValue.quantity || 0) > selectedLotData.disponivel;
-                      const isInvalidPieces = requiresPieces && (!Number.isInteger(Number(lotValue.pieces)) || Number(lotValue.pieces) <= 0);
-                      const isOverLotPieces = requiresPieces && selectedLotData && Number(lotValue.pieces || 0) > (selectedLotData.disponivelPecas ?? 0);
+                      const isInvalidPieces = lotTracksPieces && (!Number.isInteger(Number(lotValue.pieces)) || Number(lotValue.pieces) <= 0);
+                      const isOverLotPieces = lotTracksPieces && Number(lotValue.pieces || 0) > Number(selectedLotData?.disponivelPecas);
 
                       return (
                         <div key={lotValue.localId} className="mt-3">
-                          <div className={`grid grid-cols-1 gap-3 ${requiresPieces ? 'md:grid-cols-[1fr_1fr_1fr_auto]' : 'md:grid-cols-[1fr_1fr_auto]'}`}>
+                          <div className={`grid grid-cols-1 gap-3 ${lotTracksPieces ? 'md:grid-cols-[1fr_1fr_1fr_auto]' : 'md:grid-cols-[1fr_1fr_auto]'}`}>
                             <SelectField
                               label="Lote acabado"
                               value={lotValue.finishedProductLotId}
@@ -1418,7 +1435,7 @@ export default function Comercial() {
                               options={[
                                 { label: lotOptions.length ? 'Selecione...' : 'Sem lotes disponiveis', value: '' },
                                 ...lotOptions.map((lot) => ({
-                                  label: `${lot.lote} - saldo ${lot.disponivel.toLocaleString('pt-BR')}${requiresPieces ? ` • ${lot.disponivelPecas ?? 0} peças` : ''}`,
+                                  label: `${lot.lote} - saldo ${lot.disponivel.toLocaleString('pt-BR')}${lot.disponivelPecas != null ? ` • ${lot.disponivelPecas} peças` : ''}`,
                                   value: lot.id,
                                 })),
                               ]}
@@ -1439,7 +1456,7 @@ export default function Comercial() {
                                 }
                               />
                             </div>
-                            {requiresPieces && (
+                            {lotTracksPieces && (
                               <div>
                                 <InputField
                                   label="Peças atendidas"

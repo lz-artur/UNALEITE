@@ -72,6 +72,7 @@ function logDescription(action: string) {
     contagem_enviada: 'Enviou a contagem para aprovação',
     ajuste_aprovado: 'Aprovou o ajuste de estoque',
     ajuste_recusado: 'Recusou o ajuste de estoque',
+    divergencia_de_pecas_reaberta: 'Reabriu divergência de peças para aprovação',
   };
   return labels[action] ?? action;
 }
