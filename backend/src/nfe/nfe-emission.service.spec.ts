@@ -66,6 +66,46 @@ describe('NfeEmissionService XML data', () => {
     expect((service as any).isLocalXmlValidationError('connect ETIMEDOUT')).toBe(false);
   });
 
+  it('extrai a chave e o recibo de uma rejeição por duplicidade', () => {
+    const message = 'NFE_Autorizacao: Rejeição: Duplicidade de NF-e com diferença na Chave de Acesso '
+      + '[chNFe: 26260855219063000125550020000000301000407362][nRec: 261260088970538]';
+
+    expect((service as any).parseDuplicateRejection(message)).toEqual({
+      accessKey: '26260855219063000125550020000000301000407362',
+      receiptNumber: '261260088970538',
+    });
+  });
+
+  it('descarta o número já usado e tenta novamente com o próximo número da série', async () => {
+    const updates: any[] = [];
+    const chain: any = {
+      update: jest.fn((payload) => {
+        updates.push(payload);
+        return chain;
+      }),
+      eq: jest.fn(() => chain),
+      then: (resolve: (value: any) => void) => resolve({ error: null }),
+    };
+    const supabase = { admin: { from: jest.fn(() => chain) } } as any;
+    const duplicateService = new NfeEmissionService(supabase, {} as any, {} as any, {} as any);
+    jest.spyOn(duplicateService, 'authorize').mockResolvedValue({ id: 'invoice-30', number: 31, status: 'AUTORIZADA' } as any);
+
+    const result = await (duplicateService as any).retryWithNextNumber(
+      'invoice-30',
+      { environment: 'producao', series: 2, number: 30 },
+      'Duplicidade de NF-e',
+      0,
+      { id: 'user-1' },
+    );
+
+    expect(updates).toContainEqual(expect.objectContaining({
+      status: 'REJEITADA', number: null, access_key: null, numeric_code: null,
+      rejection_code: '539',
+    }));
+    expect(duplicateService.authorize).toHaveBeenCalledWith('invoice-30', { id: 'user-1' }, 1);
+    expect(result).toEqual({ id: 'invoice-30', number: 31, status: 'AUTORIZADA' });
+  });
+
   it('cancela a NF-e no ambiente gravado na nota, mesmo após mudar a configuração global', async () => {
     const chain: any = {
       insert: jest.fn(() => chain),
