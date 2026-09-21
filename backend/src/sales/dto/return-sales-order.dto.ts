@@ -22,6 +22,11 @@ export class ReturnSalesOrderItemDto {
   @Min(0.0001)
   returnedQuantity!: number;
 
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  returnedPieces?: number;
+
   @IsString()
   @IsOptional()
   reason?: string;

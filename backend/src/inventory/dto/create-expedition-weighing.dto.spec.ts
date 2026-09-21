@@ -7,6 +7,7 @@ describe('CreateExpeditionWeighingDto', () => {
       salesOrderItemId: '32527ef9-60a9-4dd6-84e4-c4cf2737bf26',
       finishedProductLotId: '00000000-0000-0000-0000-000000002301',
       quantity: 2,
+      photoUrl: 'https://example.test/balanca.jpg',
     });
 
     expect(await validate(payload)).toHaveLength(0);
@@ -17,6 +18,7 @@ describe('CreateExpeditionWeighingDto', () => {
       salesOrderItemId: 'item-inválido',
       finishedProductLotId: 'lote-inválido',
       quantity: 2,
+      photoUrl: 'https://example.test/balanca.jpg',
     });
 
     expect(await validate(payload)).toHaveLength(2);

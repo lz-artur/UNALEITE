@@ -14,6 +14,12 @@ export class InventoryCountValueDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  countedPieces?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   @MaxLength(1000)
   notes?: string;

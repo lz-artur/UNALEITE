@@ -9,6 +9,7 @@ import { FulfillSalesOrderDto } from './dto/fulfill-sales-order.dto';
 import { ListSalesOrdersDto } from './dto/list-sales-orders.dto';
 import { ReturnSalesOrderDto } from './dto/return-sales-order.dto';
 import { SalesService } from './sales.service';
+import { ReviewExpeditionVarianceDto } from './dto/review-expedition-variance.dto';
 
 @ApiTags('sales-orders')
 @ApiBearerAuth()
@@ -51,6 +52,11 @@ export class SalesController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     return this.salesService.finalizeConferredSalesOrder(id, payload, user);
+  }
+
+  @Post(':id/expedition-variance/review')
+  reviewExpeditionVariance(@Param('id') id: string, @Body() payload: ReviewExpeditionVarianceDto, @CurrentUser() user?: AuthenticatedUser) {
+    return this.salesService.reviewExpeditionVariance(id, payload, user);
   }
 
   @Post(':id/attendances/:attendanceId/cancel')

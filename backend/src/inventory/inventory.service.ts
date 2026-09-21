@@ -10,6 +10,7 @@ import { CreateExpeditionWeighingDto } from './dto/create-expedition-weighing.dt
 import { CreateWarehouseWithdrawalDto } from './dto/create-warehouse-withdrawal.dto';
 import { CreateExpiredLotDisposalDto } from './dto/create-expired-lot-disposal.dto';
 import { ReviewExpiredLotDisposalDto } from './dto/review-expired-lot-disposal.dto';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class InventoryService {
@@ -27,7 +28,7 @@ export class InventoryService {
     };
   }
 
-  private async getSessionForUser(sessionId: string, user: AuthenticatedUser) {
+  private async getSessionForUser(sessionId: string, user: AuthenticatedUser, allowAssignedCompleted = false) {
     const actor = await this.getActor(user);
     const { data: session, error } = await this.supabaseService.admin
       .from('inventory_sessions')
@@ -37,8 +38,11 @@ export class InventoryService {
 
     if (error) throw new BadRequestException(error.message);
     if (!session) throw new NotFoundException('Sessão de inventário não encontrada');
-    if (!actor.isAdmin && session.created_by !== actor.id) {
+    if (!actor.isAdmin && session.assigned_to !== actor.id) {
       throw new NotFoundException('Sessão de inventário não encontrada');
+    }
+    if (!actor.isAdmin && !allowAssignedCompleted && session.status !== 'em_contagem') {
+      throw new BadRequestException('Esta contagem já foi enviada e não está mais disponível para acesso.');
     }
 
     return { actor, session };
@@ -176,7 +180,7 @@ export class InventoryService {
   async createManualExit(payload: CreateManualExitDto, user?: AuthenticatedUser) {
     const { data: lot, error: findError } = await this.supabaseService.admin
       .from('finished_product_lots')
-      .select('id, available_quantity, lot_code')
+      .select('id, available_quantity, available_pieces, lot_code, finished_products(tracks_quantity_and_weight, tracks_pieces)')
       .eq('id', payload.finishedProductLotId)
       .maybeSingle();
 
@@ -187,6 +191,21 @@ export class InventoryService {
       throw new BadRequestException(`O lote ${String(lot.lot_code)} não tem quantidade disponível suficiente (Disponível: ${lot.available_quantity})`);
     }
 
+    const product = Array.isArray((lot as any).finished_products) ? (lot as any).finished_products[0] : (lot as any).finished_products;
+    const tracksPieces = Boolean(product?.tracks_quantity_and_weight ?? product?.tracks_pieces);
+    if (tracksPieces && (!Number.isInteger(payload.pieces) || Number(payload.pieces) <= 0)) {
+      throw new BadRequestException('Informe a quantidade de peças para este produto.');
+    }
+    if (!tracksPieces && payload.pieces != null) {
+      throw new BadRequestException('Este produto não está configurado para controle de peças e peso.');
+    }
+    if (tracksPieces && lot.available_pieces == null) {
+      throw new BadRequestException('O lote não possui saldo de peças para movimentação.');
+    }
+    if (tracksPieces && Number(payload.pieces) > Number(lot.available_pieces)) {
+      throw new BadRequestException(`O lote ${String(lot.lot_code)} não tem peças disponíveis suficientes (Disponível: ${lot.available_pieces})`);
+    }
+
     const exitDate = payload.exitDate ?? new Date().toISOString();
 
     const { data: exitRecord, error: exitError } = await this.supabaseService.admin
@@ -194,6 +213,7 @@ export class InventoryService {
       .insert({
         finished_product_lot_id: payload.finishedProductLotId,
         quantity: payload.quantity,
+        pieces: payload.pieces ?? null,
         reason: payload.reason,
         notes: payload.notes ?? null,
         exit_date: exitDate,
@@ -207,12 +227,18 @@ export class InventoryService {
       throw new BadRequestException(exitError.message);
     }
 
+    const lotUpdateData: any = {
+      available_quantity: Number(lot.available_quantity) - payload.quantity,
+      updated_by: user?.id ?? null,
+    };
+
+    if (tracksPieces) {
+      lotUpdateData.available_pieces = Number(lot.available_pieces) - Number(payload.pieces);
+    }
+
     const { error: lotUpdateError } = await this.supabaseService.admin
       .from('finished_product_lots')
-      .update({
-        available_quantity: Number(lot.available_quantity) - payload.quantity,
-        updated_by: user?.id ?? null,
-      })
+      .update(lotUpdateData)
       .eq('id', payload.finishedProductLotId);
 
     if (lotUpdateError) {
@@ -322,7 +348,7 @@ export class InventoryService {
       .select('*, inventory_count_items(id, status, difference_quantity)')
       .order('started_at', { ascending: false });
 
-    if (!actor.isAdmin) query = query.eq('created_by', actor.id);
+    if (!actor.isAdmin) query = query.eq('assigned_to', actor.id).eq('status', 'em_contagem');
     const { data, error } = await query;
     if (error) throw new BadRequestException(error.message);
 
@@ -340,6 +366,18 @@ export class InventoryService {
 
   async createInventorySession(payload: CreateInventorySessionDto, user: AuthenticatedUser) {
     const actor = await this.getActor(user);
+    const availableFrom = new Date(payload.availableFrom);
+    const availableUntil = new Date(payload.availableUntil);
+    if (Number.isNaN(availableFrom.getTime()) || Number.isNaN(availableUntil.getTime()) || availableUntil <= availableFrom) {
+      throw new BadRequestException('Informe um período de inventário válido.');
+    }
+    const { data: assignedUser, error: assignedUserError } = await this.supabaseService.admin
+      .from('app_users')
+      .select('auth_user_id, display_name, email, active')
+      .eq('auth_user_id', payload.assignedTo)
+      .maybeSingle();
+    if (assignedUserError) throw new BadRequestException(assignedUserError.message);
+    if (!assignedUser?.active) throw new BadRequestException('Selecione um usuário operacional ativo para a contagem.');
     const title = payload.title?.trim() || `Inventário de ${new Date().toLocaleDateString('pt-BR')}`;
 
     const [{ data: supplyLots, error: supplyError }, { data: finishedLots, error: finishedError }] = await Promise.all([
@@ -348,7 +386,7 @@ export class InventoryService {
         .select('id, supply_item_id, internal_lot_code, available_quantity, supply_item_name, unit_id'),
       this.supabaseService.admin
         .from('finished_product_lots')
-        .select('id, product_id, lot_code, available_quantity, finished_products(name, code, unit_id, units(symbol))'),
+        .select('id, product_id, lot_code, available_quantity, available_pieces, finished_products(name, code, unit_id, tracks_pieces, tracks_quantity_and_weight, units(symbol))'),
     ]);
 
     if (supplyError) throw new BadRequestException(supplyError.message);
@@ -356,7 +394,16 @@ export class InventoryService {
 
     const { data: session, error: sessionError } = await this.supabaseService.admin
       .from('inventory_sessions')
-      .insert({ title, created_by: actor.id, created_by_name: actor.name })
+      .insert({
+        title,
+        created_by: actor.id,
+        created_by_name: actor.name,
+        assigned_to: assignedUser.auth_user_id,
+        assigned_to_name: assignedUser.display_name || assignedUser.email,
+        available_from: availableFrom.toISOString(),
+        available_until: availableUntil.toISOString(),
+        include_zero_balance_lots: Boolean(payload.includeZeroBalanceLots),
+      })
       .select('*')
       .single();
     if (sessionError || !session) throw new BadRequestException(sessionError?.message || 'Não foi possível iniciar o inventário');
@@ -370,10 +417,12 @@ export class InventoryService {
       lot_code: lot.internal_lot_code,
       unit_symbol: null,
       system_quantity: Number(lot.available_quantity),
+      tracks_pieces: false,
     }));
     const productItems = (finishedLots ?? []).map((lot: any) => {
       const product = Array.isArray(lot.finished_products) ? lot.finished_products[0] : lot.finished_products;
       const unit = Array.isArray(product?.units) ? product.units[0] : product?.units;
+      const tracksPieces = Boolean(product?.tracks_quantity_and_weight ?? product?.tracks_pieces);
       return {
         inventory_session_id: session.id,
         lot_type: 'Produto Acabado',
@@ -384,10 +433,14 @@ export class InventoryService {
         lot_code: lot.lot_code,
         unit_symbol: unit?.symbol ?? null,
         system_quantity: Number(lot.available_quantity),
+        system_pieces: tracksPieces ? (lot.available_pieces != null ? Number(lot.available_pieces) : 0) : null,
+        tracks_pieces: tracksPieces,
       };
     });
 
-    const snapshotItems = [...supplyItems, ...productItems];
+    const snapshotItems = [...supplyItems, ...productItems].filter((item) =>
+      payload.includeZeroBalanceLots || Number(item.system_quantity) > 0,
+    );
     if (snapshotItems.length) {
       const { error: itemError } = await this.supabaseService.admin
         .from('inventory_count_items')
@@ -409,6 +462,13 @@ export class InventoryService {
     if (session.status !== 'em_contagem') {
       throw new BadRequestException('Esta contagem já foi enviada para aprovação e não pode mais ser alterada.');
     }
+    const now = Date.now();
+    if (now < new Date(session.available_from).getTime()) {
+      throw new BadRequestException('A contagem ainda não está disponível para realização.');
+    }
+    if (now > new Date(session.available_until).getTime()) {
+      throw new BadRequestException('O período disponível para esta contagem foi encerrado.');
+    }
     if (!payload.items.length) return { actor, session, items: [] };
 
     const ids = [...new Set(payload.items.map((item) => item.id))];
@@ -417,7 +477,7 @@ export class InventoryService {
     }
     const { data: existingItems, error } = await this.supabaseService.admin
       .from('inventory_count_items')
-      .select('id, system_quantity')
+      .select('id, system_quantity, system_pieces, tracks_pieces')
       .eq('inventory_session_id', sessionId)
       .in('id', ids);
     if (error) throw new BadRequestException(error.message);
@@ -428,11 +488,15 @@ export class InventoryService {
     const quantityById = new Map(payload.items.map((item) => [item.id, item]));
     await Promise.all((existingItems ?? []).map(async (item: any) => {
       const value = quantityById.get(item.id)!;
+      const differenceQuantity = value.countedQuantity - Number(item.system_quantity);
+      const differencePieces = item.tracks_pieces ? (value.countedPieces ?? 0) - Number(item.system_pieces ?? 0) : null;
       const { error: updateError } = await this.supabaseService.admin
         .from('inventory_count_items')
         .update({
           counted_quantity: value.countedQuantity,
-          difference_quantity: value.countedQuantity - Number(item.system_quantity),
+          difference_quantity: differenceQuantity,
+          counted_pieces: item.tracks_pieces ? (value.countedPieces ?? null) : null,
+          difference_pieces: differencePieces,
           notes: value.notes?.trim() || null,
           status: 'nao_contado',
           updated_at: new Date().toISOString(),
@@ -494,11 +558,14 @@ export class InventoryService {
       divergencias: divergentItems.length,
       status: nextStatus,
     });
-    return this.getInventorySession(sessionId, user);
+    return this.getInventorySession(sessionId, user, true);
   }
 
-  async getInventorySession(sessionId: string, user: AuthenticatedUser) {
-    await this.getSessionForUser(sessionId, user);
+  async getInventorySession(sessionId: string, user: AuthenticatedUser, allowAssignedCompleted = false) {
+    const { actor, session } = await this.getSessionForUser(sessionId, user, allowAssignedCompleted);
+    if (!actor.isAdmin && Date.now() < new Date(session.available_from).getTime()) {
+      return { ...session, items: [], logs: [], counting_available: false };
+    }
     const [sessionResult, itemsResult, logsResult] = await Promise.all([
       this.supabaseService.admin.from('inventory_sessions').select('*').eq('id', sessionId).single(),
       this.supabaseService.admin.from('inventory_count_items').select('*').eq('inventory_session_id', sessionId).order('product_name'),
@@ -507,7 +574,10 @@ export class InventoryService {
     if (sessionResult.error) throw new BadRequestException(sessionResult.error.message);
     if (itemsResult.error) throw new BadRequestException(itemsResult.error.message);
     if (logsResult.error) throw new BadRequestException(logsResult.error.message);
-    return { ...sessionResult.data, items: itemsResult.data ?? [], logs: logsResult.data ?? [] };
+    const items = actor.isAdmin
+      ? (itemsResult.data ?? [])
+      : (itemsResult.data ?? []).map(({ system_quantity: _systemQuantity, system_pieces: _systemPieces, difference_quantity: _differenceQuantity, difference_pieces: _differencePieces, ...item }: any) => item);
+    return { ...sessionResult.data, items, logs: actor.isAdmin ? (logsResult.data ?? []) : [], counting_available: true };
   }
 
   async approveInventoryCountItem(
@@ -534,6 +604,9 @@ export class InventoryService {
     user: AuthenticatedUser,
   ) {
     const { actor } = await this.getSessionForUser(sessionId, user);
+    if (!payload.note?.trim()) {
+      throw new BadRequestException('Informe o motivo da recusa do ajuste.');
+    }
     const { data: item, error: findError } = await this.supabaseService.admin
       .from('inventory_count_items')
       .select('*')
@@ -653,7 +726,7 @@ export class InventoryService {
     const lotIds = [...new Set((lines ?? []).map((line: any) => line.finished_product_lot_id))];
     const [{ data: products, error: productError }, { data: lots, error: lotError }, { data: weighings, error: weighingError }, { data: client, error: clientError }] = await Promise.all([
       productIds.length ? this.supabaseService.admin.from('finished_products').select('id, name, code, unit_id').in('id', productIds) : Promise.resolve({ data: [], error: null }),
-      lotIds.length ? this.supabaseService.admin.from('finished_product_lots').select('id, lot_code, product_id, available_quantity').in('id', lotIds) : Promise.resolve({ data: [], error: null }),
+      lotIds.length ? this.supabaseService.admin.from('finished_product_lots').select('id, lot_code, product_id, available_quantity, available_pieces').in('id', lotIds) : Promise.resolve({ data: [], error: null }),
       lineIds.length ? this.supabaseService.admin.from('sale_expedition_weighings').select('*').in('expedition_line_id', lineIds).order('weighed_at') : Promise.resolve({ data: [], error: null }),
       this.supabaseService.admin.from('clients').select('id, name').eq('id', order.client_id).maybeSingle(),
     ]);
@@ -664,7 +737,15 @@ export class InventoryService {
     const productById = new Map((products ?? []).map((product: any) => [product.id, product]));
     const lotById = new Map((lots ?? []).map((lot: any) => [lot.id, lot]));
     const weighingsByLine = new Map<string, any[]>();
-    (weighings ?? []).forEach((weighing: any) => {
+    const hydratedWeighings = await Promise.all((weighings ?? []).map(async (weighing: any) => {
+      if (!weighing.photo_url) return weighing;
+      const { data, error } = await this.supabaseService.admin.storage
+        .from('expedition-weighing-photos')
+        .createSignedUrl(weighing.photo_url, 300);
+      if (error) throw new BadRequestException('Não foi possível acessar a foto da pesagem.');
+      return { ...weighing, photo_url: data.signedUrl };
+    }));
+    hydratedWeighings.forEach((weighing: any) => {
       const collection = weighingsByLine.get(weighing.expedition_line_id) ?? [];
       collection.push(weighing);
       weighingsByLine.set(weighing.expedition_line_id, collection);
@@ -677,6 +758,7 @@ export class InventoryService {
         lot: lotById.get(line.finished_product_lot_id),
         weighings: weighingsByLine.get(line.id) ?? [],
         weighed_quantity: (weighingsByLine.get(line.id) ?? []).reduce((sum, weighing) => sum + Number(weighing.quantity), 0),
+        weighed_pieces: (weighingsByLine.get(line.id) ?? []).reduce((sum, weighing) => sum + Number(weighing.pieces_quantity ?? 0), 0),
       });
       linesByItem.set(line.sales_order_item_id, collection);
     });
@@ -714,12 +796,25 @@ export class InventoryService {
       p_sales_order_item_id: payload.salesOrderItemId,
       p_finished_product_lot_id: payload.finishedProductLotId,
       p_quantity: payload.quantity,
+      p_pieces_quantity: payload.piecesQuantity ?? null,
+      p_photo_url: payload.photoUrl,
       p_notes: payload.notes?.trim() || null,
       p_user_id: actor.id,
     });
     if (error) throw new BadRequestException(error.message);
-    await this.insertExpeditionLog(expeditionId, 'pesagem_registrada', actor, { item_id: payload.salesOrderItemId, lot_id: payload.finishedProductLotId, quantidade: payload.quantity });
+    await this.insertExpeditionLog(expeditionId, 'pesagem_registrada', actor, { item_id: payload.salesOrderItemId, lot_id: payload.finishedProductLotId, quantidade: payload.quantity, pecas: payload.piecesQuantity ?? null });
     return this.getSaleExpedition(expeditionId, user);
+  }
+
+  async uploadExpeditionWeighingPhoto(file: { buffer: Buffer; originalname?: string; mimetype?: string }, user: AuthenticatedUser) {
+    const actor = await this.getActor(user);
+    const extension = (file.originalname?.split('.').pop() || 'jpg').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
+    const path = `${actor.id}/${randomUUID()}.${extension}`;
+    const { error } = await this.supabaseService.admin.storage
+      .from('expedition-weighing-photos')
+      .upload(path, file.buffer, { contentType: file.mimetype || 'image/jpeg', upsert: false });
+    if (error) throw new BadRequestException('Não foi possível enviar a foto da balança.');
+    return { path };
   }
 
   async deleteExpeditionWeighing(expeditionId: string, weighingId: string, user: AuthenticatedUser) {

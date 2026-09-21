@@ -7,6 +7,9 @@ import {
   createClient,
   createSalesOrder,
   finalizeConferredSalesOrder,
+  loadSaleExpedition,
+  loadSaleExpeditions,
+  reviewExpeditionVariance,
   fulfillSalesOrder,
   cancelAttendance,
   loadClients,
@@ -19,6 +22,7 @@ import {
   type ClientRecord,
   type SalesOrderFilters,
   type SalesOrderRecord,
+  type SaleExpedition,
 } from '../services/operationsApi';
 import {
   AlertDialog,
@@ -36,6 +40,7 @@ interface FinishedLotOption {
   productId: string;
   lote: string;
   disponivel: number;
+  disponivelPecas?: number;
 }
 
 function getErrorMessage(error: unknown) {
@@ -65,6 +70,7 @@ export default function Comercial() {
   const [showFulfillModal, setShowFulfillModal] = useState(false);
   const [showFinalizeModal, setShowFinalizeModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [varianceExpedition, setVarianceExpedition] = useState<SaleExpedition | null>(null);
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [editingClient, setEditingClient] = useState<ClientRecord | null>(null);
   const [orderFilters, setOrderFilters] = useState<SalesOrderFilters>({});
@@ -108,7 +114,7 @@ export default function Comercial() {
     isParcelado: boolean;
     parcelas: Array<{ id: string; dueDate: string; amount: string }>;
     bankAccountId: string;
-    items: Record<string, Array<{ localId: string; finishedProductLotId: string; quantity: string }>>;
+    items: Record<string, Array<{ localId: string; finishedProductLotId: string; quantity: string; pieces: string }>>;
   }>({
     idempotencyKey: crypto.randomUUID(),
     fulfilledAt: getToday(),
@@ -121,7 +127,7 @@ export default function Comercial() {
   });
   const [returnForm, setReturnForm] = useState<{
     returnDate: string;
-    items: Array<{ salesOrderItemId: string; productId: string; lotId: string; returnedQuantity: string; reason: string; unitPrice: number; maxQuantity: number }>;
+    items: Array<{ salesOrderItemId: string; productId: string; lotId: string; returnedQuantity: string; returnedPieces: string; reason: string; unitPrice: number; maxQuantity: number; maxPieces?: number | null }>;
     discountAmount: string;
     excessHandlingStrategy: 'credit' | 'refund';
   }>({
@@ -134,7 +140,7 @@ export default function Comercial() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const { finishedProducts, bankAccounts, getUnitSymbol } = useCadastros();
+  const { finishedProducts, bankAccounts, getUnitSymbol, getFinishedProductById } = useCadastros();
 
   const loadData = async (filters: SalesOrderFilters = orderFilters) => {
     setLoading(true);
@@ -154,6 +160,7 @@ export default function Comercial() {
           productId: lot.produtoId,
           lote: lot.lote,
           disponivel: lot.disponivel,
+          disponivelPecas: lot.disponivelPecas,
         })),
       );
       if (selectedOrder) {
@@ -380,7 +387,7 @@ export default function Comercial() {
     try {
       const detail = await loadSalesOrderDetail(salesOrderId);
       setSelectedOrder(detail);
-      const nextItems = detail.items.reduce<Record<string, Array<{ localId: string; finishedProductLotId: string; quantity: string }>>>(
+      const nextItems = detail.items.reduce<Record<string, Array<{ localId: string; finishedProductLotId: string; quantity: string; pieces: string }>>>(
         (accumulator, item) => {
           if (item.pendingQuantity <= 0) return accumulator;
           // Nunca preencher o saldo pendente automaticamente: isso faria um
@@ -390,6 +397,7 @@ export default function Comercial() {
             localId: `lot-${Date.now()}-0`,
             finishedProductLotId: '',
             quantity: '',
+            pieces: '',
           }];
           return accumulator;
         },
@@ -425,6 +433,28 @@ export default function Comercial() {
       setShowFinalizeModal(true);
     } catch (error) { setErrorMessage(getErrorMessage(error)); }
     finally { setLoadingDetail(false); }
+  };
+
+  const openVarianceReview = async (salesOrderId: string) => {
+    setLoadingDetail(true);
+    try {
+      const summary = (await loadSaleExpeditions()).find((item) => item.sales_order_id === salesOrderId && item.status === 'aguardando_aceite_comercial');
+      if (!summary) throw new Error('Não há expedição aguardando conferência comercial.');
+      setVarianceExpedition(await loadSaleExpedition(summary.id));
+    } catch (error) { setErrorMessage(getErrorMessage(error)); }
+    finally { setLoadingDetail(false); }
+  };
+
+  const decideVariance = async (decision: 'aceita' | 'recusada') => {
+    if (!varianceExpedition) return;
+    setSaving(true);
+    try {
+      const updated = await reviewExpeditionVariance(varianceExpedition.sales_order_id, decision);
+      setSalesOrders((current) => current.map((order) => order.id === updated.id ? updated : order));
+      setSelectedOrder(updated); setVarianceExpedition(null);
+      toast.success(decision === 'aceita' ? 'Variação aceita. A venda pode ser finalizada.' : 'Variação recusada e registrada.');
+    } catch (error) { setErrorMessage(getErrorMessage(error)); }
+    finally { setSaving(false); }
   };
 
   const handleFinalizeOrder = async () => {
@@ -491,6 +521,14 @@ export default function Comercial() {
       return;
     }
 
+    if (items.some(({ item, values }) =>
+      getFinishedProductById(item.productId)?.tracksQuantityAndWeight
+      && (!Number.isInteger(Number(values.pieces)) || Number(values.pieces) <= 0),
+    )) {
+      setErrorMessage('Informe uma quantidade inteira de peças para todos os produtos que controlam peso e quantidade.');
+      return;
+    }
+
     setSaving(true);
     setErrorMessage(null);
 
@@ -512,6 +550,9 @@ export default function Comercial() {
           salesOrderItemId: item.id,
           finishedProductLotId: values.finishedProductLotId,
           quantity: Number(values.quantity),
+          piecesQuantity: getFinishedProductById(item.productId)?.tracksQuantityAndWeight
+            ? Number(values.pieces)
+            : undefined,
         })),
       });
 
@@ -527,6 +568,7 @@ export default function Comercial() {
           productId: lot.produtoId,
           lote: lot.lote,
           disponivel: lot.disponivel,
+          disponivelPecas: lot.disponivelPecas,
         })),
       );
     } catch (error) {
@@ -546,9 +588,10 @@ export default function Comercial() {
         productId: item.productId,
         lotId: f.finishedProductLotId,
         returnedQuantity: '', // empty initially
+        returnedPieces: '',
         reason: '',
         unitPrice: item.unitPrice,
-        maxQuantity: f.quantity - (f.returnedQuantity || 0)
+        maxQuantity: f.quantity - (f.returnedQuantity || 0), maxPieces: f.piecesQuantity ?? null
       })).filter(entry => entry.maxQuantity > 0)
     );
 
@@ -574,6 +617,7 @@ export default function Comercial() {
         salesOrderItemId: item.salesOrderItemId,
         lotId: item.lotId,
         returnedQuantity: Number(item.returnedQuantity),
+        returnedPieces: item.returnedPieces ? Number(item.returnedPieces) : undefined,
         reason: item.reason,
       }));
 
@@ -607,6 +651,7 @@ export default function Comercial() {
           productId: lot.produtoId,
           lote: lot.lote,
           disponivel: lot.disponivel,
+          disponivelPecas: lot.disponivelPecas,
         })),
       );
       toast.success('Devolução registrada com sucesso!');
@@ -641,8 +686,14 @@ export default function Comercial() {
     }
   };
 
-  const availableLotsByProduct = (productId: string) =>
-    finishedLots.filter((lot) => lot.productId === productId && lot.disponivel > 0);
+  const availableLotsByProduct = (productId: string) => {
+    const requiresPieces = getFinishedProductById(productId)?.tracksQuantityAndWeight;
+    return finishedLots.filter((lot) =>
+      lot.productId === productId
+      && lot.disponivel > 0
+      && (!requiresPieces || (lot.disponivelPecas ?? 0) > 0),
+    );
+  };
 
   const totalFulfillmentValue = useMemo(() => {
     if (!selectedOrder || !showFulfillModal) return 0;
@@ -667,6 +718,7 @@ export default function Comercial() {
     for (const item of selectedOrder.items) {
       if (item.pendingQuantity <= 0) continue;
       const itemLots = fulfillForm.items[item.id] || [];
+      const requiresPieces = getFinishedProductById(item.productId)?.tracksQuantityAndWeight;
       const itemFulfilledQty = itemLots.reduce((qSum, lot) => qSum + Number(lot.quantity || 0), 0);
       
       // Add a small tolerance for floating point errors
@@ -674,9 +726,12 @@ export default function Comercial() {
 
       
       for (const lot of itemLots) {
+        if (Number(lot.quantity || 0) <= 0) continue;
         if (!lot.finishedProductLotId) continue;
         const availableLot = finishedLots.find(l => l.id === lot.finishedProductLotId);
         if (availableLot && Number(lot.quantity || 0) > availableLot.disponivel) return true;
+        if (requiresPieces && (!Number.isInteger(Number(lot.pieces)) || Number(lot.pieces) <= 0)) return true;
+        if (requiresPieces && availableLot && Number(lot.pieces) > (availableLot.disponivelPecas ?? 0)) return true;
       }
     }
     
@@ -686,7 +741,7 @@ export default function Comercial() {
     }
     
     return false;
-  }, [selectedOrder, fulfillForm, finishedLots, showFulfillModal, totalFulfillmentValue]);
+  }, [selectedOrder, fulfillForm, finishedLots, showFulfillModal, totalFulfillmentValue, getFinishedProductById]);
 
   return (
     <div className="space-y-6">
@@ -831,6 +886,9 @@ export default function Comercial() {
                               <button onClick={() => void openFinalizeModal(order.id)} disabled={loadingDetail} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700 disabled:opacity-60">
                                 Finalizar venda
                               </button>
+                            )}
+                            {order.status === 'Aguardando Aceite Comercial' && (
+                              <button onClick={() => void openVarianceReview(order.id)} disabled={loadingDetail} className="rounded-lg bg-amber-600 px-3 py-2 text-sm text-white hover:bg-amber-700 disabled:opacity-60">Conferir variação</button>
                             )}
                           </div>
                         </TableCell>
@@ -1153,6 +1211,12 @@ export default function Comercial() {
         </ModalShell>
       ) : null}
 
+      {varianceExpedition && selectedOrder ? (
+        <ModalShell title={`Conferir variação — Pedido ${selectedOrder.number}`} onClose={() => setVarianceExpedition(null)} maxWidth="max-w-4xl" hideCancel={true} extraFooterActions={<div className="flex w-full justify-end gap-3"><button disabled={saving} onClick={() => void decideVariance('recusada')} className="rounded-lg border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50">Recusar alteração</button><button disabled={saving} onClick={() => void decideVariance('aceita')} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Aceitar alteração</button></div>}>
+          <div className="space-y-4"><div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">A expedição informou pesos diferentes do pedido. Confira as pesagens e as fotos da balança antes de decidir.</div>{varianceExpedition.order.items.map((item) => { const weighed = item.lines.reduce((sum, line) => sum + line.weighed_quantity, 0); const diff = weighed - item.pending_quantity; return <section key={item.id} className="rounded-xl border border-gray-200 p-4"><div className="flex justify-between gap-3"><div><h3 className="font-bold text-gray-900">{item.product_name}</h3><p className="text-sm text-gray-500">Pedido: {item.pending_quantity.toLocaleString('pt-BR')} kg · Expedido: {weighed.toLocaleString('pt-BR')} kg</p></div><span className={`font-bold ${diff === 0 ? 'text-emerald-700' : 'text-amber-700'}`}>{diff >= 0 ? '+' : ''}{diff.toLocaleString('pt-BR')} kg</span></div><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">{item.lines.flatMap((line) => line.weighings).map((weighing) => <a key={weighing.id} href={weighing.photo_url || '#'} target="_blank" rel="noreferrer" className="overflow-hidden rounded-lg border border-gray-200 hover:border-blue-400"><img src={weighing.photo_url || ''} alt={`Balança: ${weighing.quantity} kg`} className="h-28 w-full object-cover" /><p className="p-2 text-xs font-semibold text-gray-700">{weighing.quantity.toLocaleString('pt-BR')} kg</p></a>)}</div></section>; })}</div>
+        </ModalShell>
+      ) : null}
+
       {showFulfillModal && selectedOrder ? (
         <ModalShell
           title={`Atendimento do pedido ${selectedOrder.number}`}
@@ -1284,6 +1348,7 @@ export default function Comercial() {
                 const baseLotOptions = availableLotsByProduct(item.productId);
                 const itemLots = fulfillForm.items[item.id] || [];
                 const fulfilledQty = itemLots.reduce((sum, lot) => sum + Number(lot.quantity || 0), 0);
+                const requiresPieces = getFinishedProductById(item.productId)?.tracksQuantityAndWeight;
                 // Add a small tolerance for floating point errors
                 const isOverfulfilled = fulfilledQty > item.pendingQuantity + 0.001;
 
@@ -1315,7 +1380,7 @@ export default function Comercial() {
                               ...current.items,
                               [item.id]: [
                                 ...(current.items[item.id] || []),
-                                { localId: `lot-${Date.now()}`, finishedProductLotId: '', quantity: '' }
+                                { localId: `lot-${Date.now()}`, finishedProductLotId: '', quantity: '', pieces: '' }
                               ],
                             },
                           }))}
@@ -1332,10 +1397,12 @@ export default function Comercial() {
                       
                       const selectedLotData = baseLotOptions.find(l => l.id === lotValue.finishedProductLotId);
                       const isOverLotDisponivel = selectedLotData && Number(lotValue.quantity || 0) > selectedLotData.disponivel;
+                      const isInvalidPieces = requiresPieces && (!Number.isInteger(Number(lotValue.pieces)) || Number(lotValue.pieces) <= 0);
+                      const isOverLotPieces = requiresPieces && selectedLotData && Number(lotValue.pieces || 0) > (selectedLotData.disponivelPecas ?? 0);
 
                       return (
                         <div key={lotValue.localId} className="mt-3">
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto]">
+                          <div className={`grid grid-cols-1 gap-3 ${requiresPieces ? 'md:grid-cols-[1fr_1fr_1fr_auto]' : 'md:grid-cols-[1fr_1fr_auto]'}`}>
                             <SelectField
                               label="Lote acabado"
                               value={lotValue.finishedProductLotId}
@@ -1351,7 +1418,7 @@ export default function Comercial() {
                               options={[
                                 { label: lotOptions.length ? 'Selecione...' : 'Sem lotes disponiveis', value: '' },
                                 ...lotOptions.map((lot) => ({
-                                  label: `${lot.lote} - saldo ${lot.disponivel.toLocaleString('pt-BR')}`,
+                                  label: `${lot.lote} - saldo ${lot.disponivel.toLocaleString('pt-BR')}${requiresPieces ? ` • ${lot.disponivelPecas ?? 0} peças` : ''}`,
                                   value: lot.id,
                                 })),
                               ]}
@@ -1372,6 +1439,24 @@ export default function Comercial() {
                                 }
                               />
                             </div>
+                            {requiresPieces && (
+                              <div>
+                                <InputField
+                                  label="Peças atendidas"
+                                  type="number"
+                                  value={lotValue.pieces}
+                                  onChange={(value) =>
+                                    setFulfillForm((current) => ({
+                                      ...current,
+                                      items: {
+                                        ...current.items,
+                                        [item.id]: current.items[item.id].map((l, i) => i === index ? { ...l, pieces: value } : l),
+                                      },
+                                    }))
+                                  }
+                                />
+                              </div>
+                            )}
                             <div className="flex items-end">
                               <button
                                 onClick={() => setFulfillForm((current) => ({
@@ -1390,6 +1475,12 @@ export default function Comercial() {
                           </div>
                           {isOverLotDisponivel && (
                             <p className="mt-1 text-xs text-red-600 font-medium">A quantidade excede o saldo disponível do lote selecionado.</p>
+                          )}
+                          {isInvalidPieces && Number(lotValue.quantity || 0) > 0 && (
+                            <p className="mt-1 text-xs font-medium text-red-600">Informe uma quantidade inteira de peças.</p>
+                          )}
+                          {isOverLotPieces && (
+                            <p className="mt-1 text-xs font-medium text-red-600">A quantidade de peças excede o saldo do lote selecionado.</p>
                           )}
                         </div>
                       );
@@ -1645,7 +1736,7 @@ export default function Comercial() {
                                   setSelectedOrder(updated);
                                   toast.success('Atendimento cancelado com sucesso.');
                                   const refreshedLots = await loadFinishedProductLots();
-                                  setFinishedLots(refreshedLots.map((lot) => ({ id: lot.id, productId: lot.produtoId, lote: lot.lote, disponivel: lot.disponivel })));
+                                  setFinishedLots(refreshedLots.map((lot) => ({ id: lot.id, productId: lot.produtoId, lote: lot.lote, disponivel: lot.disponivel, disponivelPecas: lot.disponivelPecas })));
                                 } catch (err) {
                                   setErrorMessage(getErrorMessage(err));
                                 } finally {
@@ -1748,6 +1839,7 @@ export default function Comercial() {
                             }}
                           />
                         </div>
+                        {item.maxPieces != null && <div className="w-full md:w-32"><InputField label="Devolver peças" type="number" value={item.returnedPieces} onChange={(value) => setReturnForm(current => { const newItems = [...current.items]; newItems[index].returnedPieces = String(Math.min(Number(value), item.maxPieces ?? 0)); return { ...current, items: newItems }; })} /></div>}
                         <div className="w-full md:w-48">
                           <InputField
                             label="Motivo"

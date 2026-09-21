@@ -31,11 +31,12 @@ const emptyCreateForm = {
  litersToUse: '',
  actualQuantityProduced: '',
  supplyConsumptions: [] as { supplyItemId: string; quantity: string }[],
- finishedProductConsumptions: [] as { finishedProductId: string; source: 'Disponivel' | 'Devolucao'; quantity: string }[],
+ finishedProductConsumptions: [] as { finishedProductId: string; finishedProductLotId: string; source: 'Disponivel' | 'Devolucao'; quantity: string; pieces: string }[],
 };
 
 const emptyCompleteForm = {
   actualQuantityProduced: '',
+  actualPiecesProduced: '',
   generatedCoProducts: [] as { id: string; productId: string; quantity: string }[],
 };
 
@@ -209,8 +210,8 @@ export default function Producao() {
    .map(c => ({ supplyItemId: c.supplyItemId, quantity: Number(c.quantity) }));
 
  const payloadFinishedProductConsumptions = formState.finishedProductConsumptions
-   .filter(c => c.finishedProductId && Number(c.quantity) > 0)
-   .map(c => ({ finishedProductId: c.finishedProductId, source: c.source, quantity: Number(c.quantity) }));
+   .filter(c => c.finishedProductId && c.finishedProductLotId && Number(c.quantity) > 0)
+   .map(c => ({ finishedProductId: c.finishedProductId, finishedProductLotId: c.finishedProductLotId, source: c.source, quantity: Number(c.quantity), pieces: c.pieces ? Number(c.pieces) : undefined }));
 
  if (editingOrder) {
    await updateProductionOrder(editingOrder.id, {
@@ -251,9 +252,15 @@ export default function Producao() {
  }
 
  const actualQuantityProduced = Number(completeForm.actualQuantityProduced);
+ const tracksPieces = getFinishedProductById(selectedOrder.produtoId)?.tracksPieces === true;
+ const actualPiecesProduced = Number(completeForm.actualPiecesProduced);
 
  if (actualQuantityProduced <= 0) {
  setSubmitError('Informe a quantidade produzida para finalizar a OP.');
+ return;
+ }
+ if (tracksPieces && (!Number.isInteger(actualPiecesProduced) || actualPiecesProduced <= 0)) {
+ setSubmitError('Informe a quantidade de peças produzidas para finalizar a OP.');
  return;
  }
 
@@ -271,6 +278,7 @@ export default function Producao() {
       await completeProductionOrder({
         orderId: selectedOrder.id,
         actualQuantityProduced,
+        actualPiecesProduced: tracksPieces ? actualPiecesProduced : undefined,
         generatedCoProducts: formattedCoProducts.length > 0 ? formattedCoProducts : undefined,
       });
  setSelectedOrder(null);
@@ -760,7 +768,7 @@ export default function Producao() {
  <h4 className="text-sm font-semibold text-gray-900">Produtos Acabados Planejados (Ex: Creme)</h4>
  <button
  type="button"
- onClick={() => setFormState(prev => ({ ...prev, finishedProductConsumptions: [...prev.finishedProductConsumptions, { finishedProductId: '', source: 'Disponivel', quantity: '' }] }))}
+ onClick={() => setFormState(prev => ({ ...prev, finishedProductConsumptions: [...prev.finishedProductConsumptions, { finishedProductId: '', finishedProductLotId: '', source: 'Disponivel', quantity: '', pieces: '' }] }))}
  className="text-sm flex items-center text-blue-600 hover:text-blue-700"
  >
  <Plus className="h-4 w-4 mr-1" /> Adicionar produto acabado
@@ -774,7 +782,7 @@ export default function Producao() {
  value={consumption.source}
  onChange={(event) => {
    const newCons = [...formState.finishedProductConsumptions];
-   newCons[index] = { ...newCons[index], source: event.target.value as 'Disponivel' | 'Devolucao', finishedProductId: '' };
+   newCons[index] = { ...newCons[index], source: event.target.value as 'Disponivel' | 'Devolucao', finishedProductId: '', finishedProductLotId: '', pieces: '' };
    setFormState((prev) => ({ ...prev, finishedProductConsumptions: newCons }));
    setFinishedProductSearchTerms((terms) => ({ ...terms, [index]: '' }));
  }}
@@ -812,7 +820,7 @@ export default function Producao() {
        onMouseDown={(event) => event.preventDefault()}
        onClick={() => {
          const newCons = [...formState.finishedProductConsumptions];
-         newCons[index].finishedProductId = item.id;
+         newCons[index].finishedProductId = item.id; newCons[index].finishedProductLotId = ''; newCons[index].pieces = '';
          setFormState((prev) => ({ ...prev, finishedProductConsumptions: newCons }));
          setFinishedProductSearchTerms((terms) => ({ ...terms, [index]: item.name }));
          setOpenFinishedProductSearch(null);
@@ -829,6 +837,7 @@ export default function Producao() {
  </div>
  ) : null}
  </div>
+ {consumption.finishedProductId && <select value={consumption.finishedProductLotId} onChange={(event) => { const newCons=[...formState.finishedProductConsumptions]; newCons[index].finishedProductLotId=event.target.value; setFormState(prev=>({...prev,finishedProductConsumptions:newCons})); }} className="w-44 rounded-lg border border-gray-300 px-2 py-2 text-sm"><option value="">Selecione o lote</option>{finishedProductLots.filter(lot => lot.produtoId === consumption.finishedProductId && (consumption.source === 'Devolucao' ? (lot.devolvido ?? 0) > 0 : lot.disponivel > 0)).map(lot => <option key={lot.id} value={lot.id}>{lot.lote} · {consumption.source === 'Devolucao' ? lot.devolvido : lot.disponivel} kg</option>)}</select>}
  <div className="w-24">
  <input
  type="number"
@@ -844,6 +853,7 @@ export default function Producao() {
  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
  />
  </div>
+ {getFinishedProductById(consumption.finishedProductId)?.tracksQuantityAndWeight && <div className="w-24"><input type="number" min="1" step="1" placeholder="Peças" value={consumption.pieces} onChange={(e) => { const newCons=[...formState.finishedProductConsumptions]; newCons[index].pieces=e.target.value; setFormState(prev=>({...prev,finishedProductConsumptions:newCons})); }} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" /></div>}
  <button
  type="button"
  onClick={() => {
@@ -944,6 +954,12 @@ export default function Producao() {
  Se nenhum consumo for informado, o sistema calcula a receita pela ficha técnica e aplica FIFO aos insumos automaticamente.
  </p>
  </div>
+
+ {getFinishedProductById(selectedOrder.produtoId)?.tracksPieces === true ? <div className="mt-4">
+ <label className="mb-1 block text-sm font-medium text-gray-700">Peças produzidas *</label>
+ <input type="number" min="1" step="1" inputMode="numeric" value={completeForm.actualPiecesProduced} onChange={(event) => setCompleteForm({ ...completeForm, actualPiecesProduced: event.target.value })} placeholder="0" className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" />
+ <p className="mt-1 text-xs text-gray-500">Registre o total de peças correspondente ao peso produzido.</p>
+ </div> : null}
 
  <div className="mt-6 border-t border-gray-200 pt-4">
  <div className="mb-2 flex items-center justify-between">

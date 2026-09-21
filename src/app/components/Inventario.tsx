@@ -18,6 +18,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { usePermissions } from '../context/PermissionsContext';
+import { fetchUsers, type AppUser } from '../services/usersApi';
 import {
   approveInventoryCountItem,
   createInventorySession,
@@ -61,6 +62,10 @@ function dateTime(value: string | null | undefined) {
   return format(new Date(value), "dd/MM/yy 'às' HH:mm", { locale: ptBR });
 }
 
+function localDateTime(value: Date) {
+  return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
 function logDescription(action: string) {
   const labels: Record<string, string> = {
     inventario_iniciado: 'Iniciou a sessão de inventário',
@@ -69,6 +74,20 @@ function logDescription(action: string) {
     ajuste_recusado: 'Recusou o ajuste de estoque',
   };
   return labels[action] ?? action;
+}
+
+function auditDetails(details: Record<string, unknown>) {
+  const labels: Record<string, string> = {
+    itens: 'Itens', insumos: 'Insumos', produtos_acabados: 'Produtos acabados',
+    itens_contados: 'Itens contados', divergencias: 'Divergências', status: 'Status',
+    previous_quantity: 'Saldo anterior', new_quantity: 'Saldo físico', difference: 'Ajuste de peso',
+    previous_pieces: 'Peças anteriores', new_pieces: 'Peças físicas', difference_pieces: 'Ajuste de peças',
+    quantidade_sistema: 'Saldo anterior', quantidade_fisica: 'Saldo físico', diferenca: 'Ajuste de peso',
+    observacao: 'Observação', review_note: 'Observação',
+  };
+  return Object.entries(details ?? {})
+    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+    .map(([key, value]) => `${labels[key] ?? key}: ${typeof value === 'number' ? quantity(value) : String(value)}`);
 }
 
 export default function Inventario() {
@@ -82,8 +101,18 @@ export default function Inventario() {
   const [query, setQuery] = useState('');
   const [onlyDivergences, setOnlyDivergences] = useState(false);
   const [physicalValues, setPhysicalValues] = useState<Record<string, string>>({});
+  const [physicalPiecesValues, setPhysicalPiecesValues] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
+  const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [operationalUsers, setOperationalUsers] = useState<AppUser[]>([]);
+  const [scheduleForm, setScheduleForm] = useState(() => ({
+    title: '',
+    assignedTo: '',
+    availableFrom: localDateTime(new Date()),
+    availableUntil: localDateTime(new Date(Date.now() + 24 * 60 * 60 * 1000)),
+    includeZeroBalanceLots: false,
+  }));
 
   const refreshSessions = async () => {
     setLoading(true);
@@ -100,12 +129,19 @@ export default function Inventario() {
     void refreshSessions();
   }, []);
 
+  useEffect(() => {
+    if (!isAdmin) return;
+    void fetchUsers().then((users) => setOperationalUsers(users.filter((user) => user.active && user.role === 'operacional')))
+      .catch(() => toast.error('Não foi possível carregar os usuários para o inventário.'));
+  }, [isAdmin]);
+
   const openSession = async (id: string) => {
     setWorking(true);
     try {
       const session = await loadInventorySession(id);
       setActiveSession(session);
       setPhysicalValues(Object.fromEntries(session.items.map((item) => [item.id, item.counted_quantity == null ? '' : String(item.counted_quantity)])));
+      setPhysicalPiecesValues(Object.fromEntries(session.items.map((item) => [item.id, item.counted_pieces == null ? '' : String(item.counted_pieces)])));
       setNotes(Object.fromEntries(session.items.map((item) => [item.id, item.notes ?? ''])));
       setQuery('');
       setOnlyDivergences(false);
@@ -117,14 +153,30 @@ export default function Inventario() {
   };
 
   const startSession = async () => {
+    if (!scheduleForm.assignedTo) {
+      toast.error('Selecione o colaborador responsável pela contagem.');
+      return;
+    }
+    if (new Date(scheduleForm.availableUntil) <= new Date(scheduleForm.availableFrom)) {
+      toast.error('O fim do período deve ser posterior ao início.');
+      return;
+    }
     setWorking(true);
     try {
-      const session = await createInventorySession();
+      const session = await createInventorySession({
+        title: scheduleForm.title,
+        assignedTo: scheduleForm.assignedTo,
+        availableFrom: new Date(scheduleForm.availableFrom).toISOString(),
+        availableUntil: new Date(scheduleForm.availableUntil).toISOString(),
+        includeZeroBalanceLots: scheduleForm.includeZeroBalanceLots,
+      });
       setActiveSession(session);
       setPhysicalValues({});
+      setPhysicalPiecesValues({});
       setNotes({});
       await refreshSessions();
-      toast.success('Inventário iniciado. Informe as quantidades físicas.');
+      setShowScheduleForm(false);
+      toast.success('Inventário agendado com sucesso.');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Não foi possível iniciar o inventário.');
     } finally {
@@ -139,9 +191,10 @@ export default function Inventario() {
       .map((item) => ({
         id: item.id,
         countedQuantity: asNumber(physicalValues[item.id]),
+        countedPieces: item.tracks_pieces ? asNumber(physicalPiecesValues[item.id]) : undefined,
         notes: notes[item.id],
       }))
-      .filter((item): item is { id: string; countedQuantity: number; notes?: string } => item.countedQuantity !== null);
+      .filter((item): item is { id: string; countedQuantity: number; countedPieces?: number; notes?: string } => item.countedQuantity !== null && (!item.countedPieces || item.countedPieces !== null));
   };
 
   const saveDraft = async () => {
@@ -165,15 +218,19 @@ export default function Inventario() {
 
   const submit = async () => {
     if (!activeSession) return;
-    const invalidValue = activeSession.items.some((item) => asNumber(physicalValues[item.id] ?? '') === null);
+    const invalidValue = activeSession.items.some((item) => {
+      const q = asNumber(physicalValues[item.id] ?? '');
+      const p = item.tracks_pieces ? asNumber(physicalPiecesValues[item.id] ?? '') : null;
+      return q === null || (item.tracks_pieces && p === null);
+    });
     if (invalidValue) {
-      toast.error('Informe uma quantidade física válida para todos os itens antes de enviar.');
+      toast.error('Informe uma quantidade física válida (peso e peças se aplicável) para todos os itens antes de enviar.');
       return;
     }
     setWorking(true);
     try {
       const session = await submitInventorySession(activeSession.id, buildPayload());
-      setActiveSession(session);
+      setActiveSession(isAdmin ? session : null);
       await refreshSessions();
       const pending = session.items.filter((item) => item.status === 'aguardando_aprovacao').length;
       toast.success(pending ? `${pending} ajuste(s) enviado(s) para aprovação.` : 'Contagem concluída sem divergências.');
@@ -212,24 +269,38 @@ export default function Inventario() {
       const hasDifference = activeSession.status === 'em_contagem'
         ? (() => {
           const value = asNumber(physicalValues[item.id] ?? '');
-          return value !== null && value !== item.system_quantity;
+          const diffQuantity = value !== null && value !== item.system_quantity;
+          if (item.tracks_pieces) {
+            const pieces = asNumber(physicalPiecesValues[item.id] ?? '');
+            return diffQuantity || (pieces !== null && pieces !== (item.system_pieces ?? 0));
+          }
+          return diffQuantity;
         })()
-        : Number(item.difference_quantity) !== 0;
+        : Number(item.difference_quantity) !== 0 || (item.tracks_pieces && Number(item.difference_pieces) !== 0);
       return matchesSearch && (!onlyDivergences || hasDifference);
     });
   }, [activeSession, onlyDivergences, physicalValues, query]);
 
-  const counted = activeSession?.items.filter((item) => asNumber(physicalValues[item.id] ?? '') !== null).length ?? 0;
+  const counted = activeSession?.items.filter((item) => asNumber(physicalValues[item.id] ?? '') !== null && (!item.tracks_pieces || asNumber(physicalPiecesValues[item.id] ?? '') !== null)).length ?? 0;
   const discrepancies = activeSession?.items.filter((item) => {
-    const current = activeSession.status === 'em_contagem'
-      ? asNumber(physicalValues[item.id] ?? '')
-      : item.counted_quantity;
-    return current !== null && current !== undefined && Number(current) !== Number(item.system_quantity);
+    if (activeSession.status === 'em_contagem') {
+      const q = asNumber(physicalValues[item.id] ?? '');
+      const p = item.tracks_pieces ? asNumber(physicalPiecesValues[item.id] ?? '') : null;
+      return (q !== null && q !== undefined && Number(q) !== Number(item.system_quantity)) ||
+             (item.tracks_pieces && p !== null && p !== undefined && Number(p) !== Number(item.system_pieces ?? 0));
+    } else {
+      return (item.counted_quantity !== null && item.counted_quantity !== undefined && Number(item.counted_quantity) !== Number(item.system_quantity)) ||
+             (item.tracks_pieces && item.counted_pieces !== null && item.counted_pieces !== undefined && Number(item.counted_pieces) !== Number(item.system_pieces ?? 0));
+    }
   }).length ?? 0;
 
   if (activeSession) {
     const editable = activeSession.status === 'em_contagem' && (canCreate || canEdit);
     const sessionStatus = STATUS[activeSession.status];
+    const waitingForWindow = !isAdmin && activeSession.counting_available === false;
+    if (waitingForWindow) {
+      return <div className="mx-auto max-w-2xl space-y-5"><button onClick={() => { setActiveSession(null); void refreshSessions(); }} className="inline-flex items-center gap-2 rounded-xl px-2 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"><ArrowLeft className="h-4 w-4" />Voltar</button><section className="rounded-2xl border border-blue-100 bg-blue-50 p-6 text-center"><Clock3 className="mx-auto mb-3 h-8 w-8 text-blue-600" /><h1 className="text-xl font-bold text-gray-900">Inventário agendado</h1><p className="mt-2 text-sm text-gray-700">A contagem de <strong>{activeSession.title}</strong> ficará disponível de {dateTime(activeSession.available_from)} até {dateTime(activeSession.available_until)}.</p><p className="mt-3 text-sm text-gray-600">O saldo do sistema será oculto durante a contagem.</p></section></div>;
+    }
     return (
       <div className="mx-auto max-w-6xl space-y-4 pb-24 sm:space-y-6">
         <div className="flex items-start gap-3">
@@ -273,12 +344,15 @@ export default function Inventario() {
               key={item.id}
               item={item}
               editable={editable}
+              blind={!isAdmin && editable}
               physicalValue={physicalValues[item.id] ?? ''}
+              physicalPiecesValue={physicalPiecesValues[item.id] ?? ''}
               note={notes[item.id] ?? ''}
               reviewNote={reviewNotes[item.id] ?? ''}
               showReview={isAdmin && item.status === 'aguardando_aprovacao'}
               disabled={working}
               onPhysicalChange={(value) => setPhysicalValues((current) => ({ ...current, [item.id]: value }))}
+              onPhysicalPiecesChange={(value) => setPhysicalPiecesValues((current) => ({ ...current, [item.id]: value }))}
               onNoteChange={(value) => setNotes((current) => ({ ...current, [item.id]: value }))}
               onReviewNoteChange={(value) => setReviewNotes((current) => ({ ...current, [item.id]: value }))}
               onApprove={() => void reviewItem(item, 'approve')}
@@ -295,7 +369,7 @@ export default function Inventario() {
               {activeSession.logs.map((log) => (
                 <div key={log.id} className="flex gap-3 text-sm">
                   <div className="mt-1 h-2.5 w-2.5 flex-none rounded-full bg-blue-500" />
-                  <div><p className="font-medium text-gray-800">{log.actor_name} · {logDescription(log.action)}</p><p className="text-xs text-gray-500">{dateTime(log.created_at)}</p></div>
+                  <div><p className="font-medium text-gray-800">{log.actor_name} · {logDescription(log.action)}</p><p className="text-xs text-gray-500">{dateTime(log.created_at)}</p>{auditDetails(log.details).length > 0 && <p className="mt-1 text-xs text-gray-600">{auditDetails(log.details).join(' · ')}</p>}</div>
                 </div>
               ))}
             </div>
@@ -323,8 +397,10 @@ export default function Inventario() {
           <h1 className="text-2xl font-bold text-gray-900">Inventário</h1>
           <p className="mt-1 text-sm text-gray-600">Conte o físico, compare com o sistema e envie divergências para validação.</p>
         </div>
-        {canCreate && <button onClick={() => void startSession()} disabled={working} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"><Plus className="h-4 w-4" />Novo inventário</button>}
+        {isAdmin && <button onClick={() => setShowScheduleForm(true)} disabled={working} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"><Plus className="h-4 w-4" />Agendar inventário</button>}
       </div>
+
+      {isAdmin && showScheduleForm && <section className="rounded-2xl border border-blue-100 bg-blue-50 p-4 sm:p-5"><div className="mb-4 flex items-center justify-between"><div><h2 className="font-bold text-gray-900">Agendar inventário</h2><p className="text-sm text-gray-600">Defina o responsável e a janela em que ele poderá contar.</p></div><button onClick={() => setShowScheduleForm(false)} className="rounded-lg p-2 text-gray-500 hover:bg-white"><X className="h-4 w-4" /></button></div><div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium text-gray-700">Título<input value={scheduleForm.title} onChange={(event) => setScheduleForm((form) => ({ ...form, title: event.target.value }))} placeholder="Ex.: Inventário semanal" className="mt-1 h-10 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm" /></label><label className="text-sm font-medium text-gray-700">Responsável pela contagem *<select value={scheduleForm.assignedTo} onChange={(event) => setScheduleForm((form) => ({ ...form, assignedTo: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm"><option value="">Selecione...</option>{operationalUsers.map((user) => <option key={user.id} value={user.auth_user_id}>{user.display_name || user.email}</option>)}</select></label><label className="text-sm font-medium text-gray-700">Disponível a partir de *<input type="datetime-local" value={scheduleForm.availableFrom} onChange={(event) => setScheduleForm((form) => ({ ...form, availableFrom: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm" /></label><label className="text-sm font-medium text-gray-700">Disponível até *<input type="datetime-local" value={scheduleForm.availableUntil} onChange={(event) => setScheduleForm((form) => ({ ...form, availableUntil: event.target.value }))} className="mt-1 h-10 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm" /></label></div><label className="mt-4 flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={scheduleForm.includeZeroBalanceLots} onChange={(event) => setScheduleForm((form) => ({ ...form, includeZeroBalanceLots: event.target.checked }))} />Incluir lotes zerados nesta contagem</label><div className="mt-4 flex justify-end"><button onClick={() => void startSession()} disabled={working} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{working ? 'Agendando...' : 'Criar inventário'}</button></div></section>}
 
       {isAdmin && pending > 0 && (
         <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950"><Clock3 className="mt-0.5 h-5 w-5 flex-none text-amber-700" /><div><p className="font-semibold">{pending} ajuste(s) aguardando sua aprovação</p><p className="mt-0.5 text-sm text-amber-800">Abra uma sessão pendente para revisar as quantidades e registrar sua decisão.</p></div></div>
@@ -354,15 +430,18 @@ function Stat({ label, value, tone = 'slate' }: { label: string; value: number; 
   return <div className={`rounded-2xl border p-3 text-center sm:p-4 ${colors[tone]}`}><p className="text-lg font-bold text-gray-900 sm:text-xl">{value}</p><p className="mt-0.5 text-[11px] font-medium text-gray-500 sm:text-xs">{label}</p></div>;
 }
 
-function InventoryItemCard({ item, editable, physicalValue, note, reviewNote, showReview, disabled, onPhysicalChange, onNoteChange, onReviewNoteChange, onApprove, onReject }: {
+function InventoryItemCard({ item, editable, blind, physicalValue, physicalPiecesValue, note, reviewNote, showReview, disabled, onPhysicalChange, onPhysicalPiecesChange, onNoteChange, onReviewNoteChange, onApprove, onReject }: {
   item: InventoryCountItem;
   editable: boolean;
+  blind: boolean;
   physicalValue: string;
+  physicalPiecesValue?: string;
   note: string;
   reviewNote: string;
   showReview: boolean;
   disabled: boolean;
   onPhysicalChange: (value: string) => void;
+  onPhysicalPiecesChange?: (value: string) => void;
   onNoteChange: (value: string) => void;
   onReviewNoteChange: (value: string) => void;
   onApprove: () => void;
@@ -370,21 +449,44 @@ function InventoryItemCard({ item, editable, physicalValue, note, reviewNote, sh
 }) {
   const shownPhysical = editable ? asNumber(physicalValue) : item.counted_quantity;
   const difference = shownPhysical === null || shownPhysical === undefined ? null : Number(shownPhysical) - Number(item.system_quantity);
-  const hasDifference = difference !== null && difference !== 0;
+  const shownPieces = editable ? (physicalPiecesValue ? asNumber(physicalPiecesValue) : null) : item.counted_pieces;
+  const differencePieces = !item.tracks_pieces || shownPieces === null || shownPieces === undefined ? null : Number(shownPieces) - Number(item.system_pieces ?? 0);
+  const hasDifference = (difference !== null && difference !== 0) || (item.tracks_pieces && differencePieces !== null && differencePieces !== 0);
   const status = ITEM_STATUS[item.status];
+  const canReject = reviewNote.trim().length > 0;
   return <article className={`rounded-2xl border bg-white p-4 shadow-sm ${hasDifference ? 'border-amber-200' : 'border-gray-200'}`}>
     <div className="flex gap-3">
       <div className={`flex h-10 w-10 flex-none items-center justify-center rounded-xl ${item.lot_type === 'Insumo' ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700'}`}><PackageCheck className="h-5 w-5" /></div>
       <div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><p className="truncate font-semibold text-gray-900">{item.product_name}</p><p className="mt-0.5 text-xs text-gray-500">{item.lot_type} · Lote {item.lot_code}{item.product_code ? ` · ${item.product_code}` : ''}</p></div>{!editable && <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${status.className}`}>{status.label}</span>}</div>
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:max-w-md">
-          <div className="rounded-xl bg-slate-50 p-2.5"><p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Sistema</p><p className="mt-1 font-bold text-gray-900">{quantity(item.system_quantity)} <span className="text-xs font-medium text-gray-500">{item.unit_symbol ?? 'un.'}</span></p></div>
-          {editable ? <label className="rounded-xl border border-blue-200 bg-blue-50 p-2.5"><span className="block text-[11px] font-medium uppercase tracking-wide text-blue-700">Físico</span><input aria-label={`Quantidade física de ${item.product_name}`} inputMode="decimal" value={physicalValue} onChange={(event) => onPhysicalChange(event.target.value)} placeholder="0" className="mt-1 w-full bg-transparent font-bold text-gray-900 outline-none placeholder:text-blue-300" /></label> : <div className={`rounded-xl p-2.5 ${hasDifference ? 'bg-amber-50' : 'bg-emerald-50'}`}><p className={`text-[11px] font-medium uppercase tracking-wide ${hasDifference ? 'text-amber-700' : 'text-emerald-700'}`}>Físico</p><p className="mt-1 font-bold text-gray-900">{item.counted_quantity == null ? '—' : quantity(item.counted_quantity)} {item.counted_quantity != null && <span className="text-xs font-medium text-gray-500">{item.unit_symbol ?? 'un.'}</span>}</p></div>}
+        <div className={`mt-4 grid gap-2 sm:max-w-md ${blind ? 'grid-cols-1' : 'grid-cols-2'}`}>
+          {!blind && <div className="rounded-xl bg-slate-50 p-2.5 space-y-2">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Sistema</p>
+              <p className="mt-1 font-bold text-gray-900">{quantity(item.system_quantity)} <span className="text-xs font-medium text-gray-500">{item.unit_symbol ?? 'un.'}</span></p>
+            </div>
+            {item.tracks_pieces && (
+              <div className="pt-2 border-t border-gray-200">
+                <p className="font-bold text-gray-900">{quantity(item.system_pieces)} <span className="text-xs font-medium text-gray-500">peças</span></p>
+              </div>
+            )}
+          </div>}
+          <div className={`rounded-xl p-2.5 space-y-2 ${editable ? 'border border-blue-200 bg-blue-50' : hasDifference ? 'bg-amber-50' : 'bg-emerald-50'}`}>
+            <div>
+              <p className={`text-[11px] font-medium uppercase tracking-wide ${editable ? 'text-blue-700' : hasDifference ? 'text-amber-700' : 'text-emerald-700'}`}>Físico</p>
+              {editable ? <input aria-label={`Quantidade física de ${item.product_name}`} inputMode="decimal" value={physicalValue} onChange={(event) => onPhysicalChange(event.target.value)} placeholder="0" className="mt-1 w-full bg-transparent font-bold text-gray-900 outline-none placeholder:text-blue-300" /> : <p className="mt-1 font-bold text-gray-900">{item.counted_quantity == null ? '—' : quantity(item.counted_quantity)} {item.counted_quantity != null && <span className="text-xs font-medium text-gray-500">{item.unit_symbol ?? 'un.'}</span>}</p>}
+            </div>
+            {item.tracks_pieces && (
+              <div className={`pt-2 border-t ${editable ? 'border-blue-200' : hasDifference ? 'border-amber-200' : 'border-emerald-200'}`}>
+                {editable ? <input aria-label={`Peças físicas de ${item.product_name}`} inputMode="numeric" value={physicalPiecesValue} onChange={(event) => onPhysicalPiecesChange && onPhysicalPiecesChange(event.target.value)} placeholder="0 peças" className="w-full bg-transparent font-bold text-gray-900 outline-none placeholder:text-blue-300" /> : <p className="font-bold text-gray-900">{item.counted_pieces == null ? '—' : quantity(item.counted_pieces)} {item.counted_pieces != null && <span className="text-xs font-medium text-gray-500">peças</span>}</p>}
+              </div>
+            )}
+          </div>
         </div>
-        {difference !== null && <p className={`mt-3 text-sm font-medium ${hasDifference ? 'text-amber-800' : 'text-emerald-700'}`}>{hasDifference ? `Diferença: ${difference > 0 ? '+' : ''}${quantity(difference)} ${item.unit_symbol ?? 'un.'}` : <><Check className="mr-1 inline h-4 w-4" />Quantidade confere</>}</p>}
+        {!blind && (difference !== null || differencePieces !== null) && <p className={`mt-3 text-sm font-medium ${hasDifference ? 'text-amber-800' : 'text-emerald-700'}`}>{hasDifference ? `Diferença: ${difference !== null && difference !== 0 ? (difference > 0 ? '+' : '') + quantity(difference) + ' ' + (item.unit_symbol ?? 'un.') : ''} ${differencePieces !== null && differencePieces !== 0 ? (differencePieces > 0 ? '+' : '') + quantity(differencePieces) + ' peças' : ''}` : <><Check className="mr-1 inline h-4 w-4" />Quantidade e peças conferem</>}</p>}
         {editable && <input value={note} onChange={(event) => onNoteChange(event.target.value)} placeholder="Observação (opcional)" className="mt-3 h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none ring-blue-500 focus:ring-2" />}
         {!editable && item.review_note && <p className="mt-3 rounded-lg bg-slate-50 p-2 text-xs text-gray-600">{item.status === 'recusado' ? 'Motivo da recusa' : 'Observação do administrador'}: {item.review_note}</p>}
       </div>
     </div>
-    {showReview && <div className="mt-4 border-t border-gray-100 pt-3"><input value={reviewNote} onChange={(event) => onReviewNoteChange(event.target.value)} placeholder="Observação da decisão (opcional)" className="mb-2 h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none ring-blue-500 focus:ring-2" /><div className="flex gap-2"><button disabled={disabled} onClick={onReject} className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-rose-200 text-sm font-semibold text-rose-700 disabled:opacity-50"><X className="h-4 w-4" />Recusar</button><button disabled={disabled} onClick={onApprove} className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-blue-600 text-sm font-semibold text-white disabled:opacity-50"><ShieldCheck className="h-4 w-4" />Aprovar ajuste</button></div></div>}
+    {showReview && <div className="mt-4 border-t border-gray-100 pt-3"><input value={reviewNote} onChange={(event) => onReviewNoteChange(event.target.value)} placeholder="Observação da decisão — obrigatória para recusar" className="mb-2 h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none ring-blue-500 focus:ring-2" /><div className="flex gap-2"><button disabled={disabled || !canReject} onClick={onReject} className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-rose-200 text-sm font-semibold text-rose-700 disabled:opacity-50"><X className="h-4 w-4" />Recusar</button><button disabled={disabled} onClick={onApprove} className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-blue-600 text-sm font-semibold text-white disabled:opacity-50"><ShieldCheck className="h-4 w-4" />Aprovar ajuste</button></div></div>}
   </article>;
 }

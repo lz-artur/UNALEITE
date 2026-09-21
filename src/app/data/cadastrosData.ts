@@ -142,6 +142,9 @@ export interface FinishedProductRecord {
   name: string;
   category: string;
   unitId: string;
+  tracksPieces: boolean;
+  tracksQuantityAndWeight: boolean;
+  weightVariancePercent: number;
   standardWeight?: number;
   shelfLifeDays: number;
   storageTemperature?: number;

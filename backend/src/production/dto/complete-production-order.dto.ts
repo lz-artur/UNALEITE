@@ -39,6 +39,11 @@ class FinishedProductConsumptionDto {
   @IsNumber()
   @Min(0.0001)
   quantity!: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  pieces?: number;
 }
 
 class GeneratedCoProductDto {
@@ -54,6 +59,11 @@ export class CompleteProductionOrderDto {
   @IsNumber()
   @Min(0.0001)
   actualQuantityProduced!: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  actualPiecesProduced?: number;
 
   @IsOptional()
   @IsArray()

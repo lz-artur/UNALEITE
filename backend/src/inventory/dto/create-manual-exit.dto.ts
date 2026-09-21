@@ -23,6 +23,11 @@ export class CreateManualExitDto {
   @IsOptional()
   notes?: string;
 
+  @ApiPropertyOptional({ description: 'Number of pieces to exit, required if the lot tracks pieces' })
+  @IsNumber()
+  @IsOptional()
+  pieces?: number;
+
   @ApiPropertyOptional({ description: 'Date and time of the exit in ISO format' })
   @IsString()
   @IsOptional()

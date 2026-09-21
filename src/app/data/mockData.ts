@@ -138,6 +138,9 @@ export interface EstoqueProduto {
   dataValidade: Date;
   lote: string;
   disponivel: number;
+  /** Contagem física adicional, usada exclusivamente nos lotes de queijo. */
+  quantidadePecas?: number;
+  disponivelPecas?: number;
   devolvido?: number;
 }
 
