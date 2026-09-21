@@ -192,8 +192,21 @@ export class NfeEmissionService {
     try {
       response = await this.sefazService.cancel(data, invoiceEnvironment);
     } catch (error) {
-      await this.supabaseService.admin.from('nfe_invoices').update({ status: 'AUTORIZADA' }).eq('id', id);
       const message = error instanceof Error ? error.message : 'Falha de comunicação com a SEFAZ.';
+      if (/exige uma NF-e autorizada/i.test(message) || /já cancelada/i.test(message) || /Duplicidade/i.test(message)) {
+        await this.supabaseService.admin.from('nfe_events').insert({
+          nfe_invoice_id: id, event_type: 'CANCELAMENTO', sequence: 1,
+          status: 'REGISTRADO', protocol_number: invoice.protocol_number,
+          response_code: '135', response_message: 'Cancelamento detectado como já efetuado na SEFAZ', justification, created_by: user?.id ?? null,
+        });
+        await this.supabaseService.admin.from('nfe_invoices').update({
+          status: 'CANCELADA', canceled_at: new Date().toISOString(),
+          rejection_code: null, rejection_reason: null,
+          updated_at: new Date().toISOString(), updated_by: user?.id ?? null,
+        }).eq('id', id);
+        return this.nfeService.get(id);
+      }
+      await this.supabaseService.admin.from('nfe_invoices').update({ status: 'AUTORIZADA' }).eq('id', id);
       throw new BadRequestException(`Não foi possível cancelar a NF-e no momento: ${message}`);
     }
     const eventResult = this.findValue(response.result, 'retEvento') ?? response.result;
