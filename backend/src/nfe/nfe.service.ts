@@ -53,14 +53,19 @@ export class NfeService {
   }
 
   async eligibleOrders() {
+    const config = await this.configService.getRawConfig();
     const { data: orders, error } = await this.supabaseService.admin
       .from('sales_orders').select('*').eq('status', 'Atendido').order('order_date', { ascending: false });
     if (error) throw new BadRequestException(error.message);
     const ids = (orders ?? []).map((order) => order.id);
     const { data: invoices } = ids.length
-      ? await this.supabaseService.admin.from('nfe_invoices').select('sales_order_id,status').in('sales_order_id', ids)
+      ? await this.supabaseService.admin.from('nfe_invoices').select('sales_order_id,status,environment').in('sales_order_id', ids)
       : { data: [] as any[] };
-    const available = (orders ?? []).filter((order) => !(invoices ?? []).some((invoice) => invoice.sales_order_id === order.id && invoice.status !== 'CANCELADA'));
+    const available = (orders ?? []).filter((order) => !(invoices ?? []).some((invoice) =>
+      invoice.sales_order_id === order.id
+      && invoice.environment === config.environment
+      && invoice.status !== 'CANCELADA',
+    ));
     const clientIds = available.map((order) => order.client_id);
     const { data: clients } = clientIds.length
       ? await this.supabaseService.admin.from('clients').select('id,name,document').in('id', clientIds)
@@ -80,18 +85,24 @@ export class NfeService {
   }
 
   async createDraft(payload: CreateNfeDraftDto, user?: AuthenticatedUser) {
-    const { data: existing } = await this.supabaseService.admin.from('nfe_invoices').select('id,status').eq('sales_order_id', payload.salesOrderId).neq('status', 'CANCELADA').maybeSingle();
+    const config = await this.configService.getRawConfig();
+    const { data: existing } = await this.supabaseService.admin
+      .from('nfe_invoices')
+      .select('id,status')
+      .eq('sales_order_id', payload.salesOrderId)
+      .eq('environment', config.environment)
+      .neq('status', 'CANCELADA')
+      .maybeSingle();
     if (existing) return this.get(existing.id);
 
     const { data: order, error } = await this.supabaseService.admin.from('sales_orders').select('*').eq('id', payload.salesOrderId).single();
     if (error || !order) throw new NotFoundException('Pedido de venda não encontrado.');
     if (order.status !== 'Atendido') throw new BadRequestException('Somente pedidos totalmente atendidos podem ser faturados.');
 
-    const [{ data: client }, { data: orderItems }, { data: fulfillments }, config] = await Promise.all([
+    const [{ data: client }, { data: orderItems }, { data: fulfillments }] = await Promise.all([
       this.supabaseService.admin.from('clients').select('*').eq('id', order.client_id).single(),
       this.supabaseService.admin.from('sales_order_items').select('*').eq('sales_order_id', order.id).order('created_at'),
       this.supabaseService.admin.from('sales_order_fulfillments').select('*').eq('sales_order_id', order.id),
-      this.configService.getRawConfig(),
     ]);
     if (!client || !orderItems?.length) throw new BadRequestException('Pedido sem destinatário ou itens.');
     const productIds = orderItems.map((item) => item.product_id);

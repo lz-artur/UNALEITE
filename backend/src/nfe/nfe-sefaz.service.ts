@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import type { Cancelamento, NFe } from '@nfewizard/types/nfe';
 import { NfeConfigService } from './nfe-config.service';
+import { generateFallbackDanfe } from './danfe-fallback';
 
 @Injectable()
 export class NfeSefazService {
@@ -13,52 +14,60 @@ export class NfeSefazService {
     return this.run(async (wizard) => wizard.NFE_ConsultaStatusServico());
   }
 
-  async authorize(data: NFe) {
+  async authorize(data: NFe, environment?: 'homologacao' | 'producao') {
     return this.run(async (wizard, workDir) => {
       const result = await wizard.NFE_Autorizacao(data);
       const xmlFiles = await this.readXmlFiles(workDir);
       return { result, xmlFiles };
-    });
+    }, environment);
   }
 
-  async query(accessKey: string) {
-    return this.run(async (wizard) => wizard.NFE_ConsultaProtocolo(accessKey));
+  async query(accessKey: string, environment?: 'homologacao' | 'producao') {
+    return this.run(async (wizard) => wizard.NFE_ConsultaProtocolo(accessKey), environment);
   }
 
-  async cancel(data: Cancelamento) {
+  async cancel(data: Cancelamento, environment?: 'homologacao' | 'producao') {
     return this.run(async (wizard, workDir) => {
       const result = await wizard.NFE_Cancelamento(data);
       return { result, xmlFiles: await this.readXmlFiles(workDir) };
-    });
+    }, environment);
   }
 
   async generateDanfe(data: any, accessKey: string) {
-    const { NFE_GerarDanfe } = await import('@nfewizard/danfe');
     const workDir = await mkdtemp(join(tmpdir(), 'una-danfe-'));
     const outputPath = join(workDir, `${accessKey}.pdf`);
     try {
-      const result = await NFE_GerarDanfe({ data, chave: accessKey, outputPath });
-      if (!result.success) throw new Error(result.message);
-      
-      // A biblioteca não aguarda o flush do write stream para o disco
-      for (let i = 0; i < 20; i++) {
-        try {
-          const stat = await import('fs/promises').then(fs => fs.stat(outputPath));
-          if (stat.size > 0) break;
-        } catch {
-          // File not created yet
+      try {
+        const { NFE_GerarDanfe } = await import('@nfewizard/danfe');
+        const result = await NFE_GerarDanfe({ data, chave: accessKey, outputPath });
+        if (!result.success) throw new Error(result.message);
+
+        // A biblioteca não aguarda o flush do write stream para o disco.
+        for (let i = 0; i < 20; i++) {
+          try {
+            const stat = await import('fs/promises').then(fs => fs.stat(outputPath));
+            if (stat.size > 0) break;
+          } catch {
+            // File not created yet.
+          }
+          await new Promise(r => setTimeout(r, 100));
         }
-        await new Promise(r => setTimeout(r, 100));
+
+        return await readFile(outputPath);
+      } catch {
+        return await generateFallbackDanfe(String(data ?? ''), accessKey);
       }
-      
-      return await readFile(outputPath);
     } finally {
       await rm(workDir, { recursive: true, force: true });
     }
   }
 
-  private async run<T>(operation: (wizard: any, workDir: string) => Promise<T>) {
+  private async run<T>(
+    operation: (wizard: any, workDir: string) => Promise<T>,
+    environment?: 'homologacao' | 'producao',
+  ) {
     const material = await this.configService.getCertificateMaterial();
+    const effectiveEnvironment = environment ?? material.config.environment;
     const workDir = await mkdtemp(join(tmpdir(), 'una-nfe-'));
     try {
       await this.disableUnsafeLibraryLogs();
@@ -76,7 +85,7 @@ export class NfeSefazService {
           pathXMLRetorno: workDir,
         },
         nfe: {
-          ambiente: material.config.environment === 'producao' ? 1 : 2,
+          ambiente: effectiveEnvironment === 'producao' ? 1 : 2,
           versaoDF: '4.00',
         },
         lib: {
