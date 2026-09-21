@@ -359,7 +359,9 @@ export default function LotesEstoqueDetalhado() {
  : selectedSupplyItem.currentStock
  : 0;
  const selectedProductSellableQuantity = selectedProductLots
- .filter((lot) => lot.disponivel > 0 && lot.dataValidade >= startOfDay(new Date()))
+ .filter((lot) => lot.disponivel > 0
+   && lot.dataValidade >= startOfDay(new Date())
+   && (lot.disponivelPecas == null || lot.disponivelPecas > 0))
  .reduce((sum, lot) => sum + lot.disponivel, 0);
 
  const lotesComAnalise = lotes.filter((lote) => lote.analiseId);
@@ -1126,7 +1128,9 @@ export default function LotesEstoqueDetalhado() {
                 <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500"><tr><th className="px-4 py-3">Lote</th><th className="px-4 py-3">Produzido</th><th className="px-4 py-3">Saldo</th><th className="px-4 py-3">Validade</th><th className="px-4 py-3">Situação</th></tr></thead>
                 <tbody className="divide-y divide-gray-100">{selectedProductLots.map((lot) => {
                   const expired = lot.dataValidade < startOfDay(new Date());
-                  const sellable = lot.disponivel > 0 && !expired;
+                  const sellable = lot.disponivel > 0
+                    && !expired
+                    && (lot.disponivelPecas == null || lot.disponivelPecas > 0);
                   return <tr key={lot.id}><td className="px-4 py-3 font-medium text-gray-900">{lot.lote}</td><td className="px-4 py-3">{lot.quantidade.toLocaleString('pt-BR')} {getUnitSymbol(selectedProduct.unitId)}</td><td className="px-4 py-3 font-medium">{lot.disponivel.toLocaleString('pt-BR')} {getUnitSymbol(selectedProduct.unitId)}</td><td className={`px-4 py-3 ${expired ? 'font-medium text-red-600' : ''}`}>{format(lot.dataValidade, 'dd/MM/yyyy')}</td><td className="px-4 py-3">{expired ? <StatusBadge tone="red" label="Vencido" /> : sellable ? <StatusBadge tone="green" label="Disponível para venda" /> : <StatusBadge tone="gray" label="Sem saldo" />}</td></tr>;
                 })}{!selectedProductLots.length && <tr><td className="px-4 py-8 text-center text-gray-500" colSpan={5}>Nenhum lote cadastrado para este produto.</td></tr>}</tbody>
               </LotCompositionTable>

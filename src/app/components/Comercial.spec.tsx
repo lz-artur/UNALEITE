@@ -19,7 +19,7 @@ vi.mock('../context/CadastrosContext', () => ({
     routes: [],
     transporters: [],
     finishedProducts: [
-      { id: 'prod-1', nome: 'Queijo Minas', active: true, unitId: 'un-kg' },
+      { id: 'prod-1', nome: 'Queijo Minas', active: true, unitId: 'un-kg', tracksQuantityAndWeight: true },
     ],
     bankAccounts: [{ id: '00000000-0000-4000-8000-000000000002', name: 'Conta de teste', active: true }],
     getUnitSymbol: vi.fn().mockReturnValue('kg'),
@@ -160,6 +160,7 @@ describe('Comercial - ModalShell component integration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Realizar Atendimento' }));
 
     await screen.findByText('Atendimento do pedido VEN-2026-2');
+    expect(operationsApi.loadFinishedProductLots).toHaveBeenCalledWith({ requireLive: true });
     const quantityInput = screen.getByText('Quantidade atendida').parentElement?.querySelector('input') as HTMLInputElement;
     const lotSelect = screen.getByText('Lote acabado').parentElement?.querySelector('select') as HTMLSelectElement;
     const paymentMethodSelect = screen.getByText('Forma de pagamento *').parentElement?.querySelector('select') as HTMLSelectElement;
