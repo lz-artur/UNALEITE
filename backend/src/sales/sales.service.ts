@@ -568,6 +568,7 @@ export class SalesService {
               finishedProductLotId: String(fulfillment.finished_product_lot_id),
               lotCode: String(lot?.lot_code ?? '-'),
               quantity: Number(fulfillment.quantity),
+              piecesQuantity: fulfillment.pieces_quantity == null ? null : Number(fulfillment.pieces_quantity),
               returnedQuantity: alreadyReturned,
               fulfilledAt: String(fulfillment.fulfilled_at),
               attendanceId: fulfillment.attendance_id ? String(fulfillment.attendance_id) : null,

@@ -92,6 +92,7 @@ export class InventoryController {
   }
 
   @Post('counts')
+  @UseGuards(AdminGuard)
   createCountSession(
     @Body() payload: CreateInventorySessionDto,
     @CurrentUser() user: AuthenticatedUser,

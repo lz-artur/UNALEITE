@@ -148,6 +148,11 @@ export interface InventorySessionSummary {
   started_at: string;
   submitted_at?: string | null;
   completed_at?: string | null;
+  assigned_to: string;
+  assigned_to_name: string;
+  available_from: string;
+  available_until: string;
+  include_zero_balance_lots: boolean;
   total_items: number;
   pending_items: number;
   divergent_items: number;
@@ -156,6 +161,7 @@ export interface InventorySessionSummary {
 export interface InventorySession extends Omit<InventorySessionSummary, 'total_items' | 'pending_items' | 'divergent_items'> {
   items: InventoryCountItem[];
   logs: InventoryAuditLog[];
+  counting_available?: boolean;
 }
 
 export interface SaleExpeditionSummary {
@@ -300,6 +306,7 @@ export interface SalesOrderItemFulfillmentRecord {
   finishedProductLotId: string;
   lotCode: string;
   quantity: number;
+  piecesQuantity?: number | null;
   returnedQuantity?: number;
   fulfilledAt: Date;
   attendanceId?: string | null;
@@ -672,6 +679,7 @@ export interface SalesReportResponse {
     productLotCode: string;
     grossQuantity: number;
     returnedQuantity: number;
+    returnedPieces?: number;
     quantity: number;
     unitPrice: number;
     saleValue: number;
@@ -1146,7 +1154,7 @@ export async function createProductionOrder(payload: {
   productId: string;
   litersToUse: number;
   supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
-  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number }>;
+  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number; pieces?: number }>;
 }) {
   return apiRequest<{ order: any }>('/production-orders', {
     method: 'POST',
@@ -1160,7 +1168,7 @@ export async function updateProductionOrder(orderId: string, payload: {
   litersToUse?: number;
   actualQuantityProduced?: number;
   supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
-  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number }>;
+  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number; pieces?: number }>;
 }) {
   return apiRequest<{ order: any }>(`/production-orders/${orderId}`, {
     method: 'PATCH',
@@ -1173,7 +1181,7 @@ export async function completeProductionOrder(payload: {
   actualQuantityProduced: number;
   actualPiecesProduced?: number;
   supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
-  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number }>;
+  finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number; pieces?: number }>;
   generatedCoProducts?: Array<{ productId: string; quantity: number }>;
 }) {
   return apiRequest<{ order: any; productLot: any }>(`/production-orders/${payload.orderId}/complete`, {
@@ -1273,16 +1281,28 @@ export function loadInventorySession(id: string): Promise<InventorySession> {
   return apiRequest<InventorySession>(`/inventory/counts/${id}`);
 }
 
-export function createInventorySession(title?: string): Promise<InventorySession> {
+export function createInventorySession(payload: {
+  title?: string;
+  availableFrom: string;
+  availableUntil: string;
+  assignedTo: string;
+  includeZeroBalanceLots: boolean;
+}): Promise<InventorySession> {
   return apiRequest<InventorySession>('/inventory/counts', {
     method: 'POST',
-    body: JSON.stringify({ title: title?.trim() || undefined }),
+    body: JSON.stringify({
+      title: payload.title?.trim() || undefined,
+      availableFrom: payload.availableFrom,
+      availableUntil: payload.availableUntil,
+      assignedTo: payload.assignedTo,
+      includeZeroBalanceLots: payload.includeZeroBalanceLots,
+    }),
   });
 }
 
 export function saveInventoryCounts(
   sessionId: string,
-  items: Array<{ id: string; countedQuantity: number; notes?: string }>,
+  items: Array<{ id: string; countedQuantity: number; countedPieces?: number; notes?: string }>,
 ): Promise<InventorySession> {
   return apiRequest<InventorySession>(`/inventory/counts/${sessionId}/save`, {
     method: 'POST',
@@ -1292,7 +1312,7 @@ export function saveInventoryCounts(
 
 export function submitInventorySession(
   sessionId: string,
-  items: Array<{ id: string; countedQuantity: number; notes?: string }>,
+  items: Array<{ id: string; countedQuantity: number; countedPieces?: number; notes?: string }>,
 ): Promise<InventorySession> {
   return apiRequest<InventorySession>(`/inventory/counts/${sessionId}/submit`, {
     method: 'POST',
@@ -1975,6 +1995,7 @@ export async function fulfillSalesOrder(payload: {
     salesOrderItemId: string;
     finishedProductLotId: string;
     quantity: number;
+    piecesQuantity?: number;
   }>;
   notes?: string;
 }) {

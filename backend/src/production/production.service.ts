@@ -32,12 +32,14 @@ type FinishedProductConsumptionInput = {
   finishedProductId?: string;
   source?: 'Disponivel' | 'Devolucao';
   quantity: number;
+  pieces?: number;
 };
 
 type ResolvedFinishedProductConsumption = {
   finishedProductLotId: string;
   source?: 'Disponivel' | 'Devolucao';
   quantity: number;
+  pieces?: number;
 };
 
 @Injectable()
@@ -155,6 +157,7 @@ export class ProductionService {
           finishedProductLotId: consumption.finishedProductLotId,
           ...(consumption.source ? { source } : {}),
           quantity: consumption.quantity,
+          ...(consumption.pieces != null ? { pieces: consumption.pieces } : {}),
         });
         continue;
       }
@@ -334,6 +337,12 @@ export class ProductionService {
       const finishedProductConsumptions = await this.resolveFinishedProductConsumptions(payload.finishedProductConsumptions);
       for (const consumption of finishedProductConsumptions) {
         const productLot = await this.getById('finished_product_lots', consumption.finishedProductLotId);
+        const sourceProduct = await this.getById('finished_products', String(productLot.product_id));
+        const tracksPieces = Boolean(sourceProduct.tracks_quantity_and_weight ?? sourceProduct.tracks_pieces);
+        if (tracksPieces && (!consumption.finishedProductLotId || !Number.isInteger(consumption.pieces) || Number(consumption.pieces) <= 0)) {
+          throw new BadRequestException('Informe lote e peças para consumir este produto acabado.');
+        }
+        if (!tracksPieces && consumption.pieces != null) throw new BadRequestException('Este produto não controla peças e peso.');
         const balanceField = consumption.source === 'Devolucao' ? 'returned_quantity' : 'available_quantity';
         const nextBalance = Number(productLot[balanceField]) - consumption.quantity;
 
@@ -345,6 +354,7 @@ export class ProductionService {
           production_order_id: order.id,
           finished_product_lot_id: consumption.finishedProductLotId,
           quantity_consumed: consumption.quantity,
+          pieces_consumed: tracksPieces ? consumption.pieces : null,
           ...(consumption.source ? { consumption_source: consumption.source } : {}),
           created_by: user?.id ?? null,
           updated_by: user?.id ?? null,
@@ -353,7 +363,8 @@ export class ProductionService {
         await this.supabaseService.admin
           .from('finished_product_lots')
           .update({
-            [balanceField]: nextBalance,
+          [balanceField]: nextBalance,
+          ...(tracksPieces ? { available_pieces: Number(productLot.available_pieces) - Number(consumption.pieces) } : {}),
             updated_by: user?.id ?? null,
           })
           .eq('id', consumption.finishedProductLotId);
@@ -363,6 +374,7 @@ export class ProductionService {
           lot_type: 'Produto Acabado',
           lot_id: consumption.finishedProductLotId,
           quantity: consumption.quantity,
+          pieces_quantity: tracksPieces ? consumption.pieces : null,
           reference_table: 'production_orders',
           reference_id: order.id,
           created_by: user?.id ?? null,

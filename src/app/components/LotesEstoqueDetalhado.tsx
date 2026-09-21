@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { differenceInDays, format } from 'date-fns';
+import { differenceInDays, format, startOfDay } from 'date-fns';
 import { AlertTriangle, Award, DollarSign, Loader2, PackageSearch, Search, TrendingUp, Trash2, Pencil, X, ShieldCheck } from 'lucide-react';
 import type { AnaliseLaboral, EstoqueProduto, LoteLeite, PrecificacaoLeite } from '../data/mockData';
 import { useCadastros } from '../context/CadastrosContext';
@@ -32,6 +32,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './ui/alert-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+
+type SummaryDetail =
+ | { kind: 'supply'; itemId: string }
+ | { kind: 'product'; productId: string };
 
 function getErrorMessage(error: unknown) {
  if (error instanceof Error) {
@@ -76,6 +81,7 @@ export default function LotesEstoqueDetalhado() {
  const [disposalNotes, setDisposalNotes] = useState('');
  const [isSubmittingDisposal, setIsSubmittingDisposal] = useState(false);
  const [reviewingDisposalId, setReviewingDisposalId] = useState<string | null>(null);
+ const [summaryDetail, setSummaryDetail] = useState<SummaryDetail | null>(null);
  const { hasPermission } = usePermissions();
  const canApproveDisposals = hasPermission('inventario', 'authorize');
  const {
@@ -333,6 +339,28 @@ export default function LotesEstoqueDetalhado() {
  );
  const supplyLotsWithBalance = supplyLots.filter((lot) => lot.availableQuantity > 0).length;
  const finishedProductLotsWithBalance = estoquesProdutos.filter((lot) => lot.disponivel > 0).length;
+ const selectedSupplyItem = summaryDetail?.kind === 'supply'
+ ? supplyItems.find((item) => item.id === summaryDetail.itemId)
+ : undefined;
+ const selectedProduct = summaryDetail?.kind === 'product'
+ ? getFinishedProductById(summaryDetail.productId)
+ : undefined;
+ const selectedSupplyLots = selectedSupplyItem
+ ? supplyLots.filter((lot) => lot.supplyItemId === selectedSupplyItem.id)
+ .sort((a, b) => (a.expirationDate?.getTime() ?? Infinity) - (b.expirationDate?.getTime() ?? Infinity))
+ : [];
+ const selectedProductLots = selectedProduct
+ ? estoquesProdutos.filter((lot) => lot.produtoId === selectedProduct.id)
+ .sort((a, b) => a.dataValidade.getTime() - b.dataValidade.getTime())
+ : [];
+ const selectedSupplyAvailableQuantity = selectedSupplyItem
+ ? selectedSupplyLots.length > 0
+ ? selectedSupplyLots.reduce((sum, lot) => sum + lot.availableQuantity, 0)
+ : selectedSupplyItem.currentStock
+ : 0;
+ const selectedProductSellableQuantity = selectedProductLots
+ .filter((lot) => lot.disponivel > 0 && lot.dataValidade >= startOfDay(new Date()))
+ .reduce((sum, lot) => sum + lot.disponivel, 0);
 
  const lotesComAnalise = lotes.filter((lote) => lote.analiseId);
  const mediaGordura =
@@ -522,8 +550,8 @@ export default function LotesEstoqueDetalhado() {
  const lotCount = supplyLots.filter((lot) => lot.supplyItemId === item.id && lot.availableQuantity > 0).length;
  const belowMinimum = currentStock < item.minimumStock;
  return (
- <tr key={item.id} className="hover:bg-gray-50">
- <td className="px-6 py-4"><div className="font-medium text-gray-900">{item.name}</div><div className="text-xs text-gray-500">{item.code}</div></td>
+ <tr key={item.id} className="cursor-pointer hover:bg-blue-50" onClick={() => setSummaryDetail({ kind: 'supply', itemId: item.id })} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSummaryDetail({ kind: 'supply', itemId: item.id }); } }} tabIndex={0} role="button" aria-label={`Ver resumo e lotes de ${item.name}`}>
+ <td className="px-6 py-4"><div className="font-medium text-gray-900">{item.name}</div><div className="text-xs text-gray-500">{item.code} · Clique para ver os lotes</div></td>
  <td className={`px-6 py-4 font-semibold ${belowMinimum ? 'text-red-600' : 'text-gray-900'}`}>{currentStock.toLocaleString('pt-BR')} {unitSymbol}</td>
  <td className="px-6 py-4 text-sm text-gray-600">{item.minimumStock.toLocaleString('pt-BR')} {unitSymbol}</td>
  <td className="px-6 py-4 text-sm text-gray-700">{lotCount} {lotCount === 1 ? 'lote' : 'lotes'}</td>
@@ -563,8 +591,8 @@ export default function LotesEstoqueDetalhado() {
  {filteredFinishedProductSummaries.map((item) => {
  const daysToExpire = item.nextExpiration ? differenceInDays(item.nextExpiration, new Date()) : null;
  return (
- <tr key={item.productId} className="hover:bg-gray-50">
- <td className="px-6 py-4 font-medium text-gray-900">{item.productName}</td>
+ <tr key={item.productId} className="cursor-pointer hover:bg-blue-50" onClick={() => setSummaryDetail({ kind: 'product', productId: item.productId })} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSummaryDetail({ kind: 'product', productId: item.productId }); } }} tabIndex={0} role="button" aria-label={`Ver resumo e lotes de ${item.productName}`}>
+ <td className="px-6 py-4 font-medium text-gray-900"><div>{item.productName}</div><div className="mt-0.5 text-xs font-normal text-blue-600">Clique para ver os lotes</div></td>
  <td className="px-6 py-4 font-semibold text-green-700">{item.availableQuantity.toLocaleString('pt-BR')} {item.unitSymbol}</td>
  <td className="px-6 py-4 text-sm text-gray-700">{item.lotsCount} {item.lotsCount === 1 ? 'lote' : 'lotes'}</td>
  <td className="px-6 py-4 text-sm">{item.nextExpiration ? <span className={daysToExpire !== null && daysToExpire < 7 ? 'font-medium text-amber-700' : 'text-gray-700'}>{format(item.nextExpiration, 'dd/MM/yyyy')}{daysToExpire !== null && daysToExpire < 7 ? ` (${daysToExpire}d)` : ''}</span> : <span className="text-gray-500">Sem saldo</span>}</td>
@@ -1062,6 +1090,51 @@ export default function LotesEstoqueDetalhado() {
  </div>
  ) : null}
 
+      <Dialog open={summaryDetail !== null} onOpenChange={(open) => { if (!open) setSummaryDetail(null); }}>
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-6xl overflow-y-auto p-0">
+          {selectedSupplyItem ? <>
+            <DialogHeader className="border-b border-gray-100 px-6 py-5 pr-12">
+              <DialogTitle>{selectedSupplyItem.name}</DialogTitle>
+              <DialogDescription>Resumo do insumo e os lotes que compõem seu saldo.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-5 p-6">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <SummaryMetric label="Saldo total" value={`${selectedSupplyAvailableQuantity.toLocaleString('pt-BR')} ${getUnitSymbol(selectedSupplyItem.unitId)}`} />
+                <SummaryMetric label="Estoque mínimo" value={`${selectedSupplyItem.minimumStock.toLocaleString('pt-BR')} ${getUnitSymbol(selectedSupplyItem.unitId)}`} />
+                <SummaryMetric label="Lotes cadastrados" value={String(selectedSupplyLots.length)} />
+              </div>
+              <LotCompositionTable>
+                <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500"><tr><th className="px-4 py-3">Lote</th><th className="px-4 py-3">Disponível</th><th className="px-4 py-3">Validade</th><th className="px-4 py-3">Status</th></tr></thead>
+                <tbody className="divide-y divide-gray-100">{selectedSupplyLots.map((lot) => {
+                  const expired = Boolean(lot.expirationDate && lot.expirationDate < startOfDay(new Date()));
+                  return <tr key={lot.id}><td className="px-4 py-3 font-medium text-gray-900">{lot.internalLotCode}</td><td className="px-4 py-3">{lot.availableQuantity.toLocaleString('pt-BR')} {getUnitSymbol(lot.unitId || selectedSupplyItem.unitId)}</td><td className={`px-4 py-3 ${expired ? 'font-medium text-red-600' : ''}`}>{lot.expirationDate ? format(lot.expirationDate, 'dd/MM/yyyy') : 'Não informada'}</td><td className="px-4 py-3">{expired ? <StatusBadge tone="red" label="Vencido" /> : <SupplyLotStatusBadge status={lot.status} />}</td></tr>;
+                })}{!selectedSupplyLots.length && <tr><td className="px-4 py-8 text-center text-gray-500" colSpan={4}>Nenhum lote cadastrado para este insumo.</td></tr>}</tbody>
+              </LotCompositionTable>
+            </div>
+          </> : selectedProduct ? <>
+            <DialogHeader className="border-b border-gray-100 px-6 py-5 pr-12">
+              <DialogTitle>{selectedProduct.name}</DialogTitle>
+              <DialogDescription>Resumo do produto e rastreabilidade dos lotes. Somente lotes dentro da validade ficam disponíveis ao vendedor externo.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-5 p-6">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <SummaryMetric label="Saldo total" value={`${selectedProductLots.reduce((sum, lot) => sum + lot.disponivel, 0).toLocaleString('pt-BR')} ${getUnitSymbol(selectedProduct.unitId)}`} />
+                <SummaryMetric label="Disponível para venda" value={`${selectedProductSellableQuantity.toLocaleString('pt-BR')} ${getUnitSymbol(selectedProduct.unitId)}`} emphasis={selectedProductSellableQuantity > 0 ? 'green' : 'red'} />
+                <SummaryMetric label="Lotes cadastrados" value={String(selectedProductLots.length)} />
+              </div>
+              <LotCompositionTable>
+                <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500"><tr><th className="px-4 py-3">Lote</th><th className="px-4 py-3">Produzido</th><th className="px-4 py-3">Saldo</th><th className="px-4 py-3">Validade</th><th className="px-4 py-3">Situação</th></tr></thead>
+                <tbody className="divide-y divide-gray-100">{selectedProductLots.map((lot) => {
+                  const expired = lot.dataValidade < startOfDay(new Date());
+                  const sellable = lot.disponivel > 0 && !expired;
+                  return <tr key={lot.id}><td className="px-4 py-3 font-medium text-gray-900">{lot.lote}</td><td className="px-4 py-3">{lot.quantidade.toLocaleString('pt-BR')} {getUnitSymbol(selectedProduct.unitId)}</td><td className="px-4 py-3 font-medium">{lot.disponivel.toLocaleString('pt-BR')} {getUnitSymbol(selectedProduct.unitId)}</td><td className={`px-4 py-3 ${expired ? 'font-medium text-red-600' : ''}`}>{format(lot.dataValidade, 'dd/MM/yyyy')}</td><td className="px-4 py-3">{expired ? <StatusBadge tone="red" label="Vencido" /> : sellable ? <StatusBadge tone="green" label="Disponível para venda" /> : <StatusBadge tone="gray" label="Sem saldo" />}</td></tr>;
+                })}{!selectedProductLots.length && <tr><td className="px-4 py-8 text-center text-gray-500" colSpan={5}>Nenhum lote cadastrado para este produto.</td></tr>}</tbody>
+              </LotCompositionTable>
+            </div>
+          </> : null}
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1346,6 +1419,24 @@ function MetricTile({ label, value }: { label: string; value: string }) {
  <p className="text-lg font-bold text-gray-900">{value}</p>
  </div>
  );
+}
+
+function SummaryMetric({ label, value, emphasis }: { label: string; value: string; emphasis?: 'green' | 'red' }) {
+ return (
+ <div className="rounded-lg bg-gray-50 p-4">
+ <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{label}</p>
+ <p className={`mt-1 text-xl font-bold ${emphasis === 'green' ? 'text-green-700' : emphasis === 'red' ? 'text-red-700' : 'text-gray-900'}`}>{value}</p>
+ </div>
+ );
+}
+
+function LotCompositionTable({ children }: { children: ReactNode }) {
+ return <div className="overflow-x-auto rounded-lg border border-gray-200"><table className="w-full min-w-[640px] text-sm">{children}</table></div>;
+}
+
+function StatusBadge({ tone, label }: { tone: 'green' | 'red' | 'gray'; label: string }) {
+ const classes = tone === 'green' ? 'bg-green-100 text-green-800' : tone === 'red' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-700';
+ return <span className={`rounded-full px-2 py-1 text-xs font-medium ${classes}`}>{label}</span>;
 }
 
 function PriceLine({
