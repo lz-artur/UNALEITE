@@ -31,31 +31,34 @@ export class NfeEmissionService {
     }
 
     const config = await this.configService.getRawConfig();
+    const invoiceEnvironment = validated.environment as 'homologacao' | 'producao';
+    const invoiceSeries = Number(validated.series);
+    const emissionConfig = { ...config, environment: invoiceEnvironment, series: invoiceSeries };
     let number = validated.number as number | null;
     let numericCode = validated.numeric_code as string | null;
     const issuedAt = validated.issued_at ?? this.nowWithOffset();
     if (!number) {
       const { data, error } = await this.supabaseService.admin.rpc('reserve_nfe_number', {
-        p_issuer_cnpj: config.cnpj, p_environment: config.environment, p_model: 55, p_series: config.series,
+        p_issuer_cnpj: config.cnpj, p_environment: invoiceEnvironment, p_model: 55, p_series: invoiceSeries,
         p_initial_number: config.initial_number ?? 1,
       });
       if (error || !data) throw new BadRequestException(error?.message ?? 'Não foi possível reservar o número da NF-e.');
       number = Number(data);
       numericCode = String(randomInt(0, 100_000_000)).padStart(8, '0');
     }
-    const expectedAccessKey = this.buildAccessKey(config.cnpj, issuedAt, config.series, number, numericCode!);
+    const expectedAccessKey = this.buildAccessKey(config.cnpj, issuedAt, invoiceSeries, number, numericCode!);
     await this.supabaseService.admin.from('nfe_invoices').update({
       number, numeric_code: numericCode, access_key: expectedAccessKey, issued_at: issuedAt, status: 'AUTORIZANDO',
       rejection_code: null, rejection_reason: null, updated_at: new Date().toISOString(), updated_by: user?.id ?? null,
     }).eq('id', id);
 
     const invoice = await this.nfeService.get(id);
-    const data = this.buildNfe(invoice, config);
+    const data = this.buildNfe(invoice, emissionConfig);
     const attempt = await this.nextAttempt(id, 'AUTORIZACAO');
     const transmissionId = await this.startTransmission(id, 'AUTORIZACAO', attempt, data, user);
     const started = Date.now();
     try {
-      const response = await this.sefazService.authorize(data);
+      const response = await this.sefazService.authorize(data, invoiceEnvironment);
       const protocol = this.findProtocol(response.result);
       const statusCode = String(protocol?.cStat ?? this.findValue(response.result, 'cStat') ?? '');
       const reason = String(protocol?.xMotivo ?? this.findValue(response.result, 'xMotivo') ?? 'Resposta não identificada da SEFAZ');
@@ -65,11 +68,11 @@ export class NfeEmissionService {
 
       if (statusCode === '100' && accessKey && protocolNumber) {
         const xml = this.bestXml(response.xmlFiles, accessKey);
-        const xmlPath = xml ? await this.upload('nfe-xml', `${config.environment}/${accessKey}-procNFe.xml`, Buffer.from(xml), 'application/xml') : null;
+        const xmlPath = xml ? await this.upload('nfe-xml', `${invoiceEnvironment}/${accessKey}-procNFe.xml`, Buffer.from(xml), 'application/xml') : null;
         let danfePath: string | null = null;
         try {
           const danfe = await this.sefazService.generateDanfe(xml, accessKey);
-          danfePath = await this.upload('nfe-danfe', `${config.environment}/${accessKey}-danfe.pdf`, danfe, 'application/pdf');
+          danfePath = await this.upload('nfe-danfe', `${invoiceEnvironment}/${accessKey}-danfe.pdf`, danfe, 'application/pdf');
         } catch {
           // A autorização fiscal permanece válida mesmo se a representação gráfica falhar.
         }
@@ -124,7 +127,10 @@ export class NfeEmissionService {
     if (!invoice.access_key) throw new BadRequestException('A chave de acesso ainda não está disponível para consulta.');
     let response: any;
     try {
-      response = await this.sefazService.query(invoice.access_key);
+      response = await this.sefazService.query(
+        invoice.access_key,
+        invoice.environment as 'homologacao' | 'producao',
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Falha de comunicação com a SEFAZ.';
       const isRejection = /Rejei(?:ç|c)[aã]o:/i.test(message);
@@ -159,11 +165,14 @@ export class NfeEmissionService {
     if (invoice.status !== 'AUTORIZADA' || !invoice.access_key || !invoice.protocol_number) {
       throw new BadRequestException('Somente uma NF-e autorizada pode ser cancelada.');
     }
-    const config = await this.configService.getRawConfig();
+    const invoiceEnvironment = invoice.environment as 'homologacao' | 'producao';
+    const issuerCnpj = String(invoice.issuer_snapshot?.cnpj ?? invoice.access_key.slice(6, 20)).replace(/\D/g, '');
     const data: Cancelamento = {
       idLote: Date.now(), modelo: '55', evento: [{
-        tpAmb: config.environment === 'producao' ? 1 : 2, cOrgao: 26,
-        CNPJ: String(config.cnpj).replace(/\D/g, ''), chNFe: invoice.access_key,
+        tpAmb: invoiceEnvironment === 'producao' ? 1 : 2,
+        cOrgao: Number(invoice.access_key.slice(0, 2)),
+        CNPJ: issuerCnpj,
+        chNFe: invoice.access_key,
         dhEvento: this.nowWithOffset(), tpEvento: '110111', nSeqEvento: 1, verEvento: '1.00',
         detEvento: { descEvento: 'Cancelamento', nProt: invoice.protocol_number, xJust: justification },
       }],
@@ -171,7 +180,7 @@ export class NfeEmissionService {
     await this.supabaseService.admin.from('nfe_invoices').update({ status: 'CANCELANDO' }).eq('id', id);
     let response: any;
     try {
-      response = await this.sefazService.cancel(data);
+      response = await this.sefazService.cancel(data, invoiceEnvironment);
     } catch (error) {
       await this.supabaseService.admin.from('nfe_invoices').update({ status: 'AUTORIZADA' }).eq('id', id);
       const message = error instanceof Error ? error.message : 'Falha de comunicação com a SEFAZ.';
@@ -195,7 +204,25 @@ export class NfeEmissionService {
 
   async signedAssetUrl(id: string, type: 'xml' | 'danfe') {
     const invoice = await this.nfeService.get(id);
-    const path = type === 'xml' ? invoice.xml_authorized_path : invoice.danfe_path;
+    let path = type === 'xml' ? invoice.xml_authorized_path : invoice.danfe_path;
+    if (type === 'danfe' && !path && invoice.xml_authorized_path && invoice.access_key) {
+      const { data: xmlBlob, error: xmlError } = await this.supabaseService.admin.storage
+        .from('nfe-xml')
+        .download(invoice.xml_authorized_path);
+      if (xmlError || !xmlBlob) throw new BadRequestException('Não foi possível carregar o XML autorizado para gerar o DANFE.');
+      const danfe = await this.sefazService.generateDanfe(await xmlBlob.text(), invoice.access_key);
+      path = await this.upload(
+        'nfe-danfe',
+        `${invoice.environment}/${invoice.access_key}-danfe.pdf`,
+        danfe,
+        'application/pdf',
+      );
+      const { error: updateError } = await this.supabaseService.admin
+        .from('nfe_invoices')
+        .update({ danfe_path: path, updated_at: new Date().toISOString() })
+        .eq('id', id);
+      if (updateError) throw new BadRequestException('O DANFE foi gerado, mas não foi possível vinculá-lo à NF-e.');
+    }
     if (!path) throw new BadRequestException(`${type.toUpperCase()} ainda não está disponível.`);
     const bucket = type === 'xml' ? 'nfe-xml' : 'nfe-danfe';
     const { data, error } = await this.supabaseService.admin.storage.from(bucket).createSignedUrl(path, 300);

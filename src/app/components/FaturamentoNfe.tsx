@@ -150,6 +150,17 @@ export default function FaturamentoNfe() {
     } finally { setBusy(false); }
   };
 
+  const createProductionDraft = async () => {
+    if (!selected?.sales_order_id || config?.environment !== 'producao') return;
+    setBusy(true);
+    try {
+      const draft = await createNfeDraft(selected.sales_order_id);
+      setSelected(draft);
+      toast.success('Nova NF-e de produção preparada. Revise os dados antes de emitir.');
+      await load();
+    } finally { setBusy(false); }
+  };
+
   const saveHeader = async () => {
     if (!selected) return;
     setBusy(true);
@@ -282,12 +293,15 @@ export default function FaturamentoNfe() {
           </div>
           <div className="flex flex-wrap gap-2">
             {selected.status === 'AUTORIZADA' && <><button onClick={() => void download('xml')} className="btn-secondary"><Download className="h-4 w-4" /> XML</button><button onClick={() => void download('danfe')} className="btn-secondary"><Download className="h-4 w-4" /> DANFE</button></>}
+            {selected.status === 'AUTORIZADA' && selected.environment === 'homologacao' && config?.environment === 'producao' && hasPermission('faturamento', 'create') && <button disabled={busy} onClick={() => void createProductionDraft()} className="btn-primary"><FilePlus2 className="h-4 w-4" /> Preparar em produção</button>}
             {selected.status === 'PENDENTE_CONCILIACAO' && <button disabled={busy} onClick={() => void reconcileNfe(selected.id).then(setSelected)} className="btn-secondary"><RefreshCw className="h-4 w-4" /> Consultar SEFAZ</button>}
             {editable && hasPermission('faturamento', 'edit') && <button disabled={busy} onClick={() => void runValidation()} className="btn-secondary"><FileCheck2 className="h-4 w-4" /> Validar</button>}
             {editable && hasPermission('faturamento', 'authorize') && <button disabled={busy} onClick={() => void authorize()} className="btn-primary"><Send className="h-4 w-4" /> Emitir NF-e</button>}
             {selected.status === 'AUTORIZADA' && hasPermission('faturamento', 'cancel') && <button disabled={busy} onClick={() => void cancel()} className="btn-danger"><XCircle className="h-4 w-4" /> Cancelar</button>}
           </div>
         </div>
+
+        {selected.status === 'AUTORIZADA' && selected.environment === 'homologacao' && <div className="flex gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900"><ShieldCheck className="h-5 w-5 shrink-0" /><div><strong>Esta é uma nota de teste.</strong> Ela não precisa ser cancelada para emitir o mesmo pedido em produção. Ative o ambiente de produção na configuração fiscal e use “Preparar em produção”.</div></div>}
 
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="mb-2 flex justify-between text-sm"><span className="font-medium text-slate-700">Preenchimento fiscal</span><span className="font-bold text-blue-700">{completion}%</span></div>

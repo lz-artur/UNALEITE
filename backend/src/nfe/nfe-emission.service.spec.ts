@@ -65,4 +65,36 @@ describe('NfeEmissionService XML data', () => {
     )).toBe(true);
     expect((service as any).isLocalXmlValidationError('connect ETIMEDOUT')).toBe(false);
   });
+
+  it('cancela a NF-e no ambiente gravado na nota, mesmo após mudar a configuração global', async () => {
+    const chain: any = {
+      insert: jest.fn(() => chain),
+      update: jest.fn(() => chain),
+      eq: jest.fn(() => Promise.resolve({ error: null })),
+    };
+    const supabase = { admin: { from: jest.fn(() => chain) } } as any;
+    const nfeService = {
+      get: jest.fn()
+        .mockResolvedValueOnce({
+          id: 'invoice-1', status: 'AUTORIZADA', environment: 'homologacao',
+          access_key: '26260955219063000125550020000000401211010390',
+          protocol_number: '126260000306667', issuer_snapshot: { cnpj: '55219063000125' },
+        })
+        .mockResolvedValueOnce({ id: 'invoice-1', status: 'CANCELADA' }),
+    } as any;
+    const sefaz = {
+      cancel: jest.fn().mockResolvedValue({ result: { cStat: '135', xMotivo: 'Evento registrado e vinculado à NF-e' } }),
+    } as any;
+    const config = { getRawConfig: jest.fn().mockResolvedValue({ environment: 'producao' }) } as any;
+    const cancellationService = new NfeEmissionService(supabase, nfeService, config, sefaz);
+
+    await cancellationService.cancel('invoice-1', 'Cancelamento para reemissão em produção');
+
+    expect(sefaz.cancel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        evento: [expect.objectContaining({ tpAmb: 2, cOrgao: 26, CNPJ: '55219063000125' })],
+      }),
+      'homologacao',
+    );
+  });
 });
