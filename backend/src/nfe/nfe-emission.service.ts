@@ -20,7 +20,7 @@ export class NfeEmissionService {
     return this.sefazService.status();
   }
 
-  async authorize(id: string, user?: AuthenticatedUser) {
+  async authorize(id: string, user?: AuthenticatedUser, duplicateRetry = 0): Promise<any> {
     const validated = await this.nfeService.validate(id, user);
     if (!validated.validation.valid) {
       throw new BadRequestException({ message: 'Complete os dados obrigatórios antes de autorizar.', issues: validated.validation.issues });
@@ -84,6 +84,8 @@ export class NfeEmissionService {
         }).eq('id', id);
         await this.supabaseService.admin.from('financial_entries').update({ nfe_invoice_id: id, updated_by: user?.id ?? null })
           .eq('reference_table', 'sales_orders').eq('reference_id', invoice.sales_order_id);
+      } else if (statusCode === '539') {
+        return this.retryWithNextNumber(id, invoice, reason, duplicateRetry, user);
       } else {
         await this.supabaseService.admin.from('nfe_invoices').update({
           status: 'REJEITADA', rejection_code: statusCode || null, rejection_reason: reason,
@@ -95,13 +97,17 @@ export class NfeEmissionService {
       const message = error instanceof Error ? error.message : 'Falha de comunicação com a SEFAZ.';
       const localXmlValidationError = this.isLocalXmlValidationError(message);
       const isRejection = /Rejei(?:ç|c)[aã]o:/i.test(message);
+      const duplicate = this.parseDuplicateRejection(message);
       await this.finishTransmission(
         transmissionId,
-        localXmlValidationError ? 'VALIDACAO_XML_LOCAL' : (isRejection ? 'REJEICAO_NEGOCIO' : 'INDETERMINADO'),
+        localXmlValidationError ? 'VALIDACAO_XML_LOCAL' : (duplicate ? '539' : (isRejection ? 'REJEICAO_NEGOCIO' : 'INDETERMINADO')),
         message,
         Date.now() - started,
         {},
       );
+      if (duplicate) {
+        return this.retryWithNextNumber(id, invoice, message, duplicateRetry, user);
+      }
       await this.supabaseService.admin.from('nfe_invoices').update({
         status: (localXmlValidationError || isRejection) ? 'REJEITADA' : 'PENDENTE_CONCILIACAO',
         rejection_code: localXmlValidationError ? 'VALIDACAO_XML_LOCAL' : null,
@@ -365,6 +371,44 @@ export class NfeEmissionService {
 
   private isLocalXmlValidationError(message: string) {
     return /valida(?:ç|c)[aã]o do xml|schema validation|validation of (?:the )?xml/i.test(message);
+  }
+
+  private parseDuplicateRejection(message: string) {
+    if (!/duplicidade de NF-e/i.test(message)) return undefined;
+    const accessKey = message.match(/\[chNFe:\s*(\d{44})\]/i)?.[1];
+    if (!accessKey) return undefined;
+    return {
+      accessKey,
+      receiptNumber: message.match(/\[nRec:\s*(\d+)\]/i)?.[1],
+    };
+  }
+
+  private async retryWithNextNumber(
+    id: string,
+    invoice: Record<string, any>,
+    rejectionReason: string,
+    duplicateRetry: number,
+    user?: AuthenticatedUser,
+  ): Promise<any> {
+    await this.supabaseService.admin.from('nfe_invoices').update({
+      status: 'REJEITADA',
+      number: null,
+      access_key: null,
+      numeric_code: null,
+      protocol_number: null,
+      rejection_code: '539',
+      rejection_reason: rejectionReason,
+      updated_at: new Date().toISOString(),
+      updated_by: user?.id ?? null,
+    }).eq('id', id);
+
+    if (duplicateRetry >= 4) {
+      throw new BadRequestException(
+        `A numeração da série ${invoice.series} está dessincronizada com a SEFAZ. `
+        + 'Foram encontrados cinco números já utilizados; ajuste o próximo número antes de tentar novamente.',
+      );
+    }
+    return this.authorize(id, user, duplicateRetry + 1);
   }
 
   private fiscalEmail(value: unknown) {
