@@ -633,7 +633,7 @@ export default function Comercial() {
         salesOrderItemId: item.salesOrderItemId,
         lotId: item.lotId,
         returnedQuantity: Number(item.returnedQuantity),
-        returnedPieces: item.returnedPieces ? Number(item.returnedPieces) : undefined,
+        returnedPieces: item.returnedPieces ? Number(item.returnedPieces) : 0,
         reason: item.reason,
       }));
 
@@ -1856,7 +1856,7 @@ export default function Comercial() {
                             }}
                           />
                         </div>
-                        {item.maxPieces != null && <div className="w-full md:w-32"><InputField label="Devolver peças" type="number" value={item.returnedPieces} onChange={(value) => setReturnForm(current => { const newItems = [...current.items]; newItems[index].returnedPieces = String(Math.min(Number(value), item.maxPieces ?? 0)); return { ...current, items: newItems }; })} /></div>}
+                        {item.maxPieces != null && <div className="w-full md:w-32"><InputField label="Devolver peças" type="number" value={item.returnedPieces} onChange={(value) => setReturnForm(current => { const newItems = [...current.items]; newItems[index].returnedPieces = String(Math.min(Number(value), item.maxPieces!)); return { ...current, items: newItems }; })} /></div>}
                         <div className="w-full md:w-48">
                           <InputField
                             label="Motivo"
