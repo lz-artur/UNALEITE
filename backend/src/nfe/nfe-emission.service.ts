@@ -36,7 +36,7 @@ export class NfeEmissionService {
     const emissionConfig = { ...config, environment: invoiceEnvironment, series: invoiceSeries };
     let number = validated.number as number | null;
     let numericCode = validated.numeric_code as string | null;
-    const issuedAt = validated.issued_at ?? this.nowWithOffset();
+    const issuedAt = this.nowWithOffset(validated.issued_at ?? undefined);
     if (!number) {
       const { data, error } = await this.supabaseService.admin.rpc('reserve_nfe_number', {
         p_issuer_cnpj: config.cnpj, p_environment: invoiceEnvironment, p_model: 55, p_series: invoiceSeries,
@@ -173,13 +173,17 @@ export class NfeEmissionService {
     }
     const invoiceEnvironment = invoice.environment as 'homologacao' | 'producao';
     const issuerCnpj = String(invoice.issuer_snapshot?.cnpj ?? invoice.access_key.slice(6, 20)).replace(/\D/g, '');
+    let dhEvento = this.nowWithOffset();
+    const dhEmi = invoice.issued_at ? this.nowWithOffset(invoice.issued_at) : dhEvento;
+    if (dhEvento < dhEmi) dhEvento = dhEmi;
+
     const data: Cancelamento = {
       idLote: Date.now(), modelo: '55', evento: [{
         tpAmb: invoiceEnvironment === 'producao' ? 1 : 2,
         cOrgao: Number(invoice.access_key.slice(0, 2)),
         CNPJ: issuerCnpj,
         chNFe: invoice.access_key,
-        dhEvento: this.nowWithOffset(), tpEvento: '110111', nSeqEvento: 1, verEvento: '1.00',
+        dhEvento, tpEvento: '110111', nSeqEvento: 1, verEvento: '1.00',
         detEvento: { descEvento: 'Cancelamento', nProt: invoice.protocol_number, xJust: justification },
       }],
     };
@@ -299,10 +303,10 @@ export class NfeEmissionService {
       NFe: { infNFe: {
         ide: {
           cUF: 26, cNF: invoice.numeric_code, natOp: invoice.nature_of_operation, mod: 55,
-          serie: String(invoice.series), nNF: invoice.number, dhEmi: invoice.issued_at,
+          serie: String(invoice.series), nNF: invoice.number, dhEmi: this.nowWithOffset(invoice.issued_at!),
           tpNF: Number(invoice.operation_type ?? 1), idDest: interstate ? 2 : 1, cMunFG: Number(config.city_code), tpImp: 1,
           tpEmis: 1,
-          cDV: Number(this.buildAccessKey(config.cnpj, invoice.issued_at, invoice.series, invoice.number, invoice.numeric_code).slice(-1)),
+          cDV: Number(this.buildAccessKey(config.cnpj, this.nowWithOffset(invoice.issued_at!), invoice.series, invoice.number, invoice.numeric_code).slice(-1)),
           tpAmb: config.environment === 'producao' ? 1 : 2, finNFe: invoice.purpose,
           indFinal: invoice.final_consumer ? 1 : 0, indPres: invoice.presence_indicator,
           ...( [2, 3, 4, 9].includes(Number(invoice.presence_indicator)) ? { indIntermed: 0 } : {} ),
@@ -463,8 +467,8 @@ export class NfeEmissionService {
     }).eq('id', id);
   }
 
-  private nowWithOffset() {
-    const now = new Date();
+  private nowWithOffset(date?: Date | string) {
+    const now = date ? new Date(date) : new Date();
     const parts = new Intl.DateTimeFormat('sv-SE', {
       timeZone: 'America/Recife', year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
