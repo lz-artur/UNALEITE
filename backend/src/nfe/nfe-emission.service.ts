@@ -196,12 +196,13 @@ export class NfeEmissionService {
       const message = error instanceof Error ? error.message : 'Falha de comunicação com a SEFAZ.';
       throw new BadRequestException(`Não foi possível cancelar a NF-e no momento: ${message}`);
     }
-    const statusCode = String(this.findValue(response.result, 'cStat') ?? '');
-    const reason = String(this.findValue(response.result, 'xMotivo') ?? '');
-    const accepted = ['135', '136', '155'].includes(statusCode);
+    const eventResult = this.findValue(response.result, 'retEvento') ?? response.result;
+    const statusCode = String(this.findValue(eventResult, 'cStat') ?? '');
+    const reason = String(this.findValue(eventResult, 'xMotivo') ?? '');
+    const accepted = ['135', '136', '155', '573'].includes(statusCode);
     await this.supabaseService.admin.from('nfe_events').insert({
       nfe_invoice_id: id, event_type: 'CANCELAMENTO', sequence: 1,
-      status: accepted ? 'REGISTRADO' : 'REJEITADO', protocol_number: this.findValue(response.result, 'nProt'),
+      status: accepted ? 'REGISTRADO' : 'REJEITADO', protocol_number: this.findValue(eventResult, 'nProt'),
       response_code: statusCode, response_message: reason, justification, created_by: user?.id ?? null,
     });
     await this.supabaseService.admin.from('nfe_invoices').update({
