@@ -912,6 +912,8 @@ function mapSalesOrder(row: any): SalesOrderRecord {
         lotCode: fulfillment.lotCode,
         quantity: Number(fulfillment.quantity),
         returnedQuantity: Number(fulfillment.returnedQuantity || 0),
+        piecesQuantity: fulfillment.piecesQuantity != null ? Number(fulfillment.piecesQuantity) : undefined,
+        returnedPieces: fulfillment.returnedPieces != null ? Number(fulfillment.returnedPieces) : undefined,
         fulfilledAt: new Date(fulfillment.fulfilledAt),
         attendanceId: fulfillment.attendanceId ?? null,
       })),
@@ -2046,6 +2048,7 @@ export async function returnSalesOrder(payload: {
     salesOrderItemId: string;
     lotId: string;
     returnedQuantity: number;
+    returnedPieces?: number;
     reason?: string;
   }>;
   discountAmount: number;
