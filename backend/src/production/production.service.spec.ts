@@ -1,8 +1,6 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ProductionService } from './production.service';
 import { SupabaseService } from '../supabase/supabase.service';
 import { DomainRulesService } from '../common/services/domain-rules.service';
-import { MILK_LOT_STATUS, SUPPLY_LOT_STATUS } from '../common/constants/domain';
 
 describe('ProductionService', () => {
   let service: ProductionService;
@@ -24,118 +22,6 @@ describe('ProductionService', () => {
       supabaseServiceMock as SupabaseService,
       domainRulesServiceMock as DomainRulesService,
     );
-  });
-
-  describe('deleteOrder', () => {
-    let selectMock: jest.Mock;
-    let updateMock: jest.Mock;
-    let deleteMock: jest.Mock;
-
-    beforeEach(() => {
-      selectMock = jest.fn();
-      updateMock = jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ error: null }),
-      });
-      const eqMock2 = jest.fn().mockResolvedValue({ error: null });
-      const eqMock1 = jest.fn().mockReturnValue(Object.assign(Promise.resolve({ error: null }), {
-        eq: eqMock2
-      }));
-      deleteMock = jest.fn().mockReturnValue({
-        eq: eqMock1
-      });
-
-      supabaseServiceMock.admin.from.mockImplementation((table: string) => {
-        const chain = {
-          select: selectMock,
-          delete: deleteMock,
-          update: updateMock,
-          insert: jest.fn(),
-          eq: jest.fn().mockReturnThis(),
-          in: jest.fn().mockReturnThis(),
-          order: jest.fn().mockReturnThis(),
-          limit: jest.fn().mockReturnThis(),
-          single: jest.fn().mockReturnThis(),
-          maybeSingle: jest.fn().mockReturnThis(),
-        };
-        selectMock.mockReturnValue(chain);
-        return chain;
-      });
-    });
-
-    it('should delete order and restore lots successfully', async () => {
-      selectMock
-        .mockReturnValueOnce({ // getById production_orders
-          eq: jest.fn().mockReturnValue({
-            maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'order-1' }, error: null }),
-          }),
-        })
-        .mockReturnValueOnce({ // finished_product_lots
-          eq: jest.fn().mockResolvedValue({
-            data: [{ id: 'fp-1', quantity_produced: 100, available_quantity: 100 }],
-            error: null,
-          }),
-        })
-        .mockReturnValueOnce({ // production_order_milk_consumptions
-          eq: jest.fn().mockResolvedValue({
-            data: [{ milk_lot_id: 'ml-1', liters_consumed: 1000 }],
-            error: null,
-          }),
-        })
-        .mockReturnValueOnce({ // milk_lots select
-          eq: jest.fn().mockReturnValue({
-            single: jest.fn().mockResolvedValue({
-              data: { available_volume_liters: 0, volume_liters: 1000 },
-              error: null,
-            }),
-          }),
-        })
-        .mockReturnValueOnce({ // production_order_supply_consumptions
-          eq: jest.fn().mockResolvedValue({
-            data: [{ supply_lot_id: 'sl-1', quantity_consumed: 50 }],
-            error: null,
-          }),
-        })
-        .mockReturnValueOnce({ // supply_lots select
-          eq: jest.fn().mockReturnValue({
-            single: jest.fn().mockResolvedValue({
-              data: { available_quantity: 0, received_quantity: 50, supply_item_id: 'si-1' },
-              error: null,
-            }),
-          }),
-        })
-        .mockReturnValueOnce({ // supply_items select
-          eq: jest.fn().mockReturnValue({
-            single: jest.fn().mockResolvedValue({
-              data: { current_stock: 0 },
-              error: null,
-            }),
-          }),
-        });
-
-      const result = await service.deleteOrder('order-1');
-      expect(result).toEqual({ success: true });
-      expect(deleteMock).toHaveBeenCalled();
-      expect(updateMock).toHaveBeenCalled();
-    });
-
-    it('should throw BadRequestException if finished product lot was partially sold', async () => {
-      selectMock
-        .mockReturnValueOnce({ // getById production_orders
-          eq: jest.fn().mockReturnValue({
-            maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'order-1' }, error: null }),
-          }),
-        })
-        .mockReturnValueOnce({ // finished_product_lots
-          eq: jest.fn().mockResolvedValue({
-            data: [{ id: 'fp-1', quantity_produced: 100, available_quantity: 50 }],
-            error: null,
-          }),
-        });
-
-      await expect(service.deleteOrder('order-1')).rejects.toThrow(
-        'Não é possível excluir a OP pois os produtos gerados já foram parcialmente ou totalmente vendidos.',
-      );
-    });
   });
 
   describe('FIFO supply consumption', () => {
@@ -169,6 +55,82 @@ describe('ProductionService', () => {
         { supplyLotId: 'lot-next', quantity: 4.9 },
       ]);
       expect(order).toHaveBeenNthCalledWith(1, 'entry_date', { ascending: true });
+    });
+  });
+
+  describe('milk reservations', () => {
+    beforeEach(() => {
+      supabaseServiceMock.admin.rpc = jest.fn();
+    });
+
+    it('creates the OP through the atomic milk-reservation RPC', async () => {
+      jest.spyOn(service as any, 'getById')
+        .mockResolvedValueOnce({
+          id: 'milk-1', status: 'Aprovado', available_volume_liters: 1000,
+          cost_per_liter: 2.5, latest_analysis_id: null,
+        })
+        .mockResolvedValueOnce({ id: 'product-1', active: true, theoretical_yield: 8 });
+      jest.spyOn(service as any, 'getActiveProductSpec').mockResolvedValue(null);
+      domainRulesServiceMock.calculateExpectedYield.mockReturnValue(125);
+      domainRulesServiceMock.calculateFatAdjustment.mockReturnValue(0);
+      supabaseServiceMock.admin.rpc.mockResolvedValue({
+        data: { order: { id: 'order-1', status: 'Em Andamento' } },
+        error: null,
+      });
+
+      const result = await service.createOrder({
+        milkLotId: 'milk-1', productId: 'product-1', litersToUse: 100,
+      }, { id: 'user-1', email: 'operador@una.com', claims: {} });
+
+      expect(result.order).toEqual({ id: 'order-1', status: 'Em Andamento' });
+      expect(supabaseServiceMock.admin.rpc).toHaveBeenCalledWith(
+        'create_production_order_with_milk_reservation',
+        expect.objectContaining({
+          p_milk_lot_id: 'milk-1', p_product_id: 'product-1', p_liters: 100,
+          p_unit_cost: 2.5, p_actor_id: 'user-1', p_actor_name: 'operador@una.com',
+        }),
+      );
+    });
+
+    it('updates an in-progress OP reservation through the atomic RPC', async () => {
+      jest.spyOn(service as any, 'getById')
+        .mockResolvedValueOnce({
+          id: 'order-1', status: 'Em Andamento', milk_lot_id: 'milk-1',
+          liters_planned: 100, product_id: 'product-1',
+        })
+        .mockResolvedValueOnce({ id: 'product-1', theoretical_yield: 8 });
+      domainRulesServiceMock.calculateExpectedYield.mockReturnValue(150);
+      supabaseServiceMock.admin.rpc.mockResolvedValue({ data: { order: { id: 'order-1' } }, error: null });
+      supabaseServiceMock.admin.from.mockImplementation(() => ({
+        update: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'order-1' }, error: null }) }),
+          }),
+        }),
+      }));
+
+      await service.updateOrder('order-1', { litersToUse: 120 }, { id: 'user-1', email: 'operador@una.com', claims: {} });
+
+      expect(supabaseServiceMock.admin.rpc).toHaveBeenCalledWith(
+        'update_production_order_milk_reservation',
+        expect.objectContaining({ p_order_id: 'order-1', p_new_milk_lot_id: 'milk-1', p_new_liters: 120 }),
+      );
+    });
+
+    it('cancels through the reservation RPC instead of deleting the OP', async () => {
+      supabaseServiceMock.admin.rpc.mockResolvedValue({
+        data: { order: { id: 'order-1', status: 'Cancelada' } }, error: null,
+      });
+
+      const result = await service.cancelOrder('order-1', 'Produção interrompida', {
+        id: 'user-1', email: 'operador@una.com', claims: {},
+      });
+
+      expect(result).toEqual({ success: true, order: { id: 'order-1', status: 'Cancelada' } });
+      expect(supabaseServiceMock.admin.rpc).toHaveBeenCalledWith(
+        'cancel_production_order_with_reservations',
+        expect.objectContaining({ p_order_id: 'order-1', p_reason: 'Produção interrompida' }),
+      );
     });
   });
 

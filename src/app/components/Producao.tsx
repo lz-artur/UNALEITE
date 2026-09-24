@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Factory, Loader2, Plus, TrendingDown, TrendingUp, Trash2, MoreHorizontal, Edit2, Check } from 'lucide-react';
+import { Factory, Loader2, Plus, TrendingDown, TrendingUp, XCircle, MoreHorizontal, Edit2, Check, History } from 'lucide-react';
 import type { EstoqueProduto, LoteLeite, OrdemProducao } from '../data/mockData';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -8,7 +8,9 @@ import {
  updateProductionOrder,
  loadMilkLots,
  loadProductionOrders,
- deleteProductionOrder,
+ cancelProductionOrder,
+ loadProductionOrderEvents,
+ type ProductionEvent,
  loadSupplyLots,
  loadFinishedProductLots,
  type SupplyLotInventoryItem,
@@ -48,6 +50,25 @@ function getErrorMessage(error: unknown) {
  return 'Nao foi possivel concluir a operacao.';
 }
 
+const eventFieldLabels: Record<string, string> = {
+  availableVolumeLiters: 'Saldo disponível',
+  litersReserved: 'Leite reservado',
+  actualQuantityProduced: 'Quantidade produzida',
+  milkLotId: 'Lote de leite',
+  status: 'Status da OP',
+  milkState: 'Situação do leite',
+  orderStatus: 'Status da OP',
+  liters: 'Litros',
+};
+
+function formatEventValue(key: string, value: unknown) {
+  if (value == null) return '—';
+  if (typeof value === 'number' && ['availableVolumeLiters', 'litersReserved', 'liters'].includes(key)) {
+    return `${value.toLocaleString('pt-BR')} L`;
+  }
+  return String(value);
+}
+
 export default function Producao() {
  const [showCreateModal, setShowCreateModal] = useState(false);
  const [selectedOrder, setSelectedOrder] = useState<OrdemProducao | null>(null);
@@ -65,6 +86,11 @@ export default function Producao() {
  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
  const [isDeleting, setIsDeleting] = useState(false);
+ const [cancelReason, setCancelReason] = useState('');
+ const [historyOrder, setHistoryOrder] = useState<OrdemProducao | null>(null);
+ const [historyEvents, setHistoryEvents] = useState<ProductionEvent[]>([]);
+ const [historyLoading, setHistoryLoading] = useState(false);
+ const [historyError, setHistoryError] = useState<string | null>(null);
  const [viewOrder, setViewOrder] = useState<OrdemProducao | null>(null);
  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
  const [editingOrder, setEditingOrder] = useState<OrdemProducao | null>(null);
@@ -291,19 +317,38 @@ export default function Producao() {
  }
  };
 
- const handleDelete = async () => {
+ const handleCancel = async () => {
  if (!itemToDelete) return;
+ if (cancelReason.trim().length < 3) {
+   setErrorMessage('Informe o motivo do cancelamento da OP.');
+   return;
+ }
  setIsDeleting(true);
  try {
- await deleteProductionOrder(itemToDelete);
+ await cancelProductionOrder(itemToDelete, cancelReason.trim());
  await loadData();
  setDeleteConfirmOpen(false);
  setItemToDelete(null);
+ setCancelReason('');
  } catch (error) {
  setErrorMessage(getErrorMessage(error));
  } finally {
  setIsDeleting(false);
  }
+ };
+
+ const openHistory = async (order: OrdemProducao) => {
+   setHistoryOrder(order);
+   setHistoryEvents([]);
+   setHistoryError(null);
+   setHistoryLoading(true);
+   try {
+     setHistoryEvents(await loadProductionOrderEvents(order.id));
+   } catch (error) {
+     setHistoryError(getErrorMessage(error));
+   } finally {
+     setHistoryLoading(false);
+   }
  };
 
  const closeCreateModal = () => {
@@ -540,14 +585,27 @@ export default function Producao() {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              setItemToDelete(op.id);
-              setDeleteConfirmOpen(true);
+              void openHistory(op);
               setOpenDropdownId(null);
             }}
-            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 flex items-center gap-2"
+            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
           >
-            <Trash2 className="w-4 h-4" /> Excluir
+            <History className="w-4 h-4 text-violet-600" /> Ver histórico
           </button>
+          {op.status === 'Em Andamento' && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setItemToDelete(op.id);
+                setCancelReason('');
+                setDeleteConfirmOpen(true);
+                setOpenDropdownId(null);
+              }}
+              className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 flex items-center gap-2"
+            >
+              <XCircle className="w-4 h-4" /> Cancelar OP
+            </button>
+          )}
           {op.status === 'Finalizada' && (
             <button
               onClick={(e) => {
@@ -1065,29 +1123,105 @@ export default function Producao() {
   <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
     <AlertDialogContent>
       <AlertDialogHeader>
-        <AlertDialogTitle>Excluir Ordem de Produção</AlertDialogTitle>
+        <AlertDialogTitle>Cancelar Ordem de Produção</AlertDialogTitle>
         <AlertDialogDescription>
-          Tem certeza que deseja excluir esta ordem de produção? Esta ação não pode ser desfeita.
-          Isso restaurará os volumes de leite cru e insumos utilizados.
-          A exclusão não será permitida se o lote do produto acabado já tiver sido parcialmente ou totalmente vendido.
+          A OP continuará no histórico. As reservas de leite, insumos e produtos serão liberadas uma única vez e a ação ficará registrada com seu usuário e horário.
         </AlertDialogDescription>
       </AlertDialogHeader>
+      <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700">Motivo do cancelamento *</label>
+        <textarea
+          value={cancelReason}
+          onChange={(event) => setCancelReason(event.target.value)}
+          rows={3}
+          placeholder="Explique por que esta OP está sendo cancelada"
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+        />
+      </div>
       <AlertDialogFooter>
         <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
         <AlertDialogAction
-          disabled={isDeleting}
+          disabled={isDeleting || cancelReason.trim().length < 3}
           className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
           onClick={(e) => {
             e.preventDefault();
-            void handleDelete();
+            void handleCancel();
           }}
         >
           {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Excluir
+          Cancelar OP
         </AlertDialogAction>
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>
+
+  {historyOrder ? (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white p-6">
+          <div>
+            <h3 className="text-xl font-bold text-gray-900">Histórico da produção</h3>
+            <p className="mt-1 text-sm text-gray-600">{historyOrder.numero}</p>
+          </div>
+          <button onClick={() => setHistoryOrder(null)} className="text-gray-500 hover:text-gray-700">✕</button>
+        </div>
+        <div className="p-6">
+          {historyLoading ? (
+            <div className="flex items-center justify-center gap-2 py-12 text-sm text-gray-500">
+              <Loader2 className="h-5 w-5 animate-spin" /> Carregando histórico...
+            </div>
+          ) : historyError ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{historyError}</div>
+          ) : historyEvents.length === 0 ? (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-600">
+              Esta OP foi criada antes da implantação do histórico visual e ainda não possui eventos registrados.
+            </div>
+          ) : (
+            <div className="relative space-y-6 before:absolute before:bottom-3 before:left-[7px] before:top-3 before:w-px before:bg-gray-200">
+              {historyEvents.map((event) => {
+                const changedKeys = Array.from(new Set([
+                  ...Object.keys(event.beforeState),
+                  ...Object.keys(event.afterState),
+                ]));
+                return (
+                  <div key={event.id} className="relative pl-8">
+                    <span className={`absolute left-0 top-1 h-4 w-4 rounded-full border-2 border-white ring-1 ${event.eventType === 'operation_failed' ? 'bg-red-500 ring-red-200' : event.eventType.includes('cancel') || event.eventType.includes('revers') ? 'bg-amber-500 ring-amber-200' : event.eventType === 'balance_reconciled' ? 'bg-violet-500 ring-violet-200' : 'bg-blue-500 ring-blue-200'}`} />
+                    <div className="rounded-lg border border-gray-200 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="font-semibold text-gray-900">{event.title}</p>
+                          <p className="mt-1 text-sm text-gray-600">{event.description}</p>
+                        </div>
+                        <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">
+                          {event.createdAt.toLocaleString('pt-BR')}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-gray-500">Por {event.actorName}</p>
+                      {changedKeys.length > 0 ? (
+                        <details className="mt-3 text-xs">
+                          <summary className="cursor-pointer font-medium text-blue-700">Ver alterações</summary>
+                          <div className="mt-2 space-y-1 rounded bg-gray-50 p-3 text-gray-700">
+                            {changedKeys.map((key) => (
+                              <div key={key} className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+                                <span className="truncate text-gray-500">{eventFieldLabels[key] ?? key}</span>
+                                <span className="truncate">{formatEventValue(key, event.beforeState[key])}</span>
+                                <span className="text-gray-400">→</span>
+                                <span className="truncate text-right font-medium">{formatEventValue(key, event.afterState[key])}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  ) : null}
 
   {viewOrder ? (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

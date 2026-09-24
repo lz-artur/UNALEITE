@@ -297,6 +297,17 @@ export class MilkReceptionService {
     };
   }
 
+  async listMilkLotEvents(id: string) {
+    const { data, error } = await this.supabaseService.admin
+      .from('production_events')
+      .select('*')
+      .eq('milk_lot_id', id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
+  }
+
   private async ensureActive(table: string, id: string) {
     const { data, error } = await this.supabaseService.admin
       .from(table)

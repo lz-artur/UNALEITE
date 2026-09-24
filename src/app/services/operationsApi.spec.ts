@@ -17,6 +17,8 @@ import {
   returnSalesOrder,
   loadFinishedProductLots,
   loadClients,
+  loadMilkLotEvents,
+  loadMilkLotReconciliation,
 } from './operationsApi';
 import { supabase } from '../lib/supabase';
 
@@ -289,6 +291,26 @@ describe('operationsApi - Deletion endpoints', () => {
       expect(body.items).toHaveLength(2);
       expect(body.items[1].reason).toBe('Validade');
     });
+  });
+});
+
+describe('operationsApi - production audit', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('loads the visual audit history for a milk lot', async () => {
+    vi.mocked(api.apiRequest).mockResolvedValueOnce([]);
+
+    await expect(loadMilkLotEvents('milk-lot-1')).resolves.toEqual([]);
+    expect(api.apiRequest).toHaveBeenCalledWith('/milk-lots/milk-lot-1/events');
+  });
+
+  it('loads the administrative milk balance reconciliation', async () => {
+    vi.mocked(api.apiRequest).mockResolvedValueOnce([]);
+
+    await expect(loadMilkLotReconciliation()).resolves.toEqual([]);
+    expect(api.apiRequest).toHaveBeenCalledWith('/production-reconciliation/milk-lots');
   });
 });
 

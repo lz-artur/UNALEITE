@@ -7,6 +7,7 @@ import { CompleteProductionOrderDto } from './dto/complete-production-order.dto'
 import { CreateProductionOrderDto } from './dto/create-production-order.dto';
 import { UpdateProductionOrderDto } from './dto/update-production-order.dto';
 import { AdjustProductionOrderDto } from './dto/adjust-production-order.dto';
+import { CancelProductionOrderDto } from './dto/cancel-production-order.dto';
 import { ProductionService } from './production.service';
 
 @ApiTags('production')
@@ -56,8 +57,29 @@ export class ProductionController {
     return this.productionService.adjustOrder(orderId, payload, user);
   }
 
+  @Get(':id/events')
+  listEvents(@Param('id') id: string) {
+    return this.productionService.listEvents(id);
+  }
+
+  @Post(':id/cancel')
+  cancelOrder(
+    @Param('id') id: string,
+    @Body() payload: CancelProductionOrderDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.productionService.cancelOrder(id, payload.reason, user);
+  }
+
   @Delete(':id')
-  deleteOrder(@Param('id') id: string) {
-    return this.productionService.deleteOrder(id);
+  deleteOrder(
+    @Param('id') id: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.productionService.cancelOrder(
+      id,
+      'Cancelamento solicitado pelo fluxo legado de exclusão.',
+      user,
+    );
   }
 }

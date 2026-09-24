@@ -49,6 +49,42 @@ export class ProductionService {
     private readonly domainRulesService: DomainRulesService,
   ) {}
 
+  private actor(user?: AuthenticatedUser) {
+    return {
+      id: user?.id ?? null,
+      name: user?.email?.trim() || 'Sistema',
+    };
+  }
+
+  private rpcOrder(result: any) {
+    return result?.order ?? result;
+  }
+
+  private async logOperationFailure(input: {
+    orderId?: string;
+    milkLotId?: string;
+    action: string;
+    message: string;
+    user?: AuthenticatedUser;
+  }) {
+    const actor = this.actor(input.user);
+    try {
+      await this.supabaseService.admin.from('production_events').insert({
+        production_order_id: input.orderId ?? null,
+        milk_lot_id: input.milkLotId ?? null,
+        event_type: 'operation_failed',
+        title: 'Operação não concluída',
+        description: `Não foi possível ${input.action}: ${input.message}`,
+        actor_id: actor.id,
+        actor_name: actor.name,
+        metadata: { action: input.action },
+      });
+    } catch {
+      // A operação principal deve manter sua mensagem original mesmo se o
+      // registro visual da falha também estiver indisponível.
+    }
+  }
+
   private async resolveSupplyLotId(virtualOrRealId: string, quantity: number, user?: AuthenticatedUser): Promise<string> {
     if (virtualOrRealId.startsWith('virtual-lot-')) {
       const supplyItemId = virtualOrRealId.replace('virtual-lot-', '');
@@ -202,9 +238,7 @@ export class ProductionService {
       .select('*, production_order_supply_consumptions(*, supply_lots(supply_item_id)), production_order_finished_product_consumptions(*, finished_product_lots(product_id))')
       .order('started_at', { ascending: false });
 
-    if (error) {
-      throw new BadRequestException(error.message);
-    }
+    if (error) throw new BadRequestException(error.message);
 
     return data;
   }
@@ -240,38 +274,32 @@ export class ProductionService {
     );
     const orderNumber = `OP-${new Date().getFullYear()}-${Date.now()}`;
 
-    const { data: order, error } = await this.supabaseService.admin
-      .from('production_orders')
-      .insert({
-        order_number: orderNumber,
-        milk_lot_id: payload.milkLotId,
-        product_id: payload.productId,
-        liters_planned: payload.litersToUse,
-        expected_yield: expectedYield,
-        fat_adjustment_kg: fatAdjustment,
-        status: PRODUCTION_ORDER_STATUS.IN_PROGRESS,
-        started_at: new Date().toISOString(),
-        created_by: user?.id ?? null,
-        updated_by: user?.id ?? null,
-      })
-      .select('*')
-      .single();
+    const actor = this.actor(user);
+    const { data: reservationResult, error } = await this.supabaseService.admin.rpc(
+      'create_production_order_with_milk_reservation',
+      {
+        p_order_number: orderNumber,
+        p_milk_lot_id: payload.milkLotId,
+        p_product_id: payload.productId,
+        p_liters: payload.litersToUse,
+        p_expected_yield: expectedYield,
+        p_fat_adjustment_kg: fatAdjustment,
+        p_unit_cost: milkLot.cost_per_liter,
+        p_actor_id: actor.id,
+        p_actor_name: actor.name,
+      },
+    );
 
     if (error) {
+      await this.logOperationFailure({
+        milkLotId: payload.milkLotId,
+        action: 'criar a OP e reservar o leite',
+        message: error.message,
+        user,
+      });
       throw new BadRequestException(error.message);
     }
-
-    await this.supabaseService.admin.from('production_order_milk_consumptions').insert({
-      production_order_id: order.id,
-      milk_lot_id: payload.milkLotId,
-      liters_consumed: payload.litersToUse,
-      // A consumption must retain the amount actually paid for the milk at the
-      // time the production order was opened.  Editing the reception later must
-      // never rewrite the cost of a completed production.
-      unit_cost: milkLot.cost_per_liter,
-      created_by: user?.id ?? null,
-      updated_by: user?.id ?? null,
-    });
+    const order = this.rpcOrder(reservationResult);
 
     if (payload.supplyConsumptions?.length) {
       const supplyConsumptions = await this.resolveSupplyConsumptions(payload.supplyConsumptions, user);
@@ -505,47 +533,34 @@ export class ProductionService {
     //   throw new BadRequestException('Milk lot received date is invalid');
     // }
 
-    const newAvailableVolume =
-      Number(milkLot.available_volume_liters) - Number(order.liters_planned);
-
-    if (newAvailableVolume < 0) {
-      throw new BadRequestException('Milk lot would end with negative available volume');
-    }
-
-    const milkStatus =
-      newAvailableVolume <= 0 ? MILK_LOT_STATUS.USED : MILK_LOT_STATUS.PARTIALLY_USED;
-
-    const { data: completedOrder, error: orderError } = await this.supabaseService.admin
-      .from('production_orders')
-      .update({
-        actual_quantity_produced: payload.actualQuantityProduced,
-        actual_yield: Number(
-          (Number(order.liters_planned) / payload.actualQuantityProduced).toFixed(3),
-        ),
-        status: PRODUCTION_ORDER_STATUS.FINISHED,
-        finished_at: new Date().toISOString(),
-        updated_by: user?.id ?? null,
-      })
-      .eq('id', orderId)
-      .select('*')
-      .single();
+    // O leite já foi reservado na abertura da OP. A finalização apenas converte
+    // essa reserva em consumo, sem uma segunda baixa no saldo do lote.
+    const actualYield = Number(
+      (Number(order.liters_planned) / payload.actualQuantityProduced).toFixed(3),
+    );
+    const actor = this.actor(user);
+    const { data: completionResult, error: orderError } = await this.supabaseService.admin.rpc(
+      'complete_production_order_milk_reservation',
+      {
+        p_order_id: orderId,
+        p_actual_quantity: payload.actualQuantityProduced,
+        p_actual_yield: actualYield,
+        p_actor_id: actor.id,
+        p_actor_name: actor.name,
+      },
+    );
 
     if (orderError) {
+      await this.logOperationFailure({
+        orderId,
+        milkLotId: String(order.milk_lot_id),
+        action: 'finalizar a OP',
+        message: orderError.message,
+        user,
+      });
       throw new BadRequestException(orderError.message);
     }
-
-    const { error: milkUpdateError } = await this.supabaseService.admin
-      .from('milk_lots')
-      .update({
-        available_volume_liters: newAvailableVolume,
-        status: milkStatus,
-        updated_by: user?.id ?? null,
-      })
-      .eq('id', milkLot.id);
-
-    if (milkUpdateError) {
-      throw new BadRequestException(milkUpdateError.message);
-    }
+    const completedOrder = this.rpcOrder(completionResult);
 
     if (deductStockForConsumptions && resolvedSupplyConsumptions.length > 0) {
       // Restore previous consumptions to avoid double deduction
@@ -837,53 +852,41 @@ export class ProductionService {
       if (order.status !== PRODUCTION_ORDER_STATUS.IN_PROGRESS) {
         throw new BadRequestException('Não é possível alterar o lote de leite de uma OP finalizada.');
       }
-
-      const milkLot = await this.getById('milk_lots', payload.milkLotId!);
-      if (!([MILK_LOT_STATUS.APPROVED, MILK_LOT_STATUS.PARTIALLY_USED] as string[]).includes(String(milkLot.status))) {
-        throw new BadRequestException('O lote de leite selecionado não está disponível para produção.');
-      }
-      if (Number(milkLot.available_volume_liters) < nextLitersPlanned) {
-        throw new BadRequestException('O lote de leite selecionado não possui volume disponível suficiente.');
-      }
-
-      updateData.milk_lot_id = payload.milkLotId;
     }
 
     if (payload.actualQuantityProduced != null) {
       updateData.actual_quantity_produced = payload.actualQuantityProduced;
-      updateData.actual_yield = Number((Number(order.liters_planned) / payload.actualQuantityProduced).toFixed(3));
+      updateData.actual_yield = Number((nextLitersPlanned / payload.actualQuantityProduced).toFixed(3));
     }
 
-    if (payload.litersToUse != null && order.status === PRODUCTION_ORDER_STATUS.IN_PROGRESS) {
-      updateData.liters_planned = payload.litersToUse;
+    if (order.status === PRODUCTION_ORDER_STATUS.IN_PROGRESS && (isMilkLotChanging || payload.litersToUse != null)) {
       const product = await this.getById('finished_products', String(order.product_id));
       const expectedYield = this.domainRulesService.calculateExpectedYield(
-        payload.litersToUse,
+        nextLitersPlanned,
         Number(product.theoretical_yield),
       );
-      updateData.expected_yield = expectedYield;
-    }
+      const actor = this.actor(user);
+      const { error: reservationError } = await this.supabaseService.admin.rpc(
+        'update_production_order_milk_reservation',
+        {
+          p_order_id: orderId,
+          p_new_milk_lot_id: payload.milkLotId ?? String(order.milk_lot_id),
+          p_new_liters: nextLitersPlanned,
+          p_expected_yield: expectedYield,
+          p_actor_id: actor.id,
+          p_actor_name: actor.name,
+        },
+      );
 
-    // A tabela de consumos é a trilha de rastreabilidade da OP. Ela é criada
-    // junto com a ordem e deve acompanhar qualquer alteração feita antes da
-    // finalização, inclusive a troca de lote.
-    if (order.status === PRODUCTION_ORDER_STATUS.IN_PROGRESS && (isMilkLotChanging || payload.litersToUse != null)) {
-      const milkLotId = payload.milkLotId ?? String(order.milk_lot_id);
-      const milkLot = isMilkLotChanging
-        ? await this.getById('milk_lots', milkLotId)
-        : await this.getById('milk_lots', String(order.milk_lot_id));
-      const { error: milkConsumptionError } = await this.supabaseService.admin
-        .from('production_order_milk_consumptions')
-        .update({
-          milk_lot_id: milkLotId,
-          liters_consumed: nextLitersPlanned,
-          unit_cost: milkLot.cost_per_liter,
-          updated_by: user?.id ?? null,
-        })
-        .eq('production_order_id', orderId);
-
-      if (milkConsumptionError) {
-        throw new BadRequestException(milkConsumptionError.message);
+      if (reservationError) {
+        await this.logOperationFailure({
+          orderId,
+          milkLotId: payload.milkLotId ?? String(order.milk_lot_id),
+          action: 'alterar a reserva de leite',
+          message: reservationError.message,
+          user,
+        });
+        throw new BadRequestException(reservationError.message);
       }
     }
 
@@ -1386,128 +1389,100 @@ export class ProductionService {
     return data.id as string;
   }
 
-  async deleteOrder(id: string) {
-    const order = await this.getById('production_orders', id);
+  async listEvents(orderId: string) {
+    await this.getById('production_orders', orderId);
+    const { data, error } = await this.supabaseService.admin
+      .from('production_events')
+      .select('*')
+      .eq('production_order_id', orderId)
+      .order('created_at', { ascending: false });
 
-    const { data: finishedLots, error: finishedLotsError } = await this.supabaseService.admin
-      .from('finished_product_lots')
-      .select('id, quantity_produced, available_quantity')
-      .eq('production_order_id', id);
-
-    if (finishedLotsError) throw new BadRequestException(finishedLotsError.message);
-
-    if (finishedLots && finishedLots.length > 0) {
-      for (const lot of finishedLots) {
-        if (lot.available_quantity < lot.quantity_produced) {
-          throw new BadRequestException('Não é possível excluir a OP pois os produtos gerados já foram parcialmente ou totalmente vendidos.');
-        }
-      }
-    }
-
-    const { data: milkConsumptions, error: milkError } = await this.supabaseService.admin
-      .from('production_order_milk_consumptions')
-      .select('milk_lot_id, liters_consumed')
-      .eq('production_order_id', id);
-
-    if (milkError) throw new BadRequestException(milkError.message);
-
-    if (milkConsumptions && milkConsumptions.length > 0) {
-      for (const mc of milkConsumptions) {
-        const { data: milkLot } = await this.supabaseService.admin
-          .from('milk_lots')
-          .select('available_volume_liters, volume_liters')
-          .eq('id', mc.milk_lot_id)
-          .single();
-
-        if (milkLot) {
-          const restoredVolume = Number(milkLot.available_volume_liters) + Number(mc.liters_consumed);
-          const newStatus = restoredVolume >= milkLot.volume_liters ? MILK_LOT_STATUS.APPROVED : MILK_LOT_STATUS.PARTIALLY_USED;
-          await this.supabaseService.admin
-            .from('milk_lots')
-            .update({ available_volume_liters: restoredVolume, status: newStatus })
-            .eq('id', mc.milk_lot_id);
-        }
-      }
-      await this.supabaseService.admin.from('production_order_milk_consumptions').delete().eq('production_order_id', id);
-    }
-
-    const { data: supplyConsumptions, error: supplyError } = await this.supabaseService.admin
-      .from('production_order_supply_consumptions')
-      .select('supply_lot_id, quantity_consumed')
-      .eq('production_order_id', id);
-
-    if (supplyError) throw new BadRequestException(supplyError.message);
-
-    if (supplyConsumptions && supplyConsumptions.length > 0) {
-      for (const sc of supplyConsumptions) {
-        const { data: supplyLot } = await this.supabaseService.admin
-          .from('supply_lots')
-          .select('available_quantity, received_quantity, supply_item_id')
-          .eq('id', sc.supply_lot_id)
-          .single();
-
-        if (supplyLot) {
-          const restoredVolume = Number(supplyLot.available_quantity) + Number(sc.quantity_consumed);
-          const newStatus = restoredVolume >= supplyLot.received_quantity ? SUPPLY_LOT_STATUS.AVAILABLE : SUPPLY_LOT_STATUS.PARTIALLY_USED;
-          await this.supabaseService.admin
-            .from('supply_lots')
-            .update({ available_quantity: restoredVolume, status: newStatus })
-            .eq('id', sc.supply_lot_id);
-
-          const { data: supplyItem } = await this.supabaseService.admin
-            .from('supply_items')
-            .select('current_stock')
-            .eq('id', supplyLot.supply_item_id)
-            .single();
-          
-          if (supplyItem) {
-            await this.supabaseService.admin
-              .from('supply_items')
-              .update({ current_stock: Number(supplyItem.current_stock) + Number(sc.quantity_consumed) })
-              .eq('id', supplyLot.supply_item_id);
-          }
-        }
-      }
-      await this.supabaseService.admin.from('production_order_supply_consumptions').delete().eq('production_order_id', id);
-    }
-
-    const { data: fpConsumptions, error: fpError } = await this.supabaseService.admin
-      .from('production_order_finished_product_consumptions')
-      .select('finished_product_lot_id, quantity_consumed, consumption_source')
-      .eq('production_order_id', id);
-
-    if (fpError) throw new BadRequestException(fpError.message);
-
-    if (fpConsumptions && fpConsumptions.length > 0) {
-      for (const fpc of fpConsumptions) {
-        const { data: productLot } = await this.supabaseService.admin
-          .from('finished_product_lots')
-          .select('available_quantity, returned_quantity')
-          .eq('id', fpc.finished_product_lot_id)
-          .single();
-
-        if (productLot) {
-          const balanceField = fpc.consumption_source === 'Devolucao' ? 'returned_quantity' : 'available_quantity';
-          const restoredVolume = Number(productLot[balanceField]) + Number(fpc.quantity_consumed);
-          await this.supabaseService.admin
-            .from('finished_product_lots')
-            .update({ [balanceField]: restoredVolume })
-            .eq('id', fpc.finished_product_lot_id);
-        }
-      }
-      await this.supabaseService.admin.from('production_order_finished_product_consumptions').delete().eq('production_order_id', id);
-    }
-
-    await this.supabaseService.admin.from('stock_movements').delete().eq('reference_table', 'production_orders').eq('reference_id', id);
-    await this.supabaseService.admin.from('finished_product_lots').delete().eq('production_order_id', id);
-
-    const { error: deleteOrderError } = await this.supabaseService.admin
-      .from('production_orders')
-      .delete()
-      .eq('id', id);
-
-    if (deleteOrderError) throw new BadRequestException(deleteOrderError.message);
-
-    return { success: true };
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
   }
+
+  async listMilkLotReconciliation() {
+    const [lotsResult, consumptionsResult, eventsResult] = await Promise.all([
+      this.supabaseService.admin
+        .from('milk_lots')
+        .select('id, code, volume_liters, available_volume_liters, status, updated_at')
+        .order('code', { ascending: true }),
+      this.supabaseService.admin
+        .from('production_order_milk_consumptions')
+        .select('milk_lot_id, production_order_id, liters_consumed, state'),
+      this.supabaseService.admin
+        .from('production_events')
+        .select('milk_lot_id, created_at')
+        .order('created_at', { ascending: false }),
+    ]);
+
+    if (lotsResult.error) throw new BadRequestException(lotsResult.error.message);
+    if (consumptionsResult.error) throw new BadRequestException(consumptionsResult.error.message);
+    if (eventsResult.error) throw new BadRequestException(eventsResult.error.message);
+
+    const consumptionsByLot = new Map<string, any[]>();
+    for (const consumption of consumptionsResult.data ?? []) {
+      const entries = consumptionsByLot.get(String(consumption.milk_lot_id)) ?? [];
+      entries.push(consumption);
+      consumptionsByLot.set(String(consumption.milk_lot_id), entries);
+    }
+
+    const lastEventByLot = new Map<string, string>();
+    for (const event of eventsResult.data ?? []) {
+      const lotId = String(event.milk_lot_id ?? '');
+      if (lotId && !lastEventByLot.has(lotId)) lastEventByLot.set(lotId, String(event.created_at));
+    }
+
+    return (lotsResult.data ?? []).map((lot) => {
+      const consumptions = consumptionsByLot.get(String(lot.id)) ?? [];
+      const activeConsumptions = consumptions.filter((item) => item.state !== 'Estornado');
+      const reservedLiters = activeConsumptions
+        .filter((item) => item.state === 'Reservado')
+        .reduce((sum, item) => sum + Number(item.liters_consumed), 0);
+      const consumedLiters = activeConsumptions
+        .filter((item) => item.state === 'Consumido')
+        .reduce((sum, item) => sum + Number(item.liters_consumed), 0);
+      const expectedAvailableLiters = Math.max(0, Number(lot.volume_liters) - reservedLiters - consumedLiters);
+      const recordedAvailableLiters = Number(lot.available_volume_liters);
+      const differenceLiters = Number((recordedAvailableLiters - expectedAvailableLiters).toFixed(4));
+
+      return {
+        milkLotId: lot.id,
+        code: lot.code,
+        status: lot.status,
+        originalVolumeLiters: Number(lot.volume_liters),
+        recordedAvailableLiters,
+        expectedAvailableLiters,
+        differenceLiters,
+        situation: Math.abs(differenceLiters) < 0.0001 ? 'Conciliado' : 'Divergente',
+        responsibleProductionOrderIds: activeConsumptions.map((item) => item.production_order_id),
+        lastKnownChangeAt: lastEventByLot.get(String(lot.id)) ?? lot.updated_at ?? null,
+      };
+    });
+  }
+
+  async cancelOrder(id: string, reason: string, user?: AuthenticatedUser) {
+    const actor = this.actor(user);
+    const { data, error } = await this.supabaseService.admin.rpc(
+      'cancel_production_order_with_reservations',
+      {
+        p_order_id: id,
+        p_reason: reason,
+        p_actor_id: actor.id,
+        p_actor_name: actor.name,
+      },
+    );
+
+    if (error) {
+      await this.logOperationFailure({
+        orderId: id,
+        action: 'cancelar a OP',
+        message: error.message,
+        user,
+      });
+      throw new BadRequestException(error.message);
+    }
+    return { success: true, order: this.rpcOrder(data) };
+  }
+
 }
