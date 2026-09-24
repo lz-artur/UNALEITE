@@ -182,6 +182,77 @@ describe('Comercial - ModalShell component integration', () => {
     ));
   }, 15_000);
 
+  it('allows a return with physically counted pieces when the historical fulfillment has no piece quantity', async () => {
+    const operationsApi = await import('../services/operationsApi');
+    const fulfilledOrder: any = {
+      id: 'order-historical-pieces',
+      number: 'VEN-2026-3',
+      clientId: 'client-1',
+      clientName: 'Cliente Teste',
+      clientDocument: '12345678000100',
+      orderDate: new Date('2026-01-10'),
+      dueDate: new Date('2026-02-10'),
+      status: 'Atendido',
+      totalAmount: 3347.05,
+      totalFulfilled: 3347.05,
+      remainingAmount: 0,
+      fulfilledPercent: 100,
+      hasReturn: false,
+      attendances: [],
+      items: [{
+        id: 'item-historical-pieces',
+        productId: 'prod-1',
+        productName: 'Queijo Minas',
+        unitId: 'un-kg',
+        orderedQuantity: 3347.05,
+        fulfilledQuantity: 3347.05,
+        pendingQuantity: 0,
+        unitPrice: 1,
+        totalValue: 3347.05,
+        status: 'Atendido',
+        fulfillments: [{
+          id: 'ful-historical-pieces',
+          finishedProductLotId: 'lot-1',
+          lotCode: 'LOTE-001',
+          quantity: 3347.05,
+          returnedQuantity: 0,
+          piecesQuantity: undefined,
+          returnedPieces: undefined,
+          fulfilledAt: new Date('2026-01-15'),
+        }],
+      }],
+    };
+
+    (operationsApi.loadSalesOrders as any).mockResolvedValue([fulfilledOrder]);
+    (operationsApi.loadSalesOrderDetail as any).mockResolvedValue(fulfilledOrder);
+    (operationsApi.returnSalesOrder as any).mockResolvedValue({ ...fulfilledOrder, hasReturn: true });
+
+    const { default: Comercial } = await import('./Comercial');
+    render(React.createElement(Comercial));
+
+    await screen.findByText('VEN-2026-3');
+    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Devolver' }));
+
+    const quantityInput = screen.getByText('Devolver Qtd').parentElement?.querySelector('input') as HTMLInputElement;
+    const piecesInput = screen.getByText('Devolver peças').parentElement?.querySelector('input') as HTMLInputElement;
+    fireEvent.change(quantityInput, { target: { value: '573.95' } });
+    fireEvent.change(piecesInput, { target: { value: '717' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar devolução' }));
+
+    await waitFor(() => expect(operationsApi.returnSalesOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        salesOrderId: 'order-historical-pieces',
+        items: [expect.objectContaining({
+          salesOrderItemId: 'item-historical-pieces',
+          lotId: 'lot-1',
+          returnedQuantity: 573.95,
+          returnedPieces: 717,
+        })],
+      }),
+    ));
+  }, 15_000);
+
   describe('ModalShell prop destructuring fix', () => {
     it('should not throw ReferenceError when ModalShell is rendered with extraFooterActions', async () => {
       // This test verifies the bug fix: previously extraFooterActions and hideCancel
