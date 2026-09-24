@@ -18,6 +18,39 @@ describe('InventoryService', () => {
     service = new InventoryService(supabaseServiceMock as SupabaseService, usersServiceMock);
   });
 
+  describe('getFinishedProductLots', () => {
+    it('adds the returned piece totals to each finished product lot', async () => {
+      supabaseServiceMock.admin.from.mockImplementation((table: string) => {
+        if (table === 'finished_product_lots') {
+          return {
+            select: jest.fn().mockReturnValue({
+              order: jest.fn().mockResolvedValue({
+                data: [{ id: 'lot-1', available_quantity: 100, available_pieces: 25 }],
+                error: null,
+              }),
+            }),
+          };
+        }
+        if (table === 'sales_returns') {
+          return {
+            select: jest.fn().mockResolvedValue({
+              data: [
+                { finished_product_lot_id: 'lot-1', returned_pieces: 7 },
+                { finished_product_lot_id: 'lot-1', returned_pieces: 5 },
+              ],
+              error: null,
+            }),
+          };
+        }
+        return {};
+      });
+
+      await expect(service.getFinishedProductLots()).resolves.toEqual([
+        expect.objectContaining({ id: 'lot-1', returned_pieces: 12 }),
+      ]);
+    });
+  });
+
   describe('deleteSupplyLot', () => {
     let selectMock: jest.Mock;
     let deleteMock: jest.Mock;

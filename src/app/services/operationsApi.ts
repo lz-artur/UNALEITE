@@ -793,6 +793,7 @@ function mapFinishedProductLot(row: any): EstoqueProduto {
     devolvido: Number(row.returned_quantity) || 0,
     quantidadePecas: row.quantity_pieces == null ? undefined : Number(row.quantity_pieces),
     disponivelPecas: row.available_pieces == null ? undefined : Number(row.available_pieces),
+    devolvidoPecas: row.returned_pieces == null ? undefined : Number(row.returned_pieces),
   };
 }
 

@@ -334,8 +334,11 @@ export default function LotesEstoqueDetalhado() {
  productName: string;
  unitSymbol: string;
  availableQuantity: number;
+ availablePieces: number;
  producedQuantity: number;
  returnedQuantity: number;
+ returnedPieces: number;
+ tracksPieces: boolean;
  lotsCount: number;
  nextExpiration?: Date;
  }>();
@@ -347,8 +350,11 @@ export default function LotesEstoqueDetalhado() {
  productName: product?.name || 'Produto não identificado',
  unitSymbol: getUnitSymbol(product?.unitId),
  availableQuantity: 0,
+ availablePieces: 0,
  producedQuantity: 0,
  returnedQuantity: 0,
+ returnedPieces: 0,
+ tracksPieces: Boolean(product?.tracksQuantityAndWeight),
  lotsCount: 0,
  };
  const shouldUpdateExpiration = lot.disponivel > 0 &&
@@ -357,8 +363,10 @@ export default function LotesEstoqueDetalhado() {
  summaries.set(lot.produtoId, {
  ...current,
  availableQuantity: current.availableQuantity + lot.disponivel,
+ availablePieces: current.availablePieces + (lot.disponivelPecas || 0),
  producedQuantity: current.producedQuantity + lot.quantidade,
  returnedQuantity: current.returnedQuantity + (lot.devolvido || 0),
+ returnedPieces: current.returnedPieces + (lot.devolvidoPecas || 0),
  lotsCount: current.lotsCount + 1,
  nextExpiration: shouldUpdateExpiration ? lot.dataValidade : current.nextExpiration,
  });
@@ -647,10 +655,16 @@ export default function LotesEstoqueDetalhado() {
  return (
  <tr key={item.productId} className="cursor-pointer hover:bg-blue-50" onClick={() => setSummaryDetail({ kind: 'product', productId: item.productId })} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSummaryDetail({ kind: 'product', productId: item.productId }); } }} tabIndex={0} role="button" aria-label={`Ver resumo e lotes de ${item.productName}`}>
  <td className="px-6 py-4 font-medium text-gray-900"><div>{item.productName}</div><div className="mt-0.5 text-xs font-normal text-blue-600">Clique para ver os lotes</div></td>
- <td className="px-6 py-4 font-semibold text-green-700">{item.availableQuantity.toLocaleString('pt-BR')} {item.unitSymbol}</td>
+ <td className="px-6 py-4 font-semibold text-green-700">
+ {item.availableQuantity.toLocaleString('pt-BR')} {item.unitSymbol}
+ {item.tracksPieces ? <span className="block text-xs font-medium text-green-700">{item.availablePieces.toLocaleString('pt-BR')} peças disponíveis</span> : null}
+ </td>
  <td className="px-6 py-4 text-sm text-gray-700">{item.lotsCount} {item.lotsCount === 1 ? 'lote' : 'lotes'}</td>
  <td className="px-6 py-4 text-sm">{item.nextExpiration ? <span className={daysToExpire !== null && daysToExpire < 7 ? 'font-medium text-amber-700' : 'text-gray-700'}>{format(item.nextExpiration, 'dd/MM/yyyy')}{daysToExpire !== null && daysToExpire < 7 ? ` (${daysToExpire}d)` : ''}</span> : <span className="text-gray-500">Sem saldo</span>}</td>
- <td className="px-6 py-4 text-sm text-gray-700">{item.returnedQuantity.toLocaleString('pt-BR')} {item.unitSymbol}</td>
+ <td className="px-6 py-4 text-sm text-gray-700">
+ {item.returnedQuantity.toLocaleString('pt-BR')} {item.unitSymbol}
+ {item.tracksPieces ? <span className="block text-xs text-gray-500">{item.returnedPieces.toLocaleString('pt-BR')} peças devolvidas</span> : null}
+ </td>
  </tr>
  );
  })}
@@ -958,7 +972,7 @@ export default function LotesEstoqueDetalhado() {
  {stock.disponivel} {getUnitSymbol(product?.unitId)}{stock.disponivelPecas != null ? <span className="block text-xs text-green-700">{stock.disponivelPecas} peças</span> : null}
  </td>
  <td className="px-6 py-4 font-medium text-red-600">
- {stock.devolvido || 0} {getUnitSymbol(product?.unitId)}
+ {stock.devolvido || 0} {getUnitSymbol(product?.unitId)}{product?.tracksQuantityAndWeight ? <span className="block text-xs text-red-700">{(stock.devolvidoPecas || 0).toLocaleString('pt-BR')} peças</span> : null}
  </td>
  <td className="px-6 py-4">
  <span
