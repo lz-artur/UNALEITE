@@ -1174,7 +1174,8 @@ export interface MilkLotReconciliation {
   recordedAvailableLiters: number;
   expectedAvailableLiters: number;
   differenceLiters: number;
-  situation: 'Conciliado' | 'Divergente';
+  situation: 'Conciliado' | 'Divergente' | 'Desconsiderado';
+  exclusionReason?: string;
   responsibleProductionOrderIds: string[];
   lastKnownChangeAt?: Date;
 }
@@ -1190,6 +1191,7 @@ export async function loadMilkLotReconciliation(): Promise<MilkLotReconciliation
     expectedAvailableLiters: Number(row.expectedAvailableLiters),
     differenceLiters: Number(row.differenceLiters),
     situation: row.situation,
+    exclusionReason: row.exclusionReason ?? undefined,
     responsibleProductionOrderIds: row.responsibleProductionOrderIds ?? [],
     lastKnownChangeAt: row.lastKnownChangeAt ? new Date(row.lastKnownChangeAt) : undefined,
   }));

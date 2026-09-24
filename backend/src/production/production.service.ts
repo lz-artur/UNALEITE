@@ -1402,7 +1402,7 @@ export class ProductionService {
   }
 
   async listMilkLotReconciliation() {
-    const [lotsResult, consumptionsResult, eventsResult] = await Promise.all([
+    const [lotsResult, consumptionsResult, eventsResult, exclusionsResult] = await Promise.all([
       this.supabaseService.admin
         .from('milk_lots')
         .select('id, code, volume_liters, available_volume_liters, status, updated_at')
@@ -1414,11 +1414,16 @@ export class ProductionService {
         .from('production_events')
         .select('milk_lot_id, created_at')
         .order('created_at', { ascending: false }),
+      this.supabaseService.admin
+        .from('milk_lot_reconciliation_exclusions')
+        .select('milk_lot_id, reason')
+        .eq('active', true),
     ]);
 
     if (lotsResult.error) throw new BadRequestException(lotsResult.error.message);
     if (consumptionsResult.error) throw new BadRequestException(consumptionsResult.error.message);
     if (eventsResult.error) throw new BadRequestException(eventsResult.error.message);
+    if (exclusionsResult.error) throw new BadRequestException(exclusionsResult.error.message);
 
     const consumptionsByLot = new Map<string, any[]>();
     for (const consumption of consumptionsResult.data ?? []) {
@@ -1433,6 +1438,13 @@ export class ProductionService {
       if (lotId && !lastEventByLot.has(lotId)) lastEventByLot.set(lotId, String(event.created_at));
     }
 
+    const exclusionsByLot = new Map(
+      (exclusionsResult.data ?? []).map((exclusion) => [
+        String(exclusion.milk_lot_id),
+        String(exclusion.reason),
+      ]),
+    );
+
     return (lotsResult.data ?? []).map((lot) => {
       const consumptions = consumptionsByLot.get(String(lot.id)) ?? [];
       const activeConsumptions = consumptions.filter((item) => item.state !== 'Estornado');
@@ -1445,6 +1457,7 @@ export class ProductionService {
       const expectedAvailableLiters = Math.max(0, Number(lot.volume_liters) - reservedLiters - consumedLiters);
       const recordedAvailableLiters = Number(lot.available_volume_liters);
       const differenceLiters = Number((recordedAvailableLiters - expectedAvailableLiters).toFixed(4));
+      const exclusionReason = exclusionsByLot.get(String(lot.id));
 
       return {
         milkLotId: lot.id,
@@ -1454,7 +1467,12 @@ export class ProductionService {
         recordedAvailableLiters,
         expectedAvailableLiters,
         differenceLiters,
-        situation: Math.abs(differenceLiters) < 0.0001 ? 'Conciliado' : 'Divergente',
+        situation: exclusionReason
+          ? 'Desconsiderado'
+          : Math.abs(differenceLiters) < 0.0001
+            ? 'Conciliado'
+            : 'Divergente',
+        exclusionReason: exclusionReason ?? null,
         responsibleProductionOrderIds: activeConsumptions.map((item) => item.production_order_id),
         lastKnownChangeAt: lastEventByLot.get(String(lot.id)) ?? lot.updated_at ?? null,
       };

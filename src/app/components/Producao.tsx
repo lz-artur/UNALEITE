@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Factory, Loader2, Plus, TrendingDown, TrendingUp, XCircle, MoreHorizontal, Edit2, Check, History } from 'lucide-react';
+import { Factory, Loader2, Plus, TrendingDown, TrendingUp, XCircle, MoreHorizontal, Edit2, Check, History, Trash2 } from 'lucide-react';
 import type { EstoqueProduto, LoteLeite, OrdemProducao } from '../data/mockData';
 import { useCadastros } from '../context/CadastrosContext';
 import {

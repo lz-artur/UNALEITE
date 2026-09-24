@@ -127,7 +127,7 @@ export default function Comercial() {
   });
   const [returnForm, setReturnForm] = useState<{
     returnDate: string;
-    items: Array<{ salesOrderItemId: string; productId: string; lotId: string; returnedQuantity: string; returnedPieces: string; reason: string; unitPrice: number; maxQuantity: number; maxPieces?: number | null }>;
+    items: Array<{ salesOrderItemId: string; productId: string; lotId: string; returnedQuantity: string; returnedPieces: string; reason: string; unitPrice: number; maxQuantity: number; tracksPieces: boolean; maxPieces?: number | null }>;
     discountAmount: string;
     excessHandlingStrategy: 'credit' | 'refund';
   }>({
@@ -598,8 +598,12 @@ export default function Comercial() {
     if (!selectedOrder) return;
     
     // Create return items for every fulfillment
-    const items = selectedOrder.items.flatMap(item => 
-      item.fulfillments.map(f => ({
+    const items = selectedOrder.items.flatMap(item => {
+      const tracksPieces = Boolean(
+        finishedProducts.find((product) => product.id === item.productId)?.tracksQuantityAndWeight,
+      );
+
+      return item.fulfillments.map(f => ({
         salesOrderItemId: item.id,
         productId: item.productId,
         lotId: f.finishedProductLotId,
@@ -607,9 +611,13 @@ export default function Comercial() {
         returnedPieces: '',
         reason: '',
         unitPrice: item.unitPrice,
-        maxQuantity: f.quantity - (f.returnedQuantity || 0), maxPieces: f.piecesQuantity ?? null
+        maxQuantity: f.quantity - (f.returnedQuantity || 0),
+        tracksPieces,
+        maxPieces: f.piecesQuantity == null
+          ? null
+          : Math.max(0, f.piecesQuantity - (f.returnedPieces || 0)),
       })).filter(entry => entry.maxQuantity > 0)
-    );
+    });
 
     setReturnForm({
       returnDate: getToday(),
@@ -627,15 +635,24 @@ export default function Comercial() {
   const handleReturnOrder = async () => {
     if (!selectedOrder) return;
 
-    const itemsToReturn = returnForm.items
-      .filter(item => Number(item.returnedQuantity) > 0)
-      .map(item => ({
-        salesOrderItemId: item.salesOrderItemId,
-        lotId: item.lotId,
-        returnedQuantity: Number(item.returnedQuantity),
-        returnedPieces: item.returnedPieces ? Number(item.returnedPieces) : 0,
-        reason: item.reason,
-      }));
+    const selectedItems = returnForm.items.filter(item => Number(item.returnedQuantity) > 0);
+    const itemWithInvalidPieces = selectedItems.find(item => (
+      item.tracksPieces
+      && (!Number.isInteger(Number(item.returnedPieces)) || Number(item.returnedPieces) < 1)
+    ));
+
+    if (itemWithInvalidPieces) {
+      setErrorMessage('Informe uma quantidade inteira de peças devolvidas para os produtos que controlam peso e peças.');
+      return;
+    }
+
+    const itemsToReturn = selectedItems.map(item => ({
+      salesOrderItemId: item.salesOrderItemId,
+      lotId: item.lotId,
+      returnedQuantity: Number(item.returnedQuantity),
+      ...(item.returnedPieces ? { returnedPieces: Number(item.returnedPieces) } : {}),
+      reason: item.reason,
+    }));
 
     if (itemsToReturn.length === 0) {
       setErrorMessage('Informe a quantidade a devolver para ao menos um lote.');
@@ -1856,7 +1873,23 @@ export default function Comercial() {
                             }}
                           />
                         </div>
-                        {item.maxPieces != null && <div className="w-full md:w-32"><InputField label="Devolver peças" type="number" value={item.returnedPieces} onChange={(value) => setReturnForm(current => { const newItems = [...current.items]; newItems[index].returnedPieces = String(Math.min(Number(value), item.maxPieces!)); return { ...current, items: newItems }; })} /></div>}
+                        {item.tracksPieces && (
+                          <div className="w-full md:w-32">
+                            <InputField
+                              label="Devolver peças"
+                              type="number"
+                              value={item.returnedPieces}
+                              onChange={(value) => setReturnForm(current => {
+                                const newItems = [...current.items];
+                                const numericValue = Number(value);
+                                newItems[index].returnedPieces = value === ''
+                                  ? ''
+                                  : String(item.maxPieces == null ? numericValue : Math.min(numericValue, item.maxPieces));
+                                return { ...current, items: newItems };
+                              })}
+                            />
+                          </div>
+                        )}
                         <div className="w-full md:w-48">
                           <InputField
                             label="Motivo"
