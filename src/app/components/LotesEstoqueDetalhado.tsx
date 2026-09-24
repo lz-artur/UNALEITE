@@ -480,6 +480,7 @@ export default function LotesEstoqueDetalhado() {
     });
  }, [lotes]);
  const divergentMilkLots = milkLotReconciliation.filter((item) => item.situation === 'Divergente');
+ const excludedMilkLots = milkLotReconciliation.filter((item) => item.situation === 'Desconsiderado');
 
  return (
  <div className="space-y-6">
@@ -705,6 +706,11 @@ export default function LotesEstoqueDetalhado() {
  <div className="mt-4 overflow-x-auto rounded-lg border border-amber-200 bg-white">
  <table className="w-full text-sm"><thead className="bg-amber-50 text-left text-xs uppercase text-amber-800"><tr><th className="px-3 py-2">Lote</th><th className="px-3 py-2">Saldo gravado</th><th className="px-3 py-2">Saldo esperado</th><th className="px-3 py-2">Diferença</th></tr></thead><tbody className="divide-y divide-amber-100">{divergentMilkLots.map((item) => <tr key={item.milkLotId}><td className="px-3 py-2 font-medium">{item.code}</td><td className="px-3 py-2">{item.recordedAvailableLiters.toLocaleString('pt-BR')} L</td><td className="px-3 py-2">{item.expectedAvailableLiters.toLocaleString('pt-BR')} L</td><td className="px-3 py-2 font-semibold text-amber-800">{item.differenceLiters.toLocaleString('pt-BR')} L</td></tr>)}</tbody></table>
  </div>
+ ) : null}
+ {excludedMilkLots.length ? (
+ <p className="mt-3 text-xs text-gray-600">
+ {excludedMilkLots.length} lote(s) desconsiderado(s) por ajuste histórico manual: {excludedMilkLots.map((item) => item.code).join(', ')}.
+ </p>
  ) : null}
  </section>
  <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
