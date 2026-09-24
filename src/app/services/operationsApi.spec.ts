@@ -53,6 +53,33 @@ describe('Dados reais para o vendedor externo', () => {
     vi.mocked(api.apiRequest).mockRejectedValueOnce(new api.ApiUnavailableError());
     await expect(loadFinishedProductLots()).resolves.toBeInstanceOf(Array);
   });
+
+  it('mapeia as peças disponíveis e devolvidas dos lotes de produto acabado', async () => {
+    vi.mocked(api.apiRequest).mockResolvedValueOnce([{
+      id: 'lot-1',
+      product_id: 'product-1',
+      production_order_id: 'production-1',
+      quantity_produced: 100,
+      produced_at: '2026-09-01T00:00:00.000Z',
+      expiration_date: '2026-12-01T00:00:00.000Z',
+      lot_code: 'PA-001',
+      available_quantity: 80,
+      returned_quantity: 25,
+      quantity_pieces: 30,
+      available_pieces: 24,
+      returned_pieces: 7,
+    }]);
+
+    await expect(loadFinishedProductLots({ requireLive: true })).resolves.toEqual([
+      expect.objectContaining({
+        disponivel: 80,
+        devolvido: 25,
+        quantidadePecas: 30,
+        disponivelPecas: 24,
+        devolvidoPecas: 7,
+      }),
+    ]);
+  });
 });
 
 describe('operationsApi - Deletion endpoints', () => {

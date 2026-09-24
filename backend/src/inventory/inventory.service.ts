@@ -119,16 +119,36 @@ export class InventoryService {
   }
 
   async getFinishedProductLots() {
-    const { data, error } = await this.supabaseService.admin
-      .from('finished_product_lots')
-      .select('*')
-      .order('produced_at', { ascending: false });
+    const [lotsResult, returnsResult] = await Promise.all([
+      this.supabaseService.admin
+        .from('finished_product_lots')
+        .select('*')
+        .order('produced_at', { ascending: false }),
+      this.supabaseService.admin
+        .from('sales_returns')
+        .select('finished_product_lot_id, returned_pieces'),
+    ]);
 
-    if (error) {
-      throw new BadRequestException(error.message);
+    if (lotsResult.error) {
+      throw new BadRequestException(lotsResult.error.message);
+    }
+    if (returnsResult.error) {
+      throw new BadRequestException(returnsResult.error.message);
     }
 
-    return data ?? [];
+    const returnedPiecesByLot = new Map<string, number>();
+    for (const salesReturn of returnsResult.data ?? []) {
+      const lotId = String(salesReturn.finished_product_lot_id);
+      returnedPiecesByLot.set(
+        lotId,
+        (returnedPiecesByLot.get(lotId) ?? 0) + Number(salesReturn.returned_pieces ?? 0),
+      );
+    }
+
+    return (lotsResult.data ?? []).map((lot) => ({
+      ...lot,
+      returned_pieces: returnedPiecesByLot.get(String(lot.id)) ?? 0,
+    }));
   }
 
   async deleteSupplyLot(id: string) {

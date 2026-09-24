@@ -142,6 +142,7 @@ export interface EstoqueProduto {
   quantidadePecas?: number;
   disponivelPecas?: number;
   devolvido?: number;
+  devolvidoPecas?: number;
 }
 
 export interface Cliente {
