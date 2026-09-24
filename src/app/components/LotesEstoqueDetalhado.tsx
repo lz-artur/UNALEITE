@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { differenceInDays, format, startOfDay } from 'date-fns';
-import { AlertTriangle, Award, DollarSign, Loader2, PackageSearch, Search, TrendingUp, Trash2, Pencil, X, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Award, DollarSign, History, Loader2, PackageSearch, Search, TrendingUp, Trash2, Pencil, X, ShieldCheck } from 'lucide-react';
 import type { AnaliseLaboral, EstoqueProduto, LoteLeite, PrecificacaoLeite } from '../data/mockData';
 import { useCadastros } from '../context/CadastrosContext';
 import {
  loadFinishedProductLots,
  loadMilkAnalyses,
  loadMilkLotDetail,
+ loadMilkLotEvents,
+ loadMilkLotReconciliation,
  loadMilkLots,
  loadMilkPricings,
  loadSupplyLots,
@@ -20,6 +22,8 @@ import {
  type MilkLotDetail,
  type SupplyLotInventoryItem,
  type ExpiredLotDisposal,
+ type ProductionEvent,
+ type MilkLotReconciliation,
 } from '../services/operationsApi';
 import { usePermissions } from '../context/PermissionsContext';
 import {
@@ -56,6 +60,11 @@ export default function LotesEstoqueDetalhado() {
  const [precificacoes, setPrecificacoes] = useState<PrecificacaoLeite[]>([]);
  const [supplyLots, setSupplyLots] = useState<SupplyLotInventoryItem[]>([]);
  const [selectedLoteDetail, setSelectedLoteDetail] = useState<MilkLotDetail | null>(null);
+ const [milkLotEvents, setMilkLotEvents] = useState<ProductionEvent[]>([]);
+ const [milkLotEventsLoading, setMilkLotEventsLoading] = useState(false);
+ const [milkLotEventsError, setMilkLotEventsError] = useState<string | null>(null);
+ const [milkLotReconciliation, setMilkLotReconciliation] = useState<MilkLotReconciliation[]>([]);
+ const [reconciliationLoading, setReconciliationLoading] = useState(false);
  const [loading, setLoading] = useState(true);
  const [detailLoading, setDetailLoading] = useState(false);
  const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -126,9 +135,27 @@ export default function LotesEstoqueDetalhado() {
  void loadData();
  }, []);
 
+ const refreshMilkLotReconciliation = async () => {
+ setReconciliationLoading(true);
+ try {
+ setMilkLotReconciliation(await loadMilkLotReconciliation());
+ } catch {
+ // A tela de lotes continua utilizável se a API estiver sendo atualizada.
+ // A consulta é administrativa e não altera nenhum saldo.
+ } finally {
+ setReconciliationLoading(false);
+ }
+ };
+
+ useEffect(() => {
+ void refreshMilkLotReconciliation();
+ }, []);
+
  useEffect(() => {
  if (!selectedLoteId) {
  setSelectedLoteDetail(null);
+ setMilkLotEvents([]);
+ setMilkLotEventsError(null);
  return;
  }
 
@@ -151,6 +178,29 @@ export default function LotesEstoqueDetalhado() {
  if (active) {
  setDetailLoading(false);
  }
+ });
+
+ return () => {
+ active = false;
+ };
+ }, [selectedLoteId]);
+
+ useEffect(() => {
+ if (!selectedLoteId) return;
+
+ let active = true;
+ setMilkLotEventsLoading(true);
+ setMilkLotEventsError(null);
+
+ void loadMilkLotEvents(selectedLoteId)
+ .then((events) => {
+ if (active) setMilkLotEvents(events);
+ })
+ .catch((error) => {
+ if (active) setMilkLotEventsError(getErrorMessage(error));
+ })
+ .finally(() => {
+ if (active) setMilkLotEventsLoading(false);
  });
 
  return () => {
@@ -420,7 +470,7 @@ export default function LotesEstoqueDetalhado() {
  .filter((item) => item.totalVolume > 0)
  .sort((a, b) => b.score - a.score);
 
-  const sortedLotes = useMemo(() => {
+ const sortedLotes = useMemo(() => {
     return [...lotes].sort((a, b) => {
       const getTimestamp = (codigo: string) => {
         const parts = codigo.split('-');
@@ -428,7 +478,8 @@ export default function LotesEstoqueDetalhado() {
       };
       return getTimestamp(b.codigo) - getTimestamp(a.codigo);
     });
-  }, [lotes]);
+ }, [lotes]);
+ const divergentMilkLots = milkLotReconciliation.filter((item) => item.situation === 'Divergente');
 
  return (
  <div className="space-y-6">
@@ -636,8 +687,26 @@ export default function LotesEstoqueDetalhado() {
  </div>
  ) : null}
 
- {!loading && selectedTab === 'leite' ? (
+{!loading && selectedTab === 'leite' ? (
  <div className="space-y-6">
+ <section className={`rounded-xl border p-4 ${divergentMilkLots.length ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
+ <div className="flex flex-wrap items-center justify-between gap-3">
+ <div>
+ <h3 className={`font-bold ${divergentMilkLots.length ? 'text-amber-950' : 'text-emerald-950'}`}>Reconciliação de saldos de leite</h3>
+ <p className={`mt-1 text-sm ${divergentMilkLots.length ? 'text-amber-800' : 'text-emerald-800'}`}>
+ {reconciliationLoading ? 'Conferindo reservas e consumos...' : divergentMilkLots.length ? `${divergentMilkLots.length} lote(s) com saldo divergente.` : 'Todos os lotes conferidos estão conciliados.'}
+ </p>
+ </div>
+ <button onClick={() => void refreshMilkLotReconciliation()} disabled={reconciliationLoading} className="rounded-lg border border-current px-3 py-2 text-sm font-medium disabled:opacity-60">
+ {reconciliationLoading ? 'Conferindo...' : 'Conferir agora'}
+ </button>
+ </div>
+ {divergentMilkLots.length ? (
+ <div className="mt-4 overflow-x-auto rounded-lg border border-amber-200 bg-white">
+ <table className="w-full text-sm"><thead className="bg-amber-50 text-left text-xs uppercase text-amber-800"><tr><th className="px-3 py-2">Lote</th><th className="px-3 py-2">Saldo gravado</th><th className="px-3 py-2">Saldo esperado</th><th className="px-3 py-2">Diferença</th></tr></thead><tbody className="divide-y divide-amber-100">{divergentMilkLots.map((item) => <tr key={item.milkLotId}><td className="px-3 py-2 font-medium">{item.code}</td><td className="px-3 py-2">{item.recordedAvailableLiters.toLocaleString('pt-BR')} L</td><td className="px-3 py-2">{item.expectedAvailableLiters.toLocaleString('pt-BR')} L</td><td className="px-3 py-2 font-semibold text-amber-800">{item.differenceLiters.toLocaleString('pt-BR')} L</td></tr>)}</tbody></table>
+ </div>
+ ) : null}
+ </section>
  <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
  <MetricCard title="Gordura media" value={`${mediaGordura.toFixed(2)}%`} subtitle="Lotes com analise" />
  <MetricCard title="Proteina media" value={`${mediaProteina.toFixed(2)}%`} subtitle="Lotes com analise" />
@@ -1039,6 +1108,39 @@ export default function LotesEstoqueDetalhado() {
  </div>
  ) : (
  <p className="text-sm text-gray-600">Nenhum evento de bloqueio registrado.</p>
+ )}
+ </SectionBlock>
+
+ <SectionBlock title="Histórico de reservas e consumo">
+ {milkLotEventsLoading ? (
+ <div className="flex items-center gap-2 text-sm text-gray-600">
+ <Loader2 className="h-4 w-4 animate-spin" /> Carregando histórico operacional...
+ </div>
+ ) : milkLotEventsError ? (
+ <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{milkLotEventsError}</p>
+ ) : milkLotEvents.length ? (
+ <div className="relative space-y-4 before:absolute before:bottom-3 before:left-[7px] before:top-3 before:w-px before:bg-gray-200">
+ {milkLotEvents.map((event) => (
+ <div key={event.id} className="relative pl-8">
+ <span className={`absolute left-0 top-1 h-4 w-4 rounded-full border-2 border-white ring-1 ${event.eventType === 'operation_failed' ? 'bg-red-500 ring-red-200' : event.eventType.includes('cancel') || event.eventType.includes('revers') ? 'bg-amber-500 ring-amber-200' : event.eventType === 'balance_reconciled' ? 'bg-violet-500 ring-violet-200' : 'bg-blue-500 ring-blue-200'}`} />
+ <div className="rounded-lg border border-gray-200 p-3 text-sm">
+ <div className="flex flex-wrap items-start justify-between gap-2">
+ <div>
+ <p className="font-semibold text-gray-900">{event.title}</p>
+ <p className="mt-1 text-gray-600">{event.description}</p>
+ </div>
+ <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">{format(event.createdAt, 'dd/MM/yyyy HH:mm')}</span>
+ </div>
+ <p className="mt-2 text-xs text-gray-500">Por {event.actorName || 'Sistema'}</p>
+ </div>
+ </div>
+ ))}
+ </div>
+ ) : (
+ <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+ <div className="flex items-center gap-2 font-medium text-gray-700"><History className="h-4 w-4" /> Sem eventos operacionais neste lote.</div>
+ <p className="mt-1">Eventos de reserva, consumo, cancelamento e correção de saldo aparecerão aqui.</p>
+ </div>
  )}
  </SectionBlock>
 

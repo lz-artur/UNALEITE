@@ -46,6 +46,11 @@ export class MilkReceptionController {
     return this.milkReceptionService.getMilkLot(id);
   }
 
+  @Get('milk-lots/:id/events')
+  listMilkLotEvents(@Param('id') id: string) {
+    return this.milkReceptionService.listMilkLotEvents(id);
+  }
+
   @Delete('milk-lots/:id')
   deleteReception(@Param('id') id: string) {
     return this.milkReceptionService.deleteReception(id);

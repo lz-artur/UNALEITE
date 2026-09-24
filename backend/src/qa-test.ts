@@ -113,16 +113,9 @@ async function bootstrap() {
     }
     console.log('Stock maintained correctly on completeOrder (no double deduction).');
 
-    // Clean up order explicitly
-    await productionService.deleteOrder(orderId);
-    console.log('Order deleted successfully.');
-
-    // Verify stock restored
-    let { data: lotAfterDelete } = await supabaseService.admin.from('supply_lots').select('available_quantity').eq('id', mockSupplyLotId).single();
-    if (Number(lotAfterDelete!.available_quantity) !== initialLotQty) {
-      throw new Error(`QA Failed: Stock not restored on deleteOrder.`);
-    }
-    console.log('Stock restored on deleteOrder.');
+    // OPs finalizadas fazem parte da rastreabilidade e não são mais excluídas.
+    // Execute este roteiro apenas em uma base de QA descartável.
+    console.log('OP finalizada preservada para auditoria (sem exclusão física).');
 
     console.log('--- All QA Tests Passed Successfully ---');
     process.exit(0);

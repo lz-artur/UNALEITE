@@ -1151,6 +1151,84 @@ export async function loadProductionOrders() {
   }, () => mockOrdensProducao);
 }
 
+export interface ProductionEvent {
+  id: string;
+  productionOrderId?: string;
+  milkLotId?: string;
+  eventType: string;
+  title: string;
+  description: string;
+  actorName: string;
+  beforeState: Record<string, unknown>;
+  afterState: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  correlationId: string;
+  createdAt: Date;
+}
+
+export interface MilkLotReconciliation {
+  milkLotId: string;
+  code: string;
+  status: string;
+  originalVolumeLiters: number;
+  recordedAvailableLiters: number;
+  expectedAvailableLiters: number;
+  differenceLiters: number;
+  situation: 'Conciliado' | 'Divergente';
+  responsibleProductionOrderIds: string[];
+  lastKnownChangeAt?: Date;
+}
+
+export async function loadMilkLotReconciliation(): Promise<MilkLotReconciliation[]> {
+  const rows = await apiRequest<any[]>('/production-reconciliation/milk-lots');
+  return rows.map((row) => ({
+    milkLotId: row.milkLotId,
+    code: row.code,
+    status: row.status,
+    originalVolumeLiters: Number(row.originalVolumeLiters),
+    recordedAvailableLiters: Number(row.recordedAvailableLiters),
+    expectedAvailableLiters: Number(row.expectedAvailableLiters),
+    differenceLiters: Number(row.differenceLiters),
+    situation: row.situation,
+    responsibleProductionOrderIds: row.responsibleProductionOrderIds ?? [],
+    lastKnownChangeAt: row.lastKnownChangeAt ? new Date(row.lastKnownChangeAt) : undefined,
+  }));
+}
+
+export async function loadProductionOrderEvents(orderId: string): Promise<ProductionEvent[]> {
+  const events = await apiRequest<any[]>(`/production-orders/${orderId}/events`);
+  return events.map(mapProductionEvent);
+}
+
+function mapProductionEvent(event: any): ProductionEvent {
+  return {
+    id: event.id,
+    productionOrderId: event.production_order_id ?? undefined,
+    milkLotId: event.milk_lot_id ?? undefined,
+    eventType: event.event_type,
+    title: event.title,
+    description: event.description,
+    actorName: event.actor_name,
+    beforeState: event.before_state ?? {},
+    afterState: event.after_state ?? {},
+    metadata: event.metadata ?? {},
+    correlationId: event.correlation_id,
+    createdAt: new Date(event.created_at),
+  };
+}
+
+export async function loadMilkLotEvents(milkLotId: string): Promise<ProductionEvent[]> {
+  const events = await apiRequest<any[]>(`/milk-lots/${milkLotId}/events`);
+  return events.map(mapProductionEvent);
+}
+
+export async function cancelProductionOrder(id: string, reason: string) {
+  return apiRequest<{ success: boolean }>(`/production-orders/${id}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
 export async function createProductionOrder(payload: {
   milkLotId: string;
   productId: string;
