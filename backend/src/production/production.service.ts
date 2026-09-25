@@ -185,10 +185,8 @@ export class ProductionService {
 
     for (const consumption of consumptions) {
       const source = consumption.source ?? 'Disponivel';
-      if (!consumption.finishedProductId) {
-        if (!consumption.finishedProductLotId) {
-          throw new BadRequestException('Informe o produto acabado a ser consumido.');
-        }
+      
+      if (consumption.finishedProductLotId) {
         resolved.push({
           finishedProductLotId: consumption.finishedProductLotId,
           ...(consumption.source ? { source } : {}),
@@ -196,6 +194,10 @@ export class ProductionService {
           ...(consumption.pieces != null ? { pieces: consumption.pieces } : {}),
         });
         continue;
+      }
+
+      if (!consumption.finishedProductId) {
+        throw new BadRequestException('Informe o produto acabado a ser consumido.');
       }
 
       const { data: lots, error } = await this.supabaseService.admin
