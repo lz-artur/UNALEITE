@@ -757,11 +757,14 @@ function mapProductionOrder(row: any): OrdemProducao {
     status: row.status,
     quantidadeProduzida: row.actual_quantity_produced != null ? Number(row.actual_quantity_produced) : undefined,
     rendimentoReal: row.actual_yield != null ? Number(row.actual_yield) : undefined,
-    insumos: (row.production_order_supply_consumptions ?? []).map((c: any) => ({
-      insumoId: c.supply_lots?.supply_item_id ?? c.supply_lot_id,
-      supplyLotId: c.supply_lot_id,
-      quantidade: Number(c.quantity_consumed),
-    })),
+    insumos: (row.production_order_supply_consumptions ?? []).map((c: any) => {
+      const supplyLot = Array.isArray(c.supply_lots) ? c.supply_lots[0] : c.supply_lots;
+      return {
+        insumoId: supplyLot?.supply_item_id ?? c.supply_lot_id,
+        supplyLotId: c.supply_lot_id,
+        quantidade: Number(c.quantity_consumed),
+      };
+    }),
     produtosAcabadosConsumidos: (row.production_order_finished_product_consumptions ?? []).map((c: any) => {
       // Supabase returns a related row as an object, but some relation settings
       // return it as a one-item array. Supporting both preserves the product

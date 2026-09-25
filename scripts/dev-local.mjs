@@ -10,6 +10,7 @@ const children = commands.map(({ name, args }) => {
     cwd: process.cwd(),
     stdio: 'inherit',
     env: process.env,
+    shell: process.platform === 'win32',
   });
   child.on('error', (error) => {
     console.error(`Não foi possível iniciar ${name}:`, error.message);

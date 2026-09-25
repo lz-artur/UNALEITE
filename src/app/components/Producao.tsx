@@ -154,8 +154,16 @@ export default function Producao() {
  const availableSupplyItems = useMemo(() => {
    const grouped = new Map<string, { id: string; name: string; availableQuantity: number; unit: string }>();
 
+   const orderConsumptions = new Map<string, number>();
+   if (editingOrder?.insumos) {
+     editingOrder.insumos.forEach(item => {
+       if (item.insumoId) {
+         orderConsumptions.set(item.insumoId, (orderConsumptions.get(item.insumoId) || 0) + item.quantidade);
+       }
+     });
+   }
+
    supplyLots
-     .filter((lot) => lot.availableQuantity > 0)
      .forEach((lot) => {
        const current = grouped.get(lot.supplyItemId);
        const item = getSupplyItemById(lot.supplyItemId);
@@ -167,14 +175,41 @@ export default function Producao() {
        });
      });
 
-   return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
- }, [getSupplyItemById, getUnitSymbol, supplyLots]);
+   orderConsumptions.forEach((qty, supplyItemId) => {
+     const current = grouped.get(supplyItemId);
+     if (current) {
+       current.availableQuantity += qty;
+     } else {
+       const item = getSupplyItemById(supplyItemId);
+       if (item) {
+         grouped.set(supplyItemId, {
+           id: supplyItemId,
+           name: item.name,
+           availableQuantity: qty,
+           unit: getUnitSymbol(item.unitId),
+         });
+       }
+     }
+   });
+
+   return Array.from(grouped.values())
+     .filter(item => item.availableQuantity > 0)
+     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+ }, [getSupplyItemById, getUnitSymbol, supplyLots, editingOrder]);
 
  const availableFinishedProducts = useMemo(() => {
    const grouped = new Map<string, { id: string; name: string; availableQuantity: number; unit: string }>();
 
+   const orderConsumptions = new Map<string, number>();
+   if (editingOrder?.produtosAcabadosConsumidos) {
+     editingOrder.produtosAcabadosConsumidos.forEach(item => {
+       if (item.origem !== 'Devolucao' && item.produtoId) {
+         orderConsumptions.set(item.produtoId, (orderConsumptions.get(item.produtoId) || 0) + item.quantidade);
+       }
+     });
+   }
+
    finishedProductLots
-     .filter((lot) => lot.disponivel > 0)
      .forEach((lot) => {
        const current = grouped.get(lot.produtoId);
        const product = getFinishedProductById(lot.produtoId);
@@ -186,13 +221,41 @@ export default function Producao() {
        });
      });
 
-   return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
- }, [finishedProductLots, getFinishedProductById, getUnitSymbol]);
+   orderConsumptions.forEach((qty, productId) => {
+     const current = grouped.get(productId);
+     if (current) {
+       current.availableQuantity += qty;
+     } else {
+       const product = getFinishedProductById(productId);
+       if (product) {
+         grouped.set(productId, {
+           id: productId,
+           name: product.name,
+           availableQuantity: qty,
+           unit: getUnitSymbol(product.unitId),
+         });
+       }
+     }
+   });
+
+   return Array.from(grouped.values())
+     .filter(item => item.availableQuantity > 0)
+     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+ }, [finishedProductLots, getFinishedProductById, getUnitSymbol, editingOrder]);
 
  const returnedFinishedProducts = useMemo(() => {
    const grouped = new Map<string, { id: string; name: string; availableQuantity: number; unit: string }>();
+   
+   const orderConsumptions = new Map<string, number>();
+   if (editingOrder?.produtosAcabadosConsumidos) {
+     editingOrder.produtosAcabadosConsumidos.forEach(item => {
+       if (item.origem === 'Devolucao' && item.produtoId) {
+         orderConsumptions.set(item.produtoId, (orderConsumptions.get(item.produtoId) || 0) + item.quantidade);
+       }
+     });
+   }
+
    finishedProductLots
-     .filter((lot) => (lot.devolvido ?? 0) > 0)
      .forEach((lot) => {
        const current = grouped.get(lot.produtoId);
        const product = getFinishedProductById(lot.produtoId);
@@ -203,8 +266,28 @@ export default function Producao() {
          unit: getUnitSymbol(product?.unitId),
        });
      });
-   return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
- }, [finishedProductLots, getFinishedProductById, getUnitSymbol]);
+
+   orderConsumptions.forEach((qty, productId) => {
+     const current = grouped.get(productId);
+     if (current) {
+       current.availableQuantity += qty;
+     } else {
+       const product = getFinishedProductById(productId);
+       if (product) {
+         grouped.set(productId, {
+           id: productId,
+           name: product.name,
+           availableQuantity: qty,
+           unit: getUnitSymbol(product.unitId),
+         });
+       }
+     }
+   });
+
+   return Array.from(grouped.values())
+     .filter(item => item.availableQuantity > 0)
+     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+ }, [finishedProductLots, getFinishedProductById, getUnitSymbol, editingOrder]);
 
  const selectedLot = lotes.find((lote) => lote.id === formState.milkLotId);
  const selectedProduct = getFinishedProductById(formState.productId);
@@ -895,7 +978,7 @@ export default function Producao() {
  </div>
  ) : null}
  </div>
- {consumption.finishedProductId && <select value={consumption.finishedProductLotId} onChange={(event) => { const newCons=[...formState.finishedProductConsumptions]; newCons[index].finishedProductLotId=event.target.value; setFormState(prev=>({...prev,finishedProductConsumptions:newCons})); }} className="w-44 rounded-lg border border-gray-300 px-2 py-2 text-sm"><option value="">Selecione o lote</option>{finishedProductLots.filter(lot => lot.produtoId === consumption.finishedProductId && (consumption.source === 'Devolucao' ? (lot.devolvido ?? 0) > 0 : lot.disponivel > 0)).map(lot => <option key={lot.id} value={lot.id}>{lot.lote} · {consumption.source === 'Devolucao' ? lot.devolvido : lot.disponivel} kg</option>)}</select>}
+ {consumption.finishedProductId && <select value={consumption.finishedProductLotId} onChange={(event) => { const newCons=[...formState.finishedProductConsumptions]; newCons[index].finishedProductLotId=event.target.value; setFormState(prev=>({...prev,finishedProductConsumptions:newCons})); }} className="w-44 rounded-lg border border-gray-300 px-2 py-2 text-sm"><option value="">Selecione o lote</option>{finishedProductLots.filter(lot => lot.produtoId === consumption.finishedProductId && (lot.id === consumption.finishedProductLotId || (consumption.source === 'Devolucao' ? (lot.devolvido ?? 0) > 0 : lot.disponivel > 0))).map(lot => <option key={lot.id} value={lot.id}>{lot.lote} · {consumption.source === 'Devolucao' ? lot.devolvido : lot.disponivel} kg</option>)}</select>}
  <div className="w-24">
  <input
  type="number"
@@ -911,7 +994,7 @@ export default function Producao() {
  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
  />
  </div>
- {getFinishedProductById(consumption.finishedProductId)?.tracksQuantityAndWeight && <div className="w-24"><input type="number" min="1" step="1" placeholder="Peças" value={consumption.pieces} onChange={(e) => { const newCons=[...formState.finishedProductConsumptions]; newCons[index].pieces=e.target.value; setFormState(prev=>({...prev,finishedProductConsumptions:newCons})); }} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" /></div>}
+ {(() => { const prod = getFinishedProductById(consumption.finishedProductId); return prod?.tracksPieces || prod?.tracksQuantityAndWeight; })() && <div className="w-24"><input type="number" min="1" step="1" placeholder="Peças" value={consumption.pieces} onChange={(e) => { const newCons=[...formState.finishedProductConsumptions]; newCons[index].pieces=e.target.value; setFormState(prev=>({...prev,finishedProductConsumptions:newCons})); }} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" /></div>}
  <button
  type="button"
  onClick={() => {
@@ -1013,7 +1096,7 @@ export default function Producao() {
  </p>
  </div>
 
- {getFinishedProductById(selectedOrder.produtoId)?.tracksPieces === true ? <div className="mt-4">
+ {(() => { const prod = getFinishedProductById(selectedOrder.produtoId); return prod?.tracksPieces === true || prod?.tracksQuantityAndWeight === true; })() ? <div className="mt-4">
  <label className="mb-1 block text-sm font-medium text-gray-700">Peças produzidas *</label>
  <input type="number" min="1" step="1" inputMode="numeric" value={completeForm.actualPiecesProduced} onChange={(event) => setCompleteForm({ ...completeForm, actualPiecesProduced: event.target.value })} placeholder="0" className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" />
  <p className="mt-1 text-xs text-gray-500">Registre o total de peças correspondente ao peso produzido.</p>
