@@ -1451,8 +1451,8 @@ export function deleteExpeditionWeighing(expeditionId: string, weighingId: strin
   return apiRequest<SaleExpedition>(`/inventory/expeditions/${expeditionId}/weighings/${weighingId}`, { method: 'DELETE' });
 }
 
-export function confirmSaleExpedition(expeditionId: string): Promise<SaleExpedition> {
-  return apiRequest<SaleExpedition>(`/inventory/expeditions/${expeditionId}/confirm`, { method: 'POST', body: JSON.stringify({}) });
+export function confirmSaleExpedition(expeditionId: string, confirmedDivergentBalances = false): Promise<SaleExpedition> {
+  return apiRequest<SaleExpedition>(`/inventory/expeditions/${expeditionId}/confirm`, { method: 'POST', body: JSON.stringify({ confirmedDivergentBalances }) });
 }
 
 export function reviewExpeditionVariance(salesOrderId: string, decision: 'aceita' | 'recusada', note?: string): Promise<SalesOrderRecord> {
@@ -2077,6 +2077,7 @@ export async function fulfillSalesOrder(payload: {
   installments?: number;
   installmentEntries?: Array<{ amount: number; dueDate: string }>;
   bankAccountId: string;
+  confirmedDivergentBalances?: boolean;
   items: Array<{
     salesOrderItemId: string;
     finishedProductLotId: string;
@@ -2094,6 +2095,7 @@ export async function fulfillSalesOrder(payload: {
       installments: payload.installments,
       installmentEntries: payload.installmentEntries,
       bankAccountId: payload.bankAccountId,
+      confirmedDivergentBalances: payload.confirmedDivergentBalances,
       items: payload.items,
       notes: payload.notes,
     }),
@@ -2199,6 +2201,7 @@ export async function createManualProductExit(payload: {
   reason: string;
   notes?: string;
   exitDate?: string;
+  confirmedDivergentBalances?: boolean;
 }) {
   return apiRequest<{ success: boolean; exitRecord: any }>('/inventory/manual-exits', {
     method: 'POST',

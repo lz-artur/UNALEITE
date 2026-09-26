@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateManualExitDto {
@@ -32,4 +32,9 @@ export class CreateManualExitDto {
   @IsString()
   @IsOptional()
   exitDate?: string;
+
+  @ApiPropertyOptional({ description: 'Explicit confirmation when the exit leaves only weight or only pieces available' })
+  @IsBoolean()
+  @IsOptional()
+  confirmedDivergentBalances?: boolean;
 }

@@ -125,6 +125,34 @@ export class SalesService {
 
     const fulfilledAt = payload.fulfilledAt ?? new Date().toISOString();
 
+    const lotIds = [...new Set(payload.items.map((item) => item.finishedProductLotId))];
+    const { data: lots, error: lotsError } = await this.supabaseService.admin
+      .from('finished_product_lots')
+      .select('id, lot_code, available_quantity, available_pieces')
+      .in('id', lotIds);
+    if (lotsError) throw new BadRequestException(lotsError.message);
+
+    const requestedByLot = new Map<string, { quantity: number; pieces: number }>();
+    for (const item of payload.items) {
+      const current = requestedByLot.get(item.finishedProductLotId) ?? { quantity: 0, pieces: 0 };
+      current.quantity += Number(item.quantity);
+      current.pieces += Number(item.piecesQuantity ?? 0);
+      requestedByLot.set(item.finishedProductLotId, current);
+    }
+
+    const leavesOnlyOneBalance = (lots ?? []).some((lot: any) => {
+      if (lot.available_pieces == null) return false;
+      const requested = requestedByLot.get(String(lot.id));
+      if (!requested) return false;
+      const remainingQuantity = Number(lot.available_quantity) - requested.quantity;
+      const remainingPieces = Number(lot.available_pieces) - requested.pieces;
+      return (remainingQuantity === 0 && remainingPieces > 0)
+        || (remainingPieces === 0 && remainingQuantity > 0);
+    });
+    if (leavesOnlyOneBalance && !payload.confirmedDivergentBalances) {
+      throw new BadRequestException('Este atendimento deixará saldo apenas de peso ou apenas de peças em um lote. Revise os valores e confirme para prosseguir.');
+    }
+
     // Prepare installment entries for the RPC
     let installmentEntries: Array<{ amount: number; dueDate: string }> | null = null;
     if (payload.installmentEntries?.length) {

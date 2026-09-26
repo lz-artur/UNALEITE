@@ -82,6 +82,7 @@ export default function LotesEstoqueDetalhado() {
  const [exitReason, setExitReason] = useState('Doação');
  const [exitNotes, setExitNotes] = useState('');
  const [isExiting, setIsExiting] = useState(false);
+ const [divergentExitWarning, setDivergentExitWarning] = useState<{ lotCode: string; remainingQuantity: number; remainingPieces: number; unit: string } | null>(null);
  const [disposals, setDisposals] = useState<ExpiredLotDisposal[]>([]);
  const [disposalLot, setDisposalLot] = useState<{ id: string; type: 'Insumo' | 'Produto Acabado'; name: string; code: string; quantity: number; unit: string } | null>(null);
  const [disposalQuantity, setDisposalQuantity] = useState('');
@@ -275,8 +276,7 @@ export default function LotesEstoqueDetalhado() {
     }
   };
 
-  const handleExitSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+ const submitExit = async (confirmedDivergentBalances = false) => {
     if (!exitLotId || !exitQuantity) return;
 
     setIsExiting(true);
@@ -289,6 +289,7 @@ export default function LotesEstoqueDetalhado() {
         pieces: exitPieces ? Number(exitPieces) : undefined,
         reason: exitReason,
         notes: exitNotes,
+        confirmedDivergentBalances,
       });
 
       setExitModalOpen(false);
@@ -303,6 +304,34 @@ export default function LotesEstoqueDetalhado() {
     } finally {
       setIsExiting(false);
     }
+  };
+
+ const handleExitSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!exitLotId || !exitQuantity) return;
+
+    const lot = estoquesProdutos.find((item) => item.id === exitLotId);
+    const pieces = Number(exitPieces);
+    if (lot?.disponivelPecas != null && Number.isFinite(pieces)) {
+      const remainingQuantity = lot.disponivel - Number(exitQuantity);
+      const remainingPieces = lot.disponivelPecas - pieces;
+      const leavesOnlyOneBalance =
+        (remainingQuantity === 0 && remainingPieces > 0) ||
+        (remainingPieces === 0 && remainingQuantity > 0);
+
+      if (leavesOnlyOneBalance) {
+        const product = getFinishedProductById(lot.produtoId);
+        setDivergentExitWarning({
+          lotCode: lot.lote,
+          remainingQuantity,
+          remainingPieces,
+          unit: getUnitSymbol(product?.unitId),
+        });
+        return;
+      }
+    }
+
+    void submitExit();
   };
 
  const getAnaliseByLoteId = (loteId: string) => analises.find((analise) => analise.loteId === loteId);
@@ -1435,6 +1464,32 @@ export default function LotesEstoqueDetalhado() {
         </div>
         );
       })()}
+
+      <AlertDialog open={Boolean(divergentExitWarning)} onOpenChange={(open) => !open && setDivergentExitWarning(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-600" />Saldos divergentes no lote</AlertDialogTitle>
+            <AlertDialogDescription>
+              A saída do lote <strong>{divergentExitWarning?.lotCode}</strong> deixará{' '}
+              <strong>{divergentExitWarning?.remainingQuantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} {divergentExitWarning?.unit}</strong>{' '}
+              e <strong>{divergentExitWarning?.remainingPieces.toLocaleString('pt-BR')} peças</strong> disponíveis. Revise os valores antes de continuar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isExiting}>Revisar saída</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isExiting}
+              onClick={() => {
+                setDivergentExitWarning(null);
+                void submitExit(true);
+              }}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              {isExiting ? 'Registrando...' : 'Prosseguir mesmo assim'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {disposalLot && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

@@ -205,6 +205,9 @@ describe('SalesService', () => {
   describe('fulfillSalesOrder', () => {
     it('should call create_sale_attendance rpc successfully', async () => {
       supabaseMock.rpcMock.mockResolvedValue({ data: 'new-attendance-id', error: null });
+      supabaseMock.selectMock.mockReturnValueOnce({
+        in: jest.fn().mockResolvedValue({ data: [{ id: 'lot-1', available_quantity: 10, available_pieces: null }], error: null }),
+      });
       jest.spyOn(service, 'getSalesOrder').mockImplementation(() => Promise.resolve({} as any));
 
       const payload = {
@@ -237,6 +240,9 @@ describe('SalesService', () => {
 
     it('should throw BadRequestException if rpc fails', async () => {
       supabaseMock.rpcMock.mockResolvedValue({ data: null, error: { message: 'Erro no banco' } });
+      supabaseMock.selectMock.mockReturnValueOnce({
+        in: jest.fn().mockResolvedValue({ data: [{ id: 'lot-1', available_quantity: 10, available_pieces: null }], error: null }),
+      });
 
       const payload = {
         idempotencyKey: 'test-key',
@@ -250,6 +256,19 @@ describe('SalesService', () => {
       };
 
       await expect(service.fulfillSalesOrder('order-1', payload)).rejects.toThrow('Erro no banco');
+    });
+
+    it('should require confirmation when an attendance leaves only pieces or only weight', async () => {
+      supabaseMock.selectMock.mockReturnValueOnce({
+        in: jest.fn().mockResolvedValue({ data: [{ id: 'lot-1', lot_code: 'L-01', available_quantity: 10, available_pieces: 4 }], error: null }),
+      });
+
+      await expect(service.fulfillSalesOrder('order-1', {
+        idempotencyKey: 'test-key', paymentMethod: 'Pix', bankAccountId: '00000000-0000-4000-8000-000000000002',
+        items: [{ salesOrderItemId: 'item-1', finishedProductLotId: 'lot-1', quantity: 10, piecesQuantity: 3 }],
+      } as any)).rejects.toThrow('saldo apenas de peso ou apenas de peças');
+
+      expect(supabaseMock.rpcMock).not.toHaveBeenCalled();
     });
 
     it('should reject an attendance without a payment method', async () => {

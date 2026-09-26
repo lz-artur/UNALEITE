@@ -1,6 +1,7 @@
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsNotEmpty,
   IsNumber,
@@ -62,6 +63,10 @@ export class FulfillSalesOrderDto {
   @ValidateNested({ each: true })
   @Type(() => FulfillSalesOrderItemDto)
   items!: FulfillSalesOrderItemDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  confirmedDivergentBalances?: boolean;
 
   @IsOptional()
   @IsArray()

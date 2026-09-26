@@ -68,6 +68,7 @@ export default function Comercial() {
   const [showClientModal, setShowClientModal] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showFulfillModal, setShowFulfillModal] = useState(false);
+  const [fulfillDivergenceWarning, setFulfillDivergenceWarning] = useState<Array<{ lotCode: string; remainingQuantity: number; remainingPieces: number }>>([]);
   const [showFinalizeModal, setShowFinalizeModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [varianceExpedition, setVarianceExpedition] = useState<SaleExpedition | null>(null);
@@ -493,7 +494,7 @@ export default function Comercial() {
     finally { setSaving(false); }
   };
 
-  const handleFulfillOrder = async () => {
+  const handleFulfillOrder = async (confirmedDivergentBalances = false) => {
     if (!selectedOrder) {
       return;
     }
@@ -542,6 +543,27 @@ export default function Comercial() {
       return;
     }
 
+    const requestedByLot = new Map<string, { quantity: number; pieces: number }>();
+    for (const { values } of items) {
+      const current = requestedByLot.get(values.finishedProductLotId) ?? { quantity: 0, pieces: 0 };
+      current.quantity += Number(values.quantity);
+      current.pieces += Number(values.pieces || 0);
+      requestedByLot.set(values.finishedProductLotId, current);
+    }
+    const divergentBalances = finishedLots.flatMap((lot) => {
+      const requested = requestedByLot.get(lot.id);
+      if (!requested || lot.disponivelPecas == null) return [];
+      const remainingQuantity = lot.disponivel - requested.quantity;
+      const remainingPieces = lot.disponivelPecas - requested.pieces;
+      return (remainingQuantity === 0 && remainingPieces > 0) || (remainingPieces === 0 && remainingQuantity > 0)
+        ? [{ lotCode: lot.lote, remainingQuantity, remainingPieces }]
+        : [];
+    });
+    if (divergentBalances.length > 0 && !confirmedDivergentBalances) {
+      setFulfillDivergenceWarning(divergentBalances);
+      return;
+    }
+
     setSaving(true);
     setErrorMessage(null);
 
@@ -559,6 +581,7 @@ export default function Comercial() {
             }))
           : undefined,
         bankAccountId: fulfillForm.bankAccountId,
+        confirmedDivergentBalances,
         items: items.map(({ item, values }) => {
           const selectedLot = finishedLots.find((lot) => lot.id === values.finishedProductLotId);
           return {
@@ -2066,6 +2089,38 @@ export default function Comercial() {
             >
               {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={fulfillDivergenceWarning.length > 0} onOpenChange={(open) => !open && setFulfillDivergenceWarning([])}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-600" />Saldos divergentes nos lotes</AlertDialogTitle>
+            <AlertDialogDescription>
+              Este atendimento deixará uma das medidas zerada e a outra com saldo disponível:
+              <span className="mt-3 block space-y-1">
+                {fulfillDivergenceWarning.map((lot) => (
+                  <span key={lot.lotCode} className="block font-medium text-gray-700">
+                    {lot.lotCode}: {lot.remainingQuantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} kg e {lot.remainingPieces.toLocaleString('pt-BR')} peças.
+                  </span>
+                ))}
+              </span>
+              Revise os valores antes de continuar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Revisar atendimento</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={saving}
+              className="bg-amber-600 hover:bg-amber-700"
+              onClick={() => {
+                setFulfillDivergenceWarning([]);
+                void handleFulfillOrder(true);
+              }}
+            >
+              {saving ? 'Registrando...' : 'Prosseguir mesmo assim'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

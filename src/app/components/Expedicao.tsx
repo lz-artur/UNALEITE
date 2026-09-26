@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Check, ClipboardList, History, Image as ImageIcon, Loader2, Package, Plus, Scale, Send, Trash2, Truck } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, ClipboardList, History, Image as ImageIcon, Loader2, Package, Plus, Scale, Send, Trash2, Truck } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -19,6 +19,7 @@ import {
   type SaleExpeditionSummary,
   type SalesOrderRecord,
 } from '../services/operationsApi';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
 
 const statusLabel: Record<SaleExpeditionSummary['status'], { text: string; className: string }> = {
   em_pesagem: { text: 'Em pesagem', className: 'bg-blue-50 text-blue-700' },
@@ -53,6 +54,7 @@ export default function Expedicao() {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [weighingForms, setWeighingForms] = useState<Record<string, { lotId: string; quantity: string; pieces: string; photo?: File }>>({});
+  const [confirmationWarning, setConfirmationWarning] = useState<Array<{ lotCode: string; remainingQuantity: number; remainingPieces: number }>>([]);
 
   const loadOverview = async () => {
     setLoading(true);
@@ -127,13 +129,36 @@ export default function Expedicao() {
     } finally { setWorking(false); }
   };
 
-  const confirm = async () => {
+  const confirm = async (confirmedDivergentBalances = false) => {
     if (!active) return;
     const total = active.order.items.reduce((sum, item) => sum + item.lines.reduce((lineTotal, line) => lineTotal + line.weighed_quantity, 0), 0);
     if (!total) { toast.error('Registre ao menos uma pesagem antes de confirmar a saída.'); return; }
+
+    const requestedByLot = new Map<string, { quantity: number; pieces: number }>();
+    for (const item of active.order.items) {
+      for (const line of item.lines) {
+        const current = requestedByLot.get(line.finished_product_lot_id) ?? { quantity: 0, pieces: 0 };
+        current.quantity += line.weighed_quantity;
+        current.pieces += line.weighed_pieces;
+        requestedByLot.set(line.finished_product_lot_id, current);
+      }
+    }
+    const divergentBalances = lots.flatMap((lot) => {
+      const requested = requestedByLot.get(lot.id);
+      if (!requested || lot.disponivelPecas == null) return [];
+      const remainingQuantity = lot.disponivel - requested.quantity;
+      const remainingPieces = lot.disponivelPecas - requested.pieces;
+      return (remainingQuantity === 0 && remainingPieces > 0) || (remainingPieces === 0 && remainingQuantity > 0)
+        ? [{ lotCode: lot.lote, remainingQuantity, remainingPieces }]
+        : [];
+    });
+    if (divergentBalances.length && !confirmedDivergentBalances) {
+      setConfirmationWarning(divergentBalances);
+      return;
+    }
     setWorking(true);
     try {
-      const expedition = await confirmSaleExpedition(active.id);
+      const expedition = await confirmSaleExpedition(active.id, confirmedDivergentBalances);
       setActive(expedition);
       await loadOverview();
       toast.success('Expedição conferida e estoque baixado. Finalize a venda no Comercial para gerar o contas a receber.');
@@ -172,6 +197,12 @@ export default function Expedicao() {
       })}</div>
       {active.logs.length > 0 && <section className="rounded-2xl border border-gray-200 bg-white p-4"><h2 className="mb-3 flex items-center gap-2 font-bold text-gray-900"><History className="h-5 w-5 text-blue-600" />Rastreio da expedição</h2>{active.logs.map((log) => <div key={log.id} className="mb-3 flex gap-3 text-sm"><span className="mt-1.5 h-2 w-2 rounded-full bg-blue-500" /><div><p className="font-medium text-gray-800">{log.actor_name} · {log.action.replaceAll('_', ' ')}</p><p className="text-xs text-gray-500">{dateTime(log.created_at)}</p></div></div>)}</section>}
       {editable && <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-gray-200 bg-white/95 p-3 backdrop-blur md:left-64"><button disabled={working || !totalWeighed} onClick={() => void confirm()} className="mx-auto flex h-12 w-full max-w-6xl items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-bold text-white disabled:opacity-50"><Send className="h-4 w-4" />{working ? 'Confirmando...' : 'Confirmar saída e baixar estoque'}</button></div>}
+      <AlertDialog open={confirmationWarning.length > 0} onOpenChange={(open) => !open && setConfirmationWarning([])}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-600" />Saldos divergentes nos lotes</AlertDialogTitle><AlertDialogDescription>Esta expedição deixará uma das medidas zerada e a outra com saldo disponível:{confirmationWarning.map((lot) => <span key={lot.lotCode} className="mt-2 block font-medium text-gray-700">{lot.lotCode}: {quantity(lot.remainingQuantity)} kg e {quantity(lot.remainingPieces)} peças.</span>)}<span className="mt-3 block">Revise os valores antes de continuar.</span></AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel disabled={working}>Revisar expedição</AlertDialogCancel><AlertDialogAction disabled={working} className="bg-amber-600 hover:bg-amber-700" onClick={() => { setConfirmationWarning([]); void confirm(true); }}>{working ? 'Confirmando...' : 'Prosseguir mesmo assim'}</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>;
   }
 
