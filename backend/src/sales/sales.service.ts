@@ -597,7 +597,12 @@ export class SalesService {
               lotCode: String(lot?.lot_code ?? '-'),
               quantity: Number(fulfillment.quantity),
               piecesQuantity: fulfillment.pieces_quantity == null ? null : Number(fulfillment.pieces_quantity),
-              returnedQuantity: alreadyReturned,
+              // Desde a migração 071 a devolução é vinculada ao atendimento
+              // específico. O fallback mantém o histórico anterior legível.
+              returnedQuantity: fulfillment.returned_quantity == null
+                ? alreadyReturned
+                : Number(fulfillment.returned_quantity),
+              returnedPieces: fulfillment.returned_pieces == null ? null : Number(fulfillment.returned_pieces),
               fulfilledAt: String(fulfillment.fulfilled_at),
               attendanceId: fulfillment.attendance_id ? String(fulfillment.attendance_id) : null,
             };

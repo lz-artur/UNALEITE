@@ -806,5 +806,51 @@ describe('SalesService', () => {
       expect(result.hasReturn).toBe(false);
       expect(result.items[0].fulfillments[0].returnedQuantity).toBe(0);
     });
+
+    it('should use the return quantity linked to each fulfillment', async () => {
+      const bundle = baseSalesBundle();
+      (bundle.fulfillments[0] as any).returned_quantity = 3;
+      // O histórico legado agrupa por lote; ele não pode mais fazer a mesma
+      // devolução aparecer em todos os atendimentos do lote.
+      bundle.salesReturns = [{
+        id: 'ret-1',
+        sales_order_id: 'order-1',
+        product_id: 'prod-1',
+        finished_product_lot_id: 'lot-1',
+        returned_quantity: 4,
+      }];
+
+      const tables = [
+        bundle.salesOrders,
+        bundle.salesOrderItems,
+        bundle.fulfillments,
+        bundle.clients,
+        bundle.finishedProducts,
+        bundle.finishedProductLots,
+        bundle.salesReturns,
+      ];
+      let tableIndex = 0;
+
+      supabaseMock.fromMock.mockImplementation(() => ({
+        select: jest.fn().mockImplementation(() => {
+          const data = tables[tableIndex] ?? [];
+          tableIndex++;
+          return Object.assign(Promise.resolve({ data, error: null }), {
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ data: [], error: null }),
+            }),
+          });
+        }),
+        update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
+        insert: jest.fn().mockResolvedValue({ data: null, error: null }),
+        delete: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
+        }),
+      }));
+
+      const result = await service.getSalesOrder('order-1');
+
+      expect(result.items[0].fulfillments[0].returnedQuantity).toBe(3);
+    });
   });
 });

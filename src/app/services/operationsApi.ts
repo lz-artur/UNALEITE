@@ -308,6 +308,7 @@ export interface SalesOrderItemFulfillmentRecord {
   quantity: number;
   piecesQuantity?: number | null;
   returnedQuantity?: number;
+  returnedPieces?: number | null;
   fulfilledAt: Date;
   attendanceId?: string | null;
 }
