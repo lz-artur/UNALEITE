@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, Check, ClipboardList, History, Image as ImageIcon, Loader2, Package, Plus, Scale, Send, Trash2, Truck } from 'lucide-react';
+import { ArrowLeft, Check, ClipboardList, History, Image as ImageIcon, Loader2, Package, Plus, Scale, Send, Trash2, Truck } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -199,7 +199,7 @@ export default function Expedicao() {
       {editable && <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-gray-200 bg-white/95 p-3 backdrop-blur md:left-64"><button disabled={working || !totalWeighed} onClick={() => void confirm()} className="mx-auto flex h-12 w-full max-w-6xl items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-bold text-white disabled:opacity-50"><Send className="h-4 w-4" />{working ? 'Confirmando...' : 'Confirmar saída e baixar estoque'}</button></div>}
       <AlertDialog open={confirmationWarning.length > 0} onOpenChange={(open) => !open && setConfirmationWarning([])}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-600" />Saldos divergentes nos lotes</AlertDialogTitle><AlertDialogDescription>Esta expedição deixará uma das medidas zerada e a outra com saldo disponível:{confirmationWarning.map((lot) => <span key={lot.lotCode} className="mt-2 block font-medium text-gray-700">{lot.lotCode}: {quantity(lot.remainingQuantity)} kg e {quantity(lot.remainingPieces)} peças.</span>)}<span className="mt-3 block">Revise os valores antes de continuar.</span></AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>Saldos divergentes nos lotes</AlertDialogTitle><AlertDialogDescription>Esta expedição deixará uma das medidas zerada e a outra com saldo disponível:{confirmationWarning.map((lot) => <span key={lot.lotCode} className="mt-2 block font-medium text-gray-700">{lot.lotCode}: {quantity(lot.remainingQuantity)} kg e {quantity(lot.remainingPieces)} peças.</span>)}<span className="mt-3 block">Revise os valores antes de continuar.</span></AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel disabled={working}>Revisar expedição</AlertDialogCancel><AlertDialogAction disabled={working} className="bg-amber-600 hover:bg-amber-700" onClick={() => { setConfirmationWarning([]); void confirm(true); }}>{working ? 'Confirmando...' : 'Prosseguir mesmo assim'}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -2097,7 +2097,7 @@ export default function Comercial() {
       <AlertDialog open={fulfillDivergenceWarning.length > 0} onOpenChange={(open) => !open && setFulfillDivergenceWarning([])}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-600" />Saldos divergentes nos lotes</AlertDialogTitle>
+            <AlertDialogTitle>Saldos divergentes nos lotes</AlertDialogTitle>
             <AlertDialogDescription>
               Este atendimento deixará uma das medidas zerada e a outra com saldo disponível:
               <span className="mt-3 block space-y-1">

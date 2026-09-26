@@ -1465,31 +1465,22 @@ export default function LotesEstoqueDetalhado() {
         );
       })()}
 
-      <AlertDialog open={Boolean(divergentExitWarning)} onOpenChange={(open) => !open && setDivergentExitWarning(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-600" />Saldos divergentes no lote</AlertDialogTitle>
-            <AlertDialogDescription>
-              A saída do lote <strong>{divergentExitWarning?.lotCode}</strong> deixará{' '}
-              <strong>{divergentExitWarning?.remainingQuantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} {divergentExitWarning?.unit}</strong>{' '}
-              e <strong>{divergentExitWarning?.remainingPieces.toLocaleString('pt-BR')} peças</strong> disponíveis. Revise os valores antes de continuar.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isExiting}>Revisar saída</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isExiting}
-              onClick={() => {
-                setDivergentExitWarning(null);
-                void submitExit(true);
-              }}
-              className="bg-amber-600 hover:bg-amber-700"
-            >
-              {isExiting ? 'Registrando...' : 'Prosseguir mesmo assim'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {divergentExitWarning ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="divergent-exit-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h3 id="divergent-exit-title" className="text-lg font-bold text-gray-900">Saldos divergentes no lote</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              A saída do lote <strong>{divergentExitWarning.lotCode}</strong> deixará{' '}
+              <strong>{divergentExitWarning.remainingQuantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} {divergentExitWarning.unit}</strong>{' '}
+              e <strong>{divergentExitWarning.remainingPieces.toLocaleString('pt-BR')} peças</strong> disponíveis. Revise os valores antes de continuar.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" disabled={isExiting} onClick={() => setDivergentExitWarning(null)} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50">Revisar saída</button>
+              <button type="button" disabled={isExiting} onClick={() => { setDivergentExitWarning(null); void submitExit(true); }} className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">{isExiting ? 'Registrando...' : 'Prosseguir mesmo assim'}</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {disposalLot && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
