@@ -215,21 +215,31 @@ export class ReportsService {
       let reprocessedQuantity = 0;
       for (const consumption of reprocessConsumptionsByOrder.get(orderId) ?? []) {
         const sourceLot = productLotMap.get(String(consumption.finished_product_lot_id));
+        const sourceProduct = sourceLot
+          ? productMap.get(String(sourceLot.product_id))
+          : undefined;
         const quantity = Number(consumption.quantity_consumed ?? 0);
         const sourceCost = sourceLot ? getProductLotCost(sourceLot) : this.emptyProductionCost();
         const unitCost = Number(sourceLot?.quantity_produced ?? 0) > 0
           ? sourceCost.totalCost / Number(sourceLot.quantity_produced)
           : 0;
         const value = quantity * unitCost;
-        reprocessingCost += value;
-        reprocessedQuantity += quantity;
+        const isCream = this.isCream(sourceProduct);
+
+        if (isCream) {
+          creamCost += value;
+          creamQuantity += quantity;
+        } else {
+          reprocessingCost += value;
+          reprocessedQuantity += quantity;
+        }
         inputs.push({
-          name: `Reprocessamento: ${String(sourceLot?.lot_code ?? 'lote não identificado')}`,
+          name: `${isCream ? 'Creme' : 'Reprocessamento'}: ${String(sourceLot?.lot_code ?? 'lote não identificado')}`,
           lotCode: String(sourceLot?.lot_code ?? '-'),
           quantity,
           unitCost,
           totalCost: value,
-          category: 'Reprocessamento',
+          category: isCream ? 'Creme' : 'Reprocessamento',
         });
       }
 

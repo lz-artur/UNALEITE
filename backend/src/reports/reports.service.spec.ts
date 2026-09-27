@@ -36,6 +36,43 @@ describe('ReportsService production costs', () => {
 
     expect(report.rows[0].milkCost).toBe(30);
   });
+
+  it('classifies a consumed cream product lot under cream costs', async () => {
+    const service = new ReportsService({} as SupabaseService);
+    const data: Record<string, any[]> = {
+      production_orders: [
+        { id: 'cream-order', order_number: 'OP-CREME', milk_lot_id: 'milk-lot', product_id: 'cream-product', liters_planned: 10, expected_yield: 10, status: 'Finalizada', started_at: '2026-08-01T12:00:00Z' },
+        { id: 'target-order', order_number: 'OP-DESTINO', milk_lot_id: 'milk-lot', product_id: 'target-product', liters_planned: 10, expected_yield: 10, status: 'Finalizada', started_at: '2026-08-02T12:00:00Z' },
+      ],
+      finished_products: [
+        { id: 'cream-product', name: 'Creme de leite' },
+        { id: 'target-product', name: 'Queijo' },
+      ],
+      milk_lots: [{ id: 'milk-lot', code: 'LT-1', cost_per_liter: 2 }],
+      production_order_milk_consumptions: [
+        { production_order_id: 'cream-order', milk_lot_id: 'milk-lot', liters_consumed: 10 },
+        { production_order_id: 'target-order', milk_lot_id: 'milk-lot', liters_consumed: 10 },
+      ],
+      milk_lot_pricing: [],
+      production_order_supply_consumptions: [],
+      supply_lots: [],
+      supply_items: [],
+      production_order_finished_product_consumptions: [
+        { production_order_id: 'target-order', finished_product_lot_id: 'cream-lot', quantity_consumed: 2 },
+      ],
+      finished_product_lots: [
+        { id: 'cream-lot', production_order_id: 'cream-order', product_id: 'cream-product', lot_code: 'CP-1', quantity_produced: 5 },
+        { id: 'target-lot', production_order_id: 'target-order', product_id: 'target-product', lot_code: 'PA-1', quantity_produced: 10 },
+      ],
+    };
+    jest.spyOn(service as any, 'selectMany').mockImplementation(async (...args: unknown[]) => data[String(args[0])] ?? []);
+
+    const report = await service.getProductionReport();
+    const targetRow = report.rows.find((row) => row.orderId === 'target-order');
+
+    expect(targetRow).toMatchObject({ creamQuantity: 2, creamCost: 8, reprocessedQuantity: 0, reprocessingCost: 0, totalCost: 28 });
+    expect(targetRow?.inputs).toContainEqual(expect.objectContaining({ category: 'Creme', totalCost: 8 }));
+  });
 });
 
 describe('ReportsService stock movements', () => {
