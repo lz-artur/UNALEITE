@@ -1073,7 +1073,7 @@ export default function Comercial() {
             <InputField label="CEP" type="text" value={clientForm.cep} onChange={(value) => setClientForm((current) => ({ ...current, cep: value }))} />
             <InputField label="Cidade" type="text" value={clientForm.city} onChange={(value) => setClientForm((current) => ({ ...current, city: value }))} />
             <InputField label="Código IBGE do município" type="text" value={clientForm.cityCode} onChange={(value) => setClientForm((current) => ({ ...current, cityCode: value }))} />
-            <InputField label="UF" type="text" value={clientForm.state} onChange={(value) => setClientForm((current) => ({ ...current, state: value }))} />
+            <label className="text-sm font-medium text-gray-700">UF<select value={clientForm.state.trim().toUpperCase()} onChange={(event) => setClientForm((current) => ({ ...current, state: event.target.value }))} className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 font-normal"><option value="">Selecione</option>{['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'].map((state) => <option key={state} value={state}>{state}</option>)}</select></label>
             <InputField label="Indicador IE (1, 2 ou 9)" type="text" value={clientForm.ieIndicator} onChange={(value) => setClientForm((current) => ({ ...current, ieIndicator: value }))} />
           </div>
           <div className="mt-4">

@@ -9,6 +9,11 @@ import { CreateClientDto } from './dto/create-client.dto';
 import { ListClientsDto } from './dto/list-clients.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 
+const BRAZILIAN_STATE_CODES = new Set([
+  'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG',
+  'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
+]);
+
 @Injectable()
 export class ClientsService {
   constructor(private readonly supabaseService: SupabaseService) {}
@@ -159,6 +164,9 @@ export class ClientsService {
     const normalizedDocument = payload.document
       ? this.normalizeDocument(payload.document)
       : undefined;
+    const normalizedState = payload.state !== undefined
+      ? this.normalizeState(payload.state)
+      : undefined;
 
     return {
       ...(payload.code !== undefined ? { code: payload.code || null } : {}),
@@ -177,7 +185,7 @@ export class ClientsService {
       ...(payload.cep !== undefined ? { cep: payload.cep || null } : {}),
       ...(payload.city !== undefined ? { city: payload.city || null } : {}),
       ...(payload.cityCode !== undefined ? { city_code: payload.cityCode || null } : {}),
-      ...(payload.state !== undefined ? { state: payload.state || null } : {}),
+      ...(normalizedState !== undefined ? { state: normalizedState || null } : {}),
       ...(payload.countryCode !== undefined ? { country_code: payload.countryCode || '1058' } : {}),
       ...(payload.countryName !== undefined ? { country_name: payload.countryName || 'Brasil' } : {}),
       ...(payload.ieIndicator !== undefined ? { ie_indicator: payload.ieIndicator || null } : {}),
@@ -208,6 +216,14 @@ export class ClientsService {
 
   private normalizeDocument(document: string) {
     return document.replace(/\D/g, '');
+  }
+
+  private normalizeState(state: string) {
+    const normalizedState = state.trim().toUpperCase();
+    if (normalizedState && !BRAZILIAN_STATE_CODES.has(normalizedState)) {
+      throw new BadRequestException('Informe uma UF válida usando a sigla de duas letras.');
+    }
+    return normalizedState;
   }
 
   /** A client is delinquent only when a receivable installment is overdue and still has a balance. */
