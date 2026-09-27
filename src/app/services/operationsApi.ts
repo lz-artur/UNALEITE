@@ -689,6 +689,33 @@ export interface SalesReportResponse {
   }>;
 }
 
+export interface StockMovementsReportResponse {
+  period: {
+    startDate: string | null;
+    endDate: string | null;
+  };
+  totals: {
+    movementsCount: number;
+    entriesCount: number;
+    exitsCount: number;
+    entriesQuantity: number;
+    exitsQuantity: number;
+  };
+  rows: Array<{
+    movementId: string;
+    occurredAt: string;
+    movementType: 'entrada' | 'saida' | string;
+    lotType: string;
+    itemName: string;
+    itemCode: string | null;
+    lotCode: string;
+    quantity: number;
+    piecesQuantity: number | null;
+    unitSymbol: string;
+    reference: string;
+  }>;
+}
+
 function mapAnalysis(row: any): AnaliseLaboral {
   return {
     id: row.id,
@@ -1853,6 +1880,21 @@ export async function loadPricingReport(filters?: {
   if (filters?.status) params.set('status', filters.status);
   const query = params.toString();
   return apiRequest<PricingReportResponse>(`/reports/pricing${query ? `?${query}` : ''}`);
+}
+
+export async function loadStockMovementsReport(filters?: {
+  startDate?: string;
+  endDate?: string;
+  movementType?: string;
+  lotType?: string;
+}) {
+  const params = new URLSearchParams();
+  if (filters?.startDate) params.set('startDate', filters.startDate);
+  if (filters?.endDate) params.set('endDate', filters.endDate);
+  if (filters?.movementType) params.set('movementType', filters.movementType);
+  if (filters?.lotType) params.set('lotType', filters.lotType);
+  const query = params.toString();
+  return apiRequest<StockMovementsReportResponse>(`/reports/stock-movements${query ? `?${query}` : ''}`);
 }
 
 export async function loadDreReport(filters?: {

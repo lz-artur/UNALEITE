@@ -27,6 +27,85 @@ type ProductionCostBreakdown = {
 export class ReportsService {
   constructor(private readonly supabaseService: SupabaseService) {}
 
+  async getStockMovementsReport(filters: ListReportsDto = {}) {
+    const [movements, supplyLots, supplyItems, finishedProductLots, finishedProducts, milkLots, units] = await Promise.all([
+      this.selectMany('stock_movements'),
+      this.selectMany('supply_lots'),
+      this.selectMany('supply_items'),
+      this.selectMany('finished_product_lots'),
+      this.selectMany('finished_products'),
+      this.selectMany('milk_lots'),
+      this.selectMany('units'),
+    ]);
+
+    const supplyLotById = new Map(supplyLots.map((lot) => [String(lot.id), lot]));
+    const supplyItemById = new Map(supplyItems.map((item) => [String(item.id), item]));
+    const productLotById = new Map(finishedProductLots.map((lot) => [String(lot.id), lot]));
+    const productById = new Map(finishedProducts.map((product) => [String(product.id), product]));
+    const milkLotById = new Map(milkLots.map((lot) => [String(lot.id), lot]));
+    const unitById = new Map(units.map((unit) => [String(unit.id), unit]));
+
+    const rows = movements
+      .filter((movement) => this.matchesPeriod(String(movement.created_at), filters))
+      .filter((movement) => !filters.movementType || movement.movement_type === filters.movementType)
+      .filter((movement) => !filters.lotType || movement.lot_type === filters.lotType)
+      .map((movement) => {
+        const lotId = String(movement.lot_id);
+        let itemName = 'Item não encontrado';
+        let itemCode: string | null = null;
+        let lotCode = '-';
+        let unitSymbol = '';
+
+        if (movement.lot_type === 'Insumo') {
+          const lot = supplyLotById.get(lotId);
+          const item = lot ? supplyItemById.get(String(lot.supply_item_id)) : undefined;
+          itemName = item?.name ?? itemName;
+          itemCode = item?.code ?? null;
+          lotCode = lot?.internal_lot_code ?? lotCode;
+          unitSymbol = item ? (unitById.get(String(item.unit_id))?.symbol ?? '') : '';
+        } else if (movement.lot_type === 'Produto Acabado') {
+          const lot = productLotById.get(lotId);
+          const product = lot ? productById.get(String(lot.product_id)) : undefined;
+          itemName = product?.name ?? itemName;
+          itemCode = product?.code ?? null;
+          lotCode = lot?.lot_code ?? lotCode;
+          unitSymbol = product ? (unitById.get(String(product.unit_id))?.symbol ?? '') : '';
+        } else if (movement.lot_type === 'Leite') {
+          const lot = milkLotById.get(lotId);
+          itemName = 'Leite cru';
+          lotCode = lot?.code ?? lotCode;
+          unitSymbol = 'L';
+        }
+
+        return {
+          movementId: String(movement.id),
+          occurredAt: String(movement.created_at),
+          movementType: String(movement.movement_type),
+          lotType: String(movement.lot_type),
+          itemName,
+          itemCode,
+          lotCode,
+          quantity: Number(movement.quantity ?? 0),
+          piecesQuantity: movement.pieces_quantity == null ? null : Number(movement.pieces_quantity),
+          unitSymbol,
+          reference: this.stockMovementReferenceLabel(movement.reference_table),
+        };
+      })
+      .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+
+    return {
+      period: this.period(filters),
+      totals: {
+        movementsCount: rows.length,
+        entriesCount: rows.filter((row) => row.movementType === 'entrada').length,
+        exitsCount: rows.filter((row) => row.movementType === 'saida').length,
+        entriesQuantity: rows.filter((row) => row.movementType === 'entrada').reduce((total, row) => total + row.quantity, 0),
+        exitsQuantity: rows.filter((row) => row.movementType === 'saida').reduce((total, row) => total + row.quantity, 0),
+      },
+      rows,
+    };
+  }
+
   async getProductionReport(filters: ListReportsDto = {}) {
     const [
       orders,
@@ -769,6 +848,21 @@ export class ReportsService {
 
   private salesReturnKey(salesOrderId: unknown, productId: unknown, productLotId: unknown) {
     return `${String(salesOrderId)}:${String(productId)}:${String(productLotId)}`;
+  }
+
+  private stockMovementReferenceLabel(referenceTable: unknown) {
+    const labels: Record<string, string> = {
+      purchases: 'Compra',
+      production_orders: 'Ordem de produção',
+      sales_order_fulfillments: 'Atendimento de venda',
+      sale_expeditions: 'Expedição de venda',
+      sales_returns: 'Devolução de venda',
+      warehouse_withdrawals: 'Retirada de almoxarifado',
+      finished_product_manual_exits: 'Saída manual',
+      expired_lot_disposals: 'Baixa de lote vencido',
+      inventory_count_items: 'Ajuste de inventário',
+    };
+    return labels[String(referenceTable)] ?? (referenceTable ? String(referenceTable) : 'Movimentação de estoque');
   }
 
 
