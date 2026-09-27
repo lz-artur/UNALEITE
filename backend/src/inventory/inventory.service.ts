@@ -774,13 +774,11 @@ export class InventoryService {
     const productById = new Map((products ?? []).map((product: any) => [product.id, product]));
     const lotById = new Map((lots ?? []).map((lot: any) => [lot.id, lot]));
     const weighingsByLine = new Map<string, any[]>();
-    const hydratedWeighings = await Promise.all((weighings ?? []).map(async (weighing: any) => {
-      if (!weighing.photo_url) return weighing;
-      const { data, error } = await this.supabaseService.admin.storage
-        .from('expedition-weighing-photos')
-        .createSignedUrl(weighing.photo_url, 300);
-      if (error) throw new BadRequestException('Não foi possível acessar a foto da pesagem.');
-      return { ...weighing, photo_url: data.signedUrl };
+    const hydratedWeighings = (weighings ?? []).map((weighing: any) => ({
+      ...weighing,
+      photo_url: weighing.photo_url
+        ? this.supabaseService.admin.storage.from('expedition-weighing-photos').getPublicUrl(weighing.photo_url).data.publicUrl
+        : null,
     }));
     hydratedWeighings.forEach((weighing: any) => {
       const collection = weighingsByLine.get(weighing.expedition_line_id) ?? [];

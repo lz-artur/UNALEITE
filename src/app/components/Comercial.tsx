@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { format } from 'date-fns';
-import { AlertTriangle, Loader2, Plus, ShoppingBag, Users, Trash2, Calendar, CalendarDays, FileText, User, X, Wallet, TrendingUp, History, CreditCard, Edit2 } from 'lucide-react';
+import { AlertTriangle, Image as ImageIcon, Loader2, Plus, ShoppingBag, Users, Trash2, Calendar, CalendarDays, FileText, User, X, Wallet, TrendingUp, History, CreditCard, Edit2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -446,6 +446,19 @@ export default function Comercial() {
       setShowFinalizeModal(true);
     } catch (error) { setErrorMessage(getErrorMessage(error)); }
     finally { setLoadingDetail(false); }
+  };
+
+  const openOrderDetails = async (salesOrderId: string) => {
+    setShowDetailModal(true);
+    setLoadingDetail(true);
+    setErrorMessage(null);
+    try {
+      setSelectedOrder(await loadSalesOrderDetail(salesOrderId));
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setLoadingDetail(false);
+    }
   };
 
   const openVarianceReview = async (salesOrderId: string) => {
@@ -931,10 +944,7 @@ export default function Comercial() {
                         <TableCell>
                           <div className="flex flex-wrap gap-2">
                             <button
-                              onClick={() => {
-                                setSelectedOrder(order);
-                                setShowDetailModal(true);
-                              }}
+                              onClick={() => void openOrderDetails(order.id)}
                               className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                             >
                               Detalhes
@@ -1842,6 +1852,31 @@ export default function Comercial() {
                 </div>
               )}
             </div>
+
+            <div className="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+              <div className="bg-gray-50/80 px-6 py-4 border-b border-gray-200 flex items-center gap-2">
+                <ImageIcon className="h-5 w-5 text-gray-500" />
+                <h4 className="font-semibold text-gray-800">Anexos de Pesagem</h4>
+              </div>
+              {loadingDetail ? (
+                <div className="p-10 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-blue-600" /></div>
+              ) : selectedOrder.weighingPhotos.length === 0 ? (
+                <div className="p-10 text-center text-sm text-gray-500">Nenhuma foto de pesagem disponível para este pedido.</div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
+                  {selectedOrder.weighingPhotos.map((photo) => (
+                    <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-lg border border-gray-200 bg-white transition-shadow hover:shadow-md" title="Abrir foto em tamanho completo">
+                      <img src={photo.url} alt={`Pesagem de ${photo.productName}`} className="h-40 w-full bg-gray-100 object-cover" loading="lazy" />
+                      <div className="p-3">
+                        <p className="truncate text-sm font-semibold text-gray-900">{photo.productName}</p>
+                        <p className="mt-1 text-xs text-gray-500">{photo.quantity.toLocaleString('pt-BR')} kg{photo.piecesQuantity != null ? ` · ${photo.piecesQuantity.toLocaleString('pt-BR')} peças` : ''}</p>
+                        <p className="mt-1 text-xs text-gray-500">{photo.lotCode ? `${photo.lotCode} · ` : ''}{photo.weighedAt.toLocaleString('pt-BR')}</p>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </ModalShell>
       ) : null}
@@ -2046,7 +2081,7 @@ export default function Comercial() {
                           <tr><td colSpan={5} className="py-12 text-center text-gray-500 font-medium">Nenhum pedido encontrado para este cliente.</td></tr>
                         ) : (
                           clientOrders.sort((a, b) => b.orderDate.getTime() - a.orderDate.getTime()).map(order => (
-                            <tr key={order.id} className="hover:bg-blue-50/50 transition-colors cursor-pointer" onClick={() => { setSelectedOrder(order); setShowDetailModal(true); }}>
+                            <tr key={order.id} className="hover:bg-blue-50/50 transition-colors cursor-pointer" onClick={() => void openOrderDetails(order.id)}>
                               <TableCell className="font-bold text-gray-900">{order.number}</TableCell>
                               <TableCell className="text-gray-600">{format(order.orderDate, 'dd/MM/yyyy')}</TableCell>
                               <TableCell className="text-gray-600">{format(order.dueDate, 'dd/MM/yyyy')}</TableCell>

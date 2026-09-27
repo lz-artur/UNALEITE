@@ -37,7 +37,11 @@ export class SalesService {
       throw new NotFoundException('Pedido de venda não encontrado');
     }
 
-    return this.hydrateSalesOrder(order, payload);
+    const hydratedOrder = this.hydrateSalesOrder(order, payload);
+    return {
+      ...hydratedOrder,
+      weighingPhotos: await this.loadOrderWeighingPhotos(id, hydratedOrder.items),
+    };
   }
 
   async createSalesOrder(payload: CreateSalesOrderDto, user?: AuthenticatedUser) {
@@ -680,10 +684,56 @@ export class SalesService {
       hasReturn: Boolean(salesOrder.has_return),
       items,
       attendances,
+      weighingPhotos: [],
       totalFulfilled,
       remainingAmount,
       fulfilledPercent: Number(fulfilledPercent.toFixed(2)),
     };
+  }
+
+  private async loadOrderWeighingPhotos(
+    salesOrderId: string,
+    items: Array<{ id: string; productName: string }>,
+  ) {
+    const { data: expeditions, error: expeditionError } = await this.supabaseService.admin
+      .from('sale_expeditions')
+      .select('id')
+      .eq('sales_order_id', salesOrderId);
+    if (expeditionError) throw new BadRequestException(expeditionError.message);
+
+    const expeditionIds = (expeditions ?? []).map((expedition: any) => String(expedition.id));
+    if (!expeditionIds.length) return [];
+    const { data: lines, error: lineError } = await this.supabaseService.admin
+      .from('sale_expedition_lines')
+      .select('id, sales_order_item_id, finished_product_lot_id')
+      .in('expedition_id', expeditionIds);
+    if (lineError) throw new BadRequestException(lineError.message);
+
+    const lineIds = (lines ?? []).map((line: any) => String(line.id));
+    if (!lineIds.length) return [];
+    const lineById = new Map((lines ?? []).map((line: any) => [String(line.id), line]));
+    const itemById = new Map(items.map((item) => [item.id, item]));
+    const lotIds = [...new Set((lines ?? []).map((line: any) => String(line.finished_product_lot_id)))];
+    const [{ data: weighings, error: weighingError }, { data: lots, error: lotError }] = await Promise.all([
+      this.supabaseService.admin.from('sale_expedition_weighings').select('id, expedition_line_id, quantity, pieces_quantity, photo_url, weighed_at').in('expedition_line_id', lineIds).not('photo_url', 'is', null).order('weighed_at', { ascending: false }),
+      lotIds.length ? this.supabaseService.admin.from('finished_product_lots').select('id, lot_code').in('id', lotIds) : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (weighingError || lotError) throw new BadRequestException(weighingError?.message || lotError?.message || 'Não foi possível carregar as fotos de pesagem.');
+
+    const lotById = new Map((lots ?? []).map((lot: any) => [String(lot.id), lot]));
+    return (weighings ?? []).map((weighing: any) => {
+      const line = lineById.get(String(weighing.expedition_line_id));
+      const item = line ? itemById.get(String(line.sales_order_item_id)) : undefined;
+      return {
+        id: String(weighing.id),
+        url: this.supabaseService.admin.storage.from('expedition-weighing-photos').getPublicUrl(String(weighing.photo_url)).data.publicUrl,
+        weighedAt: String(weighing.weighed_at),
+        quantity: Number(weighing.quantity),
+        piecesQuantity: weighing.pieces_quantity == null ? null : Number(weighing.pieces_quantity),
+        productName: item?.productName ?? 'Produto',
+        lotCode: line ? String(lotById.get(String(line.finished_product_lot_id))?.lot_code ?? '') : '',
+      };
+    });
   }
 
   private matchesFilters(

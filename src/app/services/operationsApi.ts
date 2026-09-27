@@ -346,6 +346,16 @@ export interface AttendanceRecord {
   items: AttendanceItemRecord[];
 }
 
+export interface SalesOrderWeighingPhotoRecord {
+  id: string;
+  url: string;
+  weighedAt: Date;
+  quantity: number;
+  piecesQuantity?: number | null;
+  productName: string;
+  lotCode?: string;
+}
+
 export interface SalesOrderRecord {
   id: string;
   number: string;
@@ -361,6 +371,7 @@ export interface SalesOrderRecord {
   hasReturn?: boolean;
   items: SalesOrderItemRecord[];
   attendances: AttendanceRecord[];
+  weighingPhotos: SalesOrderWeighingPhotoRecord[];
   totalFulfilled: number;
   remainingAmount: number;
   fulfilledPercent: number;
@@ -965,6 +976,15 @@ function mapSalesOrder(row: any): SalesOrderRecord {
         unitPrice: Number(ai.unitPrice),
         totalValue: Number(ai.totalValue),
       })),
+    })),
+    weighingPhotos: (row.weighingPhotos ?? []).map((photo: any) => ({
+      id: photo.id,
+      url: photo.url,
+      weighedAt: new Date(photo.weighedAt),
+      quantity: Number(photo.quantity),
+      piecesQuantity: photo.piecesQuantity != null ? Number(photo.piecesQuantity) : undefined,
+      productName: photo.productName,
+      lotCode: photo.lotCode ?? undefined,
     })),
     totalFulfilled: Number(row.totalFulfilled ?? 0),
     remainingAmount: Number(row.remainingAmount ?? 0),
