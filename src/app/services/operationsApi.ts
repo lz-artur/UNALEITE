@@ -308,6 +308,7 @@ export interface SalesOrderItemFulfillmentRecord {
   quantity: number;
   piecesQuantity?: number | null;
   returnedQuantity?: number;
+  returnedPieces?: number | null;
   fulfilledAt: Date;
   attendanceId?: string | null;
 }
@@ -345,6 +346,16 @@ export interface AttendanceRecord {
   items: AttendanceItemRecord[];
 }
 
+export interface SalesOrderWeighingPhotoRecord {
+  id: string;
+  url: string;
+  weighedAt: Date;
+  quantity: number;
+  piecesQuantity?: number | null;
+  productName: string;
+  lotCode?: string;
+}
+
 export interface SalesOrderRecord {
   id: string;
   number: string;
@@ -360,6 +371,7 @@ export interface SalesOrderRecord {
   hasReturn?: boolean;
   items: SalesOrderItemRecord[];
   attendances: AttendanceRecord[];
+  weighingPhotos: SalesOrderWeighingPhotoRecord[];
   totalFulfilled: number;
   remainingAmount: number;
   fulfilledPercent: number;
@@ -688,6 +700,33 @@ export interface SalesReportResponse {
   }>;
 }
 
+export interface StockMovementsReportResponse {
+  period: {
+    startDate: string | null;
+    endDate: string | null;
+  };
+  totals: {
+    movementsCount: number;
+    entriesCount: number;
+    exitsCount: number;
+    entriesQuantity: number;
+    exitsQuantity: number;
+  };
+  rows: Array<{
+    movementId: string;
+    occurredAt: string;
+    movementType: 'entrada' | 'saida' | string;
+    lotType: string;
+    itemName: string;
+    itemCode: string | null;
+    lotCode: string;
+    quantity: number;
+    piecesQuantity: number | null;
+    unitSymbol: string;
+    reference: string;
+  }>;
+}
+
 function mapAnalysis(row: any): AnaliseLaboral {
   return {
     id: row.id,
@@ -937,6 +976,15 @@ function mapSalesOrder(row: any): SalesOrderRecord {
         unitPrice: Number(ai.unitPrice),
         totalValue: Number(ai.totalValue),
       })),
+    })),
+    weighingPhotos: (row.weighingPhotos ?? []).map((photo: any) => ({
+      id: photo.id,
+      url: photo.url,
+      weighedAt: new Date(photo.weighedAt),
+      quantity: Number(photo.quantity),
+      piecesQuantity: photo.piecesQuantity != null ? Number(photo.piecesQuantity) : undefined,
+      productName: photo.productName,
+      lotCode: photo.lotCode ?? undefined,
     })),
     totalFulfilled: Number(row.totalFulfilled ?? 0),
     remainingAmount: Number(row.remainingAmount ?? 0),
@@ -1451,8 +1499,8 @@ export function deleteExpeditionWeighing(expeditionId: string, weighingId: strin
   return apiRequest<SaleExpedition>(`/inventory/expeditions/${expeditionId}/weighings/${weighingId}`, { method: 'DELETE' });
 }
 
-export function confirmSaleExpedition(expeditionId: string): Promise<SaleExpedition> {
-  return apiRequest<SaleExpedition>(`/inventory/expeditions/${expeditionId}/confirm`, { method: 'POST', body: JSON.stringify({}) });
+export function confirmSaleExpedition(expeditionId: string, confirmedDivergentBalances = false): Promise<SaleExpedition> {
+  return apiRequest<SaleExpedition>(`/inventory/expeditions/${expeditionId}/confirm`, { method: 'POST', body: JSON.stringify({ confirmedDivergentBalances }) });
 }
 
 export function reviewExpeditionVariance(salesOrderId: string, decision: 'aceita' | 'recusada', note?: string): Promise<SalesOrderRecord> {
@@ -1854,6 +1902,21 @@ export async function loadPricingReport(filters?: {
   return apiRequest<PricingReportResponse>(`/reports/pricing${query ? `?${query}` : ''}`);
 }
 
+export async function loadStockMovementsReport(filters?: {
+  startDate?: string;
+  endDate?: string;
+  movementType?: string;
+  lotType?: string;
+}) {
+  const params = new URLSearchParams();
+  if (filters?.startDate) params.set('startDate', filters.startDate);
+  if (filters?.endDate) params.set('endDate', filters.endDate);
+  if (filters?.movementType) params.set('movementType', filters.movementType);
+  if (filters?.lotType) params.set('lotType', filters.lotType);
+  const query = params.toString();
+  return apiRequest<StockMovementsReportResponse>(`/reports/stock-movements${query ? `?${query}` : ''}`);
+}
+
 export async function loadDreReport(filters?: {
   startDate?: string;
   endDate?: string;
@@ -2077,6 +2140,7 @@ export async function fulfillSalesOrder(payload: {
   installments?: number;
   installmentEntries?: Array<{ amount: number; dueDate: string }>;
   bankAccountId: string;
+  confirmedDivergentBalances?: boolean;
   items: Array<{
     salesOrderItemId: string;
     finishedProductLotId: string;
@@ -2094,6 +2158,7 @@ export async function fulfillSalesOrder(payload: {
       installments: payload.installments,
       installmentEntries: payload.installmentEntries,
       bankAccountId: payload.bankAccountId,
+      confirmedDivergentBalances: payload.confirmedDivergentBalances,
       items: payload.items,
       notes: payload.notes,
     }),
@@ -2199,6 +2264,7 @@ export async function createManualProductExit(payload: {
   reason: string;
   notes?: string;
   exitDate?: string;
+  confirmedDivergentBalances?: boolean;
 }) {
   return apiRequest<{ success: boolean; exitRecord: any }>('/inventory/manual-exits', {
     method: 'POST',

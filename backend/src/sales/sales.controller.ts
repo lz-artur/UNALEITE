@@ -13,7 +13,7 @@ import { ReviewExpeditionVarianceDto } from './dto/review-expedition-variance.dt
 
 @ApiTags('sales-orders')
 @ApiBearerAuth()
-// @UseGuards(SupabaseAuthGuard)
+@UseGuards(SupabaseAuthGuard)
 @Controller('sales-orders')
 export class SalesController {
   constructor(private readonly salesService: SalesService) {}

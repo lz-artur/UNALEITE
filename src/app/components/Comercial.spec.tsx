@@ -72,6 +72,7 @@ vi.mock('lucide-react', () => ({
   ArrowDownRight: (props: any) => React.createElement('span', { ...props, 'data-testid': 'arrow-down-right' }),
   ArrowUpRight: (props: any) => React.createElement('span', { ...props, 'data-testid': 'arrow-up-right' }),
   AlertCircle: (props: any) => React.createElement('span', { ...props, 'data-testid': 'alert-circle' }),
+  AlertTriangle: (props: any) => React.createElement('span', { ...props, 'data-testid': 'alert-triangle' }),
   CheckCircle: (props: any) => React.createElement('span', { ...props, 'data-testid': 'check-circle' }),
   Clock: (props: any) => React.createElement('span', { ...props, 'data-testid': 'clock-icon' }),
   XCircle: (props: any) => React.createElement('span', { ...props, 'data-testid': 'x-circle' }),

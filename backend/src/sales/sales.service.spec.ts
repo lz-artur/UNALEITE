@@ -205,6 +205,9 @@ describe('SalesService', () => {
   describe('fulfillSalesOrder', () => {
     it('should call create_sale_attendance rpc successfully', async () => {
       supabaseMock.rpcMock.mockResolvedValue({ data: 'new-attendance-id', error: null });
+      supabaseMock.selectMock.mockReturnValueOnce({
+        in: jest.fn().mockResolvedValue({ data: [{ id: 'lot-1', available_quantity: 10, available_pieces: null }], error: null }),
+      });
       jest.spyOn(service, 'getSalesOrder').mockImplementation(() => Promise.resolve({} as any));
 
       const payload = {
@@ -237,6 +240,9 @@ describe('SalesService', () => {
 
     it('should throw BadRequestException if rpc fails', async () => {
       supabaseMock.rpcMock.mockResolvedValue({ data: null, error: { message: 'Erro no banco' } });
+      supabaseMock.selectMock.mockReturnValueOnce({
+        in: jest.fn().mockResolvedValue({ data: [{ id: 'lot-1', available_quantity: 10, available_pieces: null }], error: null }),
+      });
 
       const payload = {
         idempotencyKey: 'test-key',
@@ -250,6 +256,19 @@ describe('SalesService', () => {
       };
 
       await expect(service.fulfillSalesOrder('order-1', payload)).rejects.toThrow('Erro no banco');
+    });
+
+    it('should require confirmation when an attendance leaves only pieces or only weight', async () => {
+      supabaseMock.selectMock.mockReturnValueOnce({
+        in: jest.fn().mockResolvedValue({ data: [{ id: 'lot-1', lot_code: 'L-01', available_quantity: 10, available_pieces: 4 }], error: null }),
+      });
+
+      await expect(service.fulfillSalesOrder('order-1', {
+        idempotencyKey: 'test-key', paymentMethod: 'Pix', bankAccountId: '00000000-0000-4000-8000-000000000002',
+        items: [{ salesOrderItemId: 'item-1', finishedProductLotId: 'lot-1', quantity: 10, piecesQuantity: 3 }],
+      } as any)).rejects.toThrow('saldo apenas de peso ou apenas de peças');
+
+      expect(supabaseMock.rpcMock).not.toHaveBeenCalled();
     });
 
     it('should reject an attendance without a payment method', async () => {
@@ -786,6 +805,52 @@ describe('SalesService', () => {
 
       expect(result.hasReturn).toBe(false);
       expect(result.items[0].fulfillments[0].returnedQuantity).toBe(0);
+    });
+
+    it('should use the return quantity linked to each fulfillment', async () => {
+      const bundle = baseSalesBundle();
+      (bundle.fulfillments[0] as any).returned_quantity = 3;
+      // O histórico legado agrupa por lote; ele não pode mais fazer a mesma
+      // devolução aparecer em todos os atendimentos do lote.
+      bundle.salesReturns = [{
+        id: 'ret-1',
+        sales_order_id: 'order-1',
+        product_id: 'prod-1',
+        finished_product_lot_id: 'lot-1',
+        returned_quantity: 4,
+      }];
+
+      const tables = [
+        bundle.salesOrders,
+        bundle.salesOrderItems,
+        bundle.fulfillments,
+        bundle.clients,
+        bundle.finishedProducts,
+        bundle.finishedProductLots,
+        bundle.salesReturns,
+      ];
+      let tableIndex = 0;
+
+      supabaseMock.fromMock.mockImplementation(() => ({
+        select: jest.fn().mockImplementation(() => {
+          const data = tables[tableIndex] ?? [];
+          tableIndex++;
+          return Object.assign(Promise.resolve({ data, error: null }), {
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ data: [], error: null }),
+            }),
+          });
+        }),
+        update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
+        insert: jest.fn().mockResolvedValue({ data: null, error: null }),
+        delete: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
+        }),
+      }));
+
+      const result = await service.getSalesOrder('order-1');
+
+      expect(result.items[0].fulfillments[0].returnedQuantity).toBe(3);
     });
   });
 });

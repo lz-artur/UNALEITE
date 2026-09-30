@@ -82,6 +82,7 @@ export default function LotesEstoqueDetalhado() {
  const [exitReason, setExitReason] = useState('Doação');
  const [exitNotes, setExitNotes] = useState('');
  const [isExiting, setIsExiting] = useState(false);
+ const [divergentExitWarning, setDivergentExitWarning] = useState<{ lotCode: string; remainingQuantity: number; remainingPieces: number; unit: string } | null>(null);
  const [disposals, setDisposals] = useState<ExpiredLotDisposal[]>([]);
  const [disposalLot, setDisposalLot] = useState<{ id: string; type: 'Insumo' | 'Produto Acabado'; name: string; code: string; quantity: number; unit: string } | null>(null);
  const [disposalQuantity, setDisposalQuantity] = useState('');
@@ -275,8 +276,7 @@ export default function LotesEstoqueDetalhado() {
     }
   };
 
-  const handleExitSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+ const submitExit = async (confirmedDivergentBalances = false) => {
     if (!exitLotId || !exitQuantity) return;
 
     setIsExiting(true);
@@ -289,6 +289,7 @@ export default function LotesEstoqueDetalhado() {
         pieces: exitPieces ? Number(exitPieces) : undefined,
         reason: exitReason,
         notes: exitNotes,
+        confirmedDivergentBalances,
       });
 
       setExitModalOpen(false);
@@ -303,6 +304,34 @@ export default function LotesEstoqueDetalhado() {
     } finally {
       setIsExiting(false);
     }
+  };
+
+ const handleExitSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!exitLotId || !exitQuantity) return;
+
+    const lot = estoquesProdutos.find((item) => item.id === exitLotId);
+    const pieces = Number(exitPieces);
+    if (lot?.disponivelPecas != null && Number.isFinite(pieces)) {
+      const remainingQuantity = lot.disponivel - Number(exitQuantity);
+      const remainingPieces = lot.disponivelPecas - pieces;
+      const leavesOnlyOneBalance =
+        (remainingQuantity === 0 && remainingPieces > 0) ||
+        (remainingPieces === 0 && remainingQuantity > 0);
+
+      if (leavesOnlyOneBalance) {
+        const product = getFinishedProductById(lot.produtoId);
+        setDivergentExitWarning({
+          lotCode: lot.lote,
+          remainingQuantity,
+          remainingPieces,
+          unit: getUnitSymbol(product?.unitId),
+        });
+        return;
+      }
+    }
+
+    void submitExit();
   };
 
  const getAnaliseByLoteId = (loteId: string) => analises.find((analise) => analise.loteId === loteId);
@@ -1435,6 +1464,23 @@ export default function LotesEstoqueDetalhado() {
         </div>
         );
       })()}
+
+      {divergentExitWarning ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="divergent-exit-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h3 id="divergent-exit-title" className="text-lg font-bold text-gray-900">Saldos divergentes no lote</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              A saída do lote <strong>{divergentExitWarning.lotCode}</strong> deixará{' '}
+              <strong>{divergentExitWarning.remainingQuantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} {divergentExitWarning.unit}</strong>{' '}
+              e <strong>{divergentExitWarning.remainingPieces.toLocaleString('pt-BR')} peças</strong> disponíveis. Revise os valores antes de continuar.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" disabled={isExiting} onClick={() => setDivergentExitWarning(null)} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50">Revisar saída</button>
+              <button type="button" disabled={isExiting} onClick={() => { setDivergentExitWarning(null); void submitExit(true); }} className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">{isExiting ? 'Registrando...' : 'Prosseguir mesmo assim'}</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {disposalLot && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

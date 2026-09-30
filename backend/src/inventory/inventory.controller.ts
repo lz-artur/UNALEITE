@@ -189,9 +189,10 @@ export class InventoryController {
   @Post('expeditions/:expeditionId/confirm')
   confirmExpedition(
     @Param('expeditionId') expeditionId: string,
+    @Body() payload: { confirmedDivergentBalances?: boolean },
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.inventoryService.confirmSaleExpedition(expeditionId, user);
+    return this.inventoryService.confirmSaleExpedition(expeditionId, user, payload.confirmedDivergentBalances === true);
   }
 
   @Get('expeditions/:expeditionId')

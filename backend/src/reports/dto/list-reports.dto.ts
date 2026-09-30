@@ -27,5 +27,13 @@ export class ListReportsDto {
 
   @IsOptional()
   @IsString()
+  movementType?: string;
+
+  @IsOptional()
+  @IsString()
+  lotType?: string;
+
+  @IsOptional()
+  @IsString()
   basis?: 'cash' | 'accrual';
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { format } from 'date-fns';
-import { AlertTriangle, Loader2, Plus, ShoppingBag, Users, Trash2, Calendar, CalendarDays, FileText, User, X, Wallet, TrendingUp, History, CreditCard, Edit2 } from 'lucide-react';
+import { AlertTriangle, Image as ImageIcon, Loader2, Plus, ShoppingBag, Users, Trash2, Calendar, CalendarDays, FileText, User, X, Wallet, TrendingUp, History, CreditCard, Edit2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -68,6 +68,7 @@ export default function Comercial() {
   const [showClientModal, setShowClientModal] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showFulfillModal, setShowFulfillModal] = useState(false);
+  const [fulfillDivergenceWarning, setFulfillDivergenceWarning] = useState<Array<{ lotCode: string; remainingQuantity: number; remainingPieces: number }>>([]);
   const [showFinalizeModal, setShowFinalizeModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [varianceExpedition, setVarianceExpedition] = useState<SaleExpedition | null>(null);
@@ -447,6 +448,19 @@ export default function Comercial() {
     finally { setLoadingDetail(false); }
   };
 
+  const openOrderDetails = async (salesOrderId: string) => {
+    setShowDetailModal(true);
+    setLoadingDetail(true);
+    setErrorMessage(null);
+    try {
+      setSelectedOrder(await loadSalesOrderDetail(salesOrderId));
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setLoadingDetail(false);
+    }
+  };
+
   const openVarianceReview = async (salesOrderId: string) => {
     setLoadingDetail(true);
     try {
@@ -493,7 +507,7 @@ export default function Comercial() {
     finally { setSaving(false); }
   };
 
-  const handleFulfillOrder = async () => {
+  const handleFulfillOrder = async (confirmedDivergentBalances = false) => {
     if (!selectedOrder) {
       return;
     }
@@ -542,6 +556,27 @@ export default function Comercial() {
       return;
     }
 
+    const requestedByLot = new Map<string, { quantity: number; pieces: number }>();
+    for (const { values } of items) {
+      const current = requestedByLot.get(values.finishedProductLotId) ?? { quantity: 0, pieces: 0 };
+      current.quantity += Number(values.quantity);
+      current.pieces += Number(values.pieces || 0);
+      requestedByLot.set(values.finishedProductLotId, current);
+    }
+    const divergentBalances = finishedLots.flatMap((lot) => {
+      const requested = requestedByLot.get(lot.id);
+      if (!requested || lot.disponivelPecas == null) return [];
+      const remainingQuantity = lot.disponivel - requested.quantity;
+      const remainingPieces = lot.disponivelPecas - requested.pieces;
+      return (remainingQuantity === 0 && remainingPieces > 0) || (remainingPieces === 0 && remainingQuantity > 0)
+        ? [{ lotCode: lot.lote, remainingQuantity, remainingPieces }]
+        : [];
+    });
+    if (divergentBalances.length > 0 && !confirmedDivergentBalances) {
+      setFulfillDivergenceWarning(divergentBalances);
+      return;
+    }
+
     setSaving(true);
     setErrorMessage(null);
 
@@ -559,6 +594,7 @@ export default function Comercial() {
             }))
           : undefined,
         bankAccountId: fulfillForm.bankAccountId,
+        confirmedDivergentBalances,
         items: items.map(({ item, values }) => {
           const selectedLot = finishedLots.find((lot) => lot.id === values.finishedProductLotId);
           return {
@@ -908,10 +944,7 @@ export default function Comercial() {
                         <TableCell>
                           <div className="flex flex-wrap gap-2">
                             <button
-                              onClick={() => {
-                                setSelectedOrder(order);
-                                setShowDetailModal(true);
-                              }}
+                              onClick={() => void openOrderDetails(order.id)}
                               className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                             >
                               Detalhes
@@ -1050,7 +1083,7 @@ export default function Comercial() {
             <InputField label="CEP" type="text" value={clientForm.cep} onChange={(value) => setClientForm((current) => ({ ...current, cep: value }))} />
             <InputField label="Cidade" type="text" value={clientForm.city} onChange={(value) => setClientForm((current) => ({ ...current, city: value }))} />
             <InputField label="Código IBGE do município" type="text" value={clientForm.cityCode} onChange={(value) => setClientForm((current) => ({ ...current, cityCode: value }))} />
-            <InputField label="UF" type="text" value={clientForm.state} onChange={(value) => setClientForm((current) => ({ ...current, state: value }))} />
+            <label className="text-sm font-medium text-gray-700">UF<select value={clientForm.state.trim().toUpperCase()} onChange={(event) => setClientForm((current) => ({ ...current, state: event.target.value }))} className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 font-normal"><option value="">Selecione</option>{['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'].map((state) => <option key={state} value={state}>{state}</option>)}</select></label>
             <InputField label="Indicador IE (1, 2 ou 9)" type="text" value={clientForm.ieIndicator} onChange={(value) => setClientForm((current) => ({ ...current, ieIndicator: value }))} />
           </div>
           <div className="mt-4">
@@ -1819,6 +1852,31 @@ export default function Comercial() {
                 </div>
               )}
             </div>
+
+            <div className="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+              <div className="bg-gray-50/80 px-6 py-4 border-b border-gray-200 flex items-center gap-2">
+                <ImageIcon className="h-5 w-5 text-gray-500" />
+                <h4 className="font-semibold text-gray-800">Anexos de Pesagem</h4>
+              </div>
+              {loadingDetail ? (
+                <div className="p-10 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-blue-600" /></div>
+              ) : selectedOrder.weighingPhotos.length === 0 ? (
+                <div className="p-10 text-center text-sm text-gray-500">Nenhuma foto de pesagem disponível para este pedido.</div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
+                  {selectedOrder.weighingPhotos.map((photo) => (
+                    <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-lg border border-gray-200 bg-white transition-shadow hover:shadow-md" title="Abrir foto em tamanho completo">
+                      <img src={photo.url} alt={`Pesagem de ${photo.productName}`} className="h-40 w-full bg-gray-100 object-cover" loading="lazy" />
+                      <div className="p-3">
+                        <p className="truncate text-sm font-semibold text-gray-900">{photo.productName}</p>
+                        <p className="mt-1 text-xs text-gray-500">{photo.quantity.toLocaleString('pt-BR')} kg{photo.piecesQuantity != null ? ` · ${photo.piecesQuantity.toLocaleString('pt-BR')} peças` : ''}</p>
+                        <p className="mt-1 text-xs text-gray-500">{photo.lotCode ? `${photo.lotCode} · ` : ''}{photo.weighedAt.toLocaleString('pt-BR')}</p>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </ModalShell>
       ) : null}
@@ -2023,7 +2081,7 @@ export default function Comercial() {
                           <tr><td colSpan={5} className="py-12 text-center text-gray-500 font-medium">Nenhum pedido encontrado para este cliente.</td></tr>
                         ) : (
                           clientOrders.sort((a, b) => b.orderDate.getTime() - a.orderDate.getTime()).map(order => (
-                            <tr key={order.id} className="hover:bg-blue-50/50 transition-colors cursor-pointer" onClick={() => { setSelectedOrder(order); setShowDetailModal(true); }}>
+                            <tr key={order.id} className="hover:bg-blue-50/50 transition-colors cursor-pointer" onClick={() => void openOrderDetails(order.id)}>
                               <TableCell className="font-bold text-gray-900">{order.number}</TableCell>
                               <TableCell className="text-gray-600">{format(order.orderDate, 'dd/MM/yyyy')}</TableCell>
                               <TableCell className="text-gray-600">{format(order.dueDate, 'dd/MM/yyyy')}</TableCell>
@@ -2066,6 +2124,38 @@ export default function Comercial() {
             >
               {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={fulfillDivergenceWarning.length > 0} onOpenChange={(open) => !open && setFulfillDivergenceWarning([])}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Saldos divergentes nos lotes</AlertDialogTitle>
+            <AlertDialogDescription>
+              Este atendimento deixará uma das medidas zerada e a outra com saldo disponível:
+              <span className="mt-3 block space-y-1">
+                {fulfillDivergenceWarning.map((lot) => (
+                  <span key={lot.lotCode} className="block font-medium text-gray-700">
+                    {lot.lotCode}: {lot.remainingQuantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} kg e {lot.remainingPieces.toLocaleString('pt-BR')} peças.
+                  </span>
+                ))}
+              </span>
+              Revise os valores antes de continuar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Revisar atendimento</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={saving}
+              className="bg-amber-600 hover:bg-amber-700"
+              onClick={() => {
+                setFulfillDivergenceWarning([]);
+                void handleFulfillOrder(true);
+              }}
+            >
+              {saving ? 'Registrando...' : 'Prosseguir mesmo assim'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

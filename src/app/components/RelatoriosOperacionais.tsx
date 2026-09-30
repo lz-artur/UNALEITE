@@ -7,13 +7,15 @@ import {
   loadProductionReport,
   loadQualityReport,
   loadSalesReport,
+  loadStockMovementsReport,
   type PricingReportResponse,
   type ProductionReportResponse,
   type QualityReportResponse,
   type SalesReportResponse,
+  type StockMovementsReportResponse,
 } from '../services/operationsApi';
 
-type ReportTab = 'sales' | 'production' | 'quality' | 'pricing';
+type ReportTab = 'sales' | 'production' | 'quality' | 'pricing' | 'stockMovements';
 type ExportCell = string | number | boolean | null;
 
 type ExportData = {
@@ -49,13 +51,16 @@ export default function RelatoriosOperacionais() {
     productId: '',
     producerId: '',
     status: '',
+    movementType: '',
+    lotType: '',
   });
   const [productionReport, setProductionReport] = useState<ProductionReportResponse | null>(null);
   const [qualityReport, setQualityReport] = useState<QualityReportResponse | null>(null);
   const [pricingReport, setPricingReport] = useState<PricingReportResponse | null>(null);
   const [salesReport, setSalesReport] = useState<SalesReportResponse | null>(null);
+  const [stockMovementsReport, setStockMovementsReport] = useState<StockMovementsReportResponse | null>(null);
   const { finishedProducts, producers } = useCadastros();
-  const exportData = getExportData(activeTab, salesReport, productionReport, qualityReport, pricingReport);
+  const exportData = getExportData(activeTab, salesReport, productionReport, qualityReport, pricingReport, stockMovementsReport);
 
   const loadCurrentReport = async () => {
     setLoading(true);
@@ -86,7 +91,7 @@ export default function RelatoriosOperacionais() {
           status: filters.status || undefined,
         });
         setQualityReport(report);
-      } else {
+      } else if (activeTab === 'pricing') {
         const report = await loadPricingReport({
           startDate: filters.startDate,
           endDate: filters.endDate,
@@ -94,6 +99,14 @@ export default function RelatoriosOperacionais() {
           status: filters.status || undefined,
         });
         setPricingReport(report);
+      } else {
+        const report = await loadStockMovementsReport({
+          startDate: filters.startDate,
+          endDate: filters.endDate,
+          movementType: filters.movementType || undefined,
+          lotType: filters.lotType || undefined,
+        });
+        setStockMovementsReport(report);
       }
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
@@ -136,7 +149,7 @@ export default function RelatoriosOperacionais() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Relatorios operacionais</h2>
-          <p className="text-gray-600">Acompanhe vendas, custos de producao, qualidade e precificacao por periodo</p>
+          <p className="text-gray-600">Acompanhe vendas, produção, qualidade, precificação e movimentações de estoque por período</p>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
           <button
@@ -172,6 +185,7 @@ export default function RelatoriosOperacionais() {
             { key: 'production', label: 'Produção e custos' },
             { key: 'quality', label: 'Qualidade' },
             { key: 'pricing', label: 'Precificacao' },
+            { key: 'stockMovements', label: 'Movimentações de estoque' },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -200,7 +214,18 @@ export default function RelatoriosOperacionais() {
               value={filters.endDate}
               onChange={(value) => setFilters((current) => ({ ...current, endDate: value }))}
             />
-            {activeTab === 'production' || activeTab === 'sales' ? (
+            {activeTab === 'stockMovements' ? (
+              <FilterSelect
+                label="Movimentação"
+                value={filters.movementType}
+                onChange={(value) => setFilters((current) => ({ ...current, movementType: value }))}
+                options={[
+                  { label: 'Todas', value: '' },
+                  { label: 'Entradas', value: 'entrada' },
+                  { label: 'Saídas', value: 'saida' },
+                ]}
+              />
+            ) : activeTab === 'production' || activeTab === 'sales' ? (
               <FilterSelect
                 label="Produto"
                 value={filters.productId}
@@ -225,12 +250,26 @@ export default function RelatoriosOperacionais() {
                 ]}
               />
             )}
-            <FilterSelect
-              label="Status"
-              value={filters.status}
-              onChange={(value) => setFilters((current) => ({ ...current, status: value }))}
-              options={statusOptionsByTab[activeTab]}
-            />
+            {activeTab === 'stockMovements' ? (
+              <FilterSelect
+                label="Tipo de estoque"
+                value={filters.lotType}
+                onChange={(value) => setFilters((current) => ({ ...current, lotType: value }))}
+                options={[
+                  { label: 'Todos', value: '' },
+                  { label: 'Insumo', value: 'Insumo' },
+                  { label: 'Produto acabado', value: 'Produto Acabado' },
+                  { label: 'Leite', value: 'Leite' },
+                ]}
+              />
+            ) : (
+              <FilterSelect
+                label="Status"
+                value={filters.status}
+                onChange={(value) => setFilters((current) => ({ ...current, status: value }))}
+                options={statusOptionsByTab[activeTab]}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -252,8 +291,10 @@ export default function RelatoriosOperacionais() {
         <ProductionReportView report={productionReport} />
       ) : activeTab === 'quality' ? (
         <QualityReportView report={qualityReport} />
-      ) : (
+      ) : activeTab === 'pricing' ? (
         <PricingReportView report={pricingReport} />
+      ) : (
+        <StockMovementsReportView report={stockMovementsReport} />
       )}
     </div>
   );
@@ -283,6 +324,7 @@ const statusOptionsByTab: Record<ReportTab, Array<{ label: string; value: string
     { label: 'Parcialmente Utilizado', value: 'Parcialmente Utilizado' },
     { label: 'Utilizado', value: 'Utilizado' },
   ],
+  stockMovements: [],
 };
 
 function getExportData(
@@ -291,6 +333,7 @@ function getExportData(
   productionReport: ProductionReportResponse | null,
   qualityReport: QualityReportResponse | null,
   pricingReport: PricingReportResponse | null,
+  stockMovementsReport: StockMovementsReportResponse | null,
 ): ExportData | null {
   if (activeTab === 'sales' && salesReport) {
     return {
@@ -340,6 +383,19 @@ function getExportData(
         format(new Date(row.createdAt), 'dd/MM/yyyy HH:mm'), row.lotCode, row.producerName, row.lotStatus,
         row.volumeLiters, row.basePrice, row.finalPrice, row.fatBonus, row.proteinBonus, row.acidityPenalty,
         row.cbtPenalty, row.ccsPenalty, row.totalValue,
+      ]),
+    };
+  }
+
+  if (activeTab === 'stockMovements' && stockMovementsReport) {
+    return {
+      fileName: 'relatorio-movimentacoes-estoque',
+      sheetName: 'Movimentações de estoque',
+      headers: ['Data', 'Movimentação', 'Tipo de estoque', 'Item', 'Código', 'Lote', 'Quantidade', 'Peças', 'Origem'],
+      rows: stockMovementsReport.rows.map((row) => [
+        format(new Date(row.occurredAt), 'dd/MM/yyyy HH:mm'),
+        row.movementType === 'entrada' ? 'Entrada' : 'Saída', row.lotType, row.itemName,
+        row.itemCode, row.lotCode, row.quantity, row.piecesQuantity, row.reference,
       ]),
     };
   }
@@ -574,6 +630,58 @@ function PricingReportView({ report }: { report: PricingReportResponse | null })
             { label: 'Penalidade de CBT', value: formatCurrency(selectedRow.cbtPenalty) },
             { label: 'Penalidade de CCS', value: formatCurrency(selectedRow.ccsPenalty) },
             { label: 'Valor total', value: formatCurrency(selectedRow.totalValue) },
+          ]}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function StockMovementsReportView({ report }: { report: StockMovementsReportResponse | null }) {
+  const [selectedRow, setSelectedRow] = useState<StockMovementsReportResponse['rows'][number] | null>(null);
+
+  if (!report || report.rows.length === 0) {
+    return <EmptyReport message="Nenhuma movimentação de estoque encontrada para os filtros selecionados." />;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-3 xl:grid-cols-5">
+        <SummaryCard title="Movimentações" value={report.totals.movementsCount} />
+        <SummaryCard title="Entradas" value={report.totals.entriesCount} />
+        <SummaryCard title="Saídas" value={report.totals.exitsCount} />
+        <SummaryCard title="Quantidade entrada" value={report.totals.entriesQuantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} />
+        <SummaryCard title="Quantidade saída" value={report.totals.exitsQuantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} />
+      </div>
+      <p className="text-sm text-gray-600">As quantidades podem estar em unidades diferentes. Consulte a unidade em cada movimentação.</p>
+      <DataTable
+        headers={['Data', 'Movimentação', 'Tipo', 'Item', 'Lote', 'Quantidade', 'Origem']}
+        rows={report.rows.map((row) => [
+          format(new Date(row.occurredAt), 'dd/MM/yyyy HH:mm'),
+          row.movementType === 'entrada' ? 'Entrada' : 'Saída',
+          row.lotType,
+          row.itemCode ? `${row.itemName} · ${row.itemCode}` : row.itemName,
+          row.lotCode,
+          `${row.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}${row.unitSymbol ? ` ${row.unitSymbol}` : ''}${row.piecesQuantity != null ? ` · ${row.piecesQuantity.toLocaleString('pt-BR')} peças` : ''}`,
+          row.reference,
+        ])}
+        onRowClick={(index) => setSelectedRow(report.rows[index])}
+      />
+      {selectedRow ? (
+        <ReportDetailModal
+          title={`${selectedRow.movementType === 'entrada' ? 'Entrada' : 'Saída'} de estoque`}
+          subtitle={`${selectedRow.itemName} · Lote ${selectedRow.lotCode}`}
+          onClose={() => setSelectedRow(null)}
+          fields={[
+            { label: 'Data', value: format(new Date(selectedRow.occurredAt), 'dd/MM/yyyy HH:mm') },
+            { label: 'Movimentação', value: selectedRow.movementType === 'entrada' ? 'Entrada' : 'Saída' },
+            { label: 'Tipo de estoque', value: selectedRow.lotType },
+            { label: 'Item', value: selectedRow.itemName },
+            { label: 'Código', value: selectedRow.itemCode || '-' },
+            { label: 'Lote', value: selectedRow.lotCode },
+            { label: 'Quantidade', value: `${selectedRow.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}${selectedRow.unitSymbol ? ` ${selectedRow.unitSymbol}` : ''}` },
+            { label: 'Peças', value: selectedRow.piecesQuantity?.toLocaleString('pt-BR') ?? '-' },
+            { label: 'Origem', value: selectedRow.reference },
           ]}
         />
       ) : null}

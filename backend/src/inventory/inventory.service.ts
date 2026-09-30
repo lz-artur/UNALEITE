@@ -226,6 +226,20 @@ export class InventoryService {
       throw new BadRequestException(`O lote ${String(lot.lot_code)} não tem peças disponíveis suficientes (Disponível: ${lot.available_pieces})`);
     }
 
+    if (tracksPieces) {
+      const remainingQuantity = Number(lot.available_quantity) - Number(payload.quantity);
+      const remainingPieces = Number(lot.available_pieces) - Number(payload.pieces);
+      const leavesOnlyOneBalance =
+        (remainingQuantity === 0 && remainingPieces > 0) ||
+        (remainingPieces === 0 && remainingQuantity > 0);
+
+      if (leavesOnlyOneBalance && !payload.confirmedDivergentBalances) {
+        throw new BadRequestException(
+          'Esta saída deixará saldo apenas de peso ou apenas de peças. Revise os valores e confirme para prosseguir.',
+        );
+      }
+    }
+
     const exitDate = payload.exitDate ?? new Date().toISOString();
 
     const { data: exitRecord, error: exitError } = await this.supabaseService.admin
@@ -760,13 +774,11 @@ export class InventoryService {
     const productById = new Map((products ?? []).map((product: any) => [product.id, product]));
     const lotById = new Map((lots ?? []).map((lot: any) => [lot.id, lot]));
     const weighingsByLine = new Map<string, any[]>();
-    const hydratedWeighings = await Promise.all((weighings ?? []).map(async (weighing: any) => {
-      if (!weighing.photo_url) return weighing;
-      const { data, error } = await this.supabaseService.admin.storage
-        .from('expedition-weighing-photos')
-        .createSignedUrl(weighing.photo_url, 300);
-      if (error) throw new BadRequestException('Não foi possível acessar a foto da pesagem.');
-      return { ...weighing, photo_url: data.signedUrl };
+    const hydratedWeighings = (weighings ?? []).map((weighing: any) => ({
+      ...weighing,
+      photo_url: weighing.photo_url
+        ? this.supabaseService.admin.storage.from('expedition-weighing-photos').getPublicUrl(weighing.photo_url).data.publicUrl
+        : null,
     }));
     hydratedWeighings.forEach((weighing: any) => {
       const collection = weighingsByLine.get(weighing.expedition_line_id) ?? [];
@@ -858,8 +870,30 @@ export class InventoryService {
     return this.getSaleExpedition(expeditionId, user);
   }
 
-  async confirmSaleExpedition(expeditionId: string, user: AuthenticatedUser) {
+  async confirmSaleExpedition(expeditionId: string, user: AuthenticatedUser, confirmedDivergentBalances = false) {
     const actor = await this.getActor(user);
+    const expedition = await this.getSaleExpedition(expeditionId, user);
+    const requestedByLot = new Map<string, { quantity: number; pieces: number }>();
+    for (const item of expedition.order.items) {
+      for (const line of item.lines) {
+        const current = requestedByLot.get(line.finished_product_lot_id) ?? { quantity: 0, pieces: 0 };
+        current.quantity += Number(line.weighed_quantity);
+        current.pieces += Number(line.weighed_pieces);
+        requestedByLot.set(line.finished_product_lot_id, current);
+      }
+    }
+    const leavesOnlyOneBalance = [...requestedByLot.entries()].some(([lotId, requested]) => {
+      const lines = expedition.order.items.flatMap((item: any) => item.lines as any[]);
+      const lot = lines.find((line: any) => line.finished_product_lot_id === lotId)?.lot;
+      if (!lot || lot.available_pieces == null) return false;
+      const remainingQuantity = Number(lot.available_quantity) - requested.quantity;
+      const remainingPieces = Number(lot.available_pieces) - requested.pieces;
+      return (remainingQuantity === 0 && remainingPieces > 0)
+        || (remainingPieces === 0 && remainingQuantity > 0);
+    });
+    if (leavesOnlyOneBalance && !confirmedDivergentBalances) {
+      throw new BadRequestException('Esta expedição deixará saldo apenas de peso ou apenas de peças em um lote. Revise os valores e confirme para prosseguir.');
+    }
     const { data: attendanceId, error } = await this.supabaseService.admin.rpc('confirm_sale_expedition', {
       p_expedition_id: expeditionId, p_user_id: actor.id,
     });

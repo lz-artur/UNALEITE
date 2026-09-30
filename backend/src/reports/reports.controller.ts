@@ -31,6 +31,11 @@ export class ReportsController {
     return this.reportsService.getPricingReport(query);
   }
 
+  @Get('stock-movements')
+  getStockMovementsReport(@Query() query: ListReportsDto) {
+    return this.reportsService.getStockMovementsReport(query);
+  }
+
   @Get('dre')
   getDreReport(@Query() query: ListReportsDto) {
     return this.reportsService.getDreReport(query);

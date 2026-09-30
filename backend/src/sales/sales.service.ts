@@ -37,7 +37,11 @@ export class SalesService {
       throw new NotFoundException('Pedido de venda não encontrado');
     }
 
-    return this.hydrateSalesOrder(order, payload);
+    const hydratedOrder = this.hydrateSalesOrder(order, payload);
+    return {
+      ...hydratedOrder,
+      weighingPhotos: await this.loadOrderWeighingPhotos(id, hydratedOrder.items),
+    };
   }
 
   async createSalesOrder(payload: CreateSalesOrderDto, user?: AuthenticatedUser) {
@@ -124,6 +128,34 @@ export class SalesService {
     }
 
     const fulfilledAt = payload.fulfilledAt ?? new Date().toISOString();
+
+    const lotIds = [...new Set(payload.items.map((item) => item.finishedProductLotId))];
+    const { data: lots, error: lotsError } = await this.supabaseService.admin
+      .from('finished_product_lots')
+      .select('id, lot_code, available_quantity, available_pieces')
+      .in('id', lotIds);
+    if (lotsError) throw new BadRequestException(lotsError.message);
+
+    const requestedByLot = new Map<string, { quantity: number; pieces: number }>();
+    for (const item of payload.items) {
+      const current = requestedByLot.get(item.finishedProductLotId) ?? { quantity: 0, pieces: 0 };
+      current.quantity += Number(item.quantity);
+      current.pieces += Number(item.piecesQuantity ?? 0);
+      requestedByLot.set(item.finishedProductLotId, current);
+    }
+
+    const leavesOnlyOneBalance = (lots ?? []).some((lot: any) => {
+      if (lot.available_pieces == null) return false;
+      const requested = requestedByLot.get(String(lot.id));
+      if (!requested) return false;
+      const remainingQuantity = Number(lot.available_quantity) - requested.quantity;
+      const remainingPieces = Number(lot.available_pieces) - requested.pieces;
+      return (remainingQuantity === 0 && remainingPieces > 0)
+        || (remainingPieces === 0 && remainingQuantity > 0);
+    });
+    if (leavesOnlyOneBalance && !payload.confirmedDivergentBalances) {
+      throw new BadRequestException('Este atendimento deixará saldo apenas de peso ou apenas de peças em um lote. Revise os valores e confirme para prosseguir.');
+    }
 
     // Prepare installment entries for the RPC
     let installmentEntries: Array<{ amount: number; dueDate: string }> | null = null;
@@ -569,7 +601,12 @@ export class SalesService {
               lotCode: String(lot?.lot_code ?? '-'),
               quantity: Number(fulfillment.quantity),
               piecesQuantity: fulfillment.pieces_quantity == null ? null : Number(fulfillment.pieces_quantity),
-              returnedQuantity: alreadyReturned,
+              // Desde a migração 071 a devolução é vinculada ao atendimento
+              // específico. O fallback mantém o histórico anterior legível.
+              returnedQuantity: fulfillment.returned_quantity == null
+                ? alreadyReturned
+                : Number(fulfillment.returned_quantity),
+              returnedPieces: fulfillment.returned_pieces == null ? null : Number(fulfillment.returned_pieces),
               fulfilledAt: String(fulfillment.fulfilled_at),
               attendanceId: fulfillment.attendance_id ? String(fulfillment.attendance_id) : null,
             };
@@ -647,10 +684,56 @@ export class SalesService {
       hasReturn: Boolean(salesOrder.has_return),
       items,
       attendances,
+      weighingPhotos: [],
       totalFulfilled,
       remainingAmount,
       fulfilledPercent: Number(fulfilledPercent.toFixed(2)),
     };
+  }
+
+  private async loadOrderWeighingPhotos(
+    salesOrderId: string,
+    items: Array<{ id: string; productName: string }>,
+  ) {
+    const { data: expeditions, error: expeditionError } = await this.supabaseService.admin
+      .from('sale_expeditions')
+      .select('id')
+      .eq('sales_order_id', salesOrderId);
+    if (expeditionError) throw new BadRequestException(expeditionError.message);
+
+    const expeditionIds = (expeditions ?? []).map((expedition: any) => String(expedition.id));
+    if (!expeditionIds.length) return [];
+    const { data: lines, error: lineError } = await this.supabaseService.admin
+      .from('sale_expedition_lines')
+      .select('id, sales_order_item_id, finished_product_lot_id')
+      .in('expedition_id', expeditionIds);
+    if (lineError) throw new BadRequestException(lineError.message);
+
+    const lineIds = (lines ?? []).map((line: any) => String(line.id));
+    if (!lineIds.length) return [];
+    const lineById = new Map((lines ?? []).map((line: any) => [String(line.id), line]));
+    const itemById = new Map(items.map((item) => [item.id, item]));
+    const lotIds = [...new Set((lines ?? []).map((line: any) => String(line.finished_product_lot_id)))];
+    const [{ data: weighings, error: weighingError }, { data: lots, error: lotError }] = await Promise.all([
+      this.supabaseService.admin.from('sale_expedition_weighings').select('id, expedition_line_id, quantity, pieces_quantity, photo_url, weighed_at').in('expedition_line_id', lineIds).not('photo_url', 'is', null).order('weighed_at', { ascending: false }),
+      lotIds.length ? this.supabaseService.admin.from('finished_product_lots').select('id, lot_code').in('id', lotIds) : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (weighingError || lotError) throw new BadRequestException(weighingError?.message || lotError?.message || 'Não foi possível carregar as fotos de pesagem.');
+
+    const lotById = new Map((lots ?? []).map((lot: any) => [String(lot.id), lot]));
+    return (weighings ?? []).map((weighing: any) => {
+      const line = lineById.get(String(weighing.expedition_line_id));
+      const item = line ? itemById.get(String(line.sales_order_item_id)) : undefined;
+      return {
+        id: String(weighing.id),
+        url: this.supabaseService.admin.storage.from('expedition-weighing-photos').getPublicUrl(String(weighing.photo_url)).data.publicUrl,
+        weighedAt: String(weighing.weighed_at),
+        quantity: Number(weighing.quantity),
+        piecesQuantity: weighing.pieces_quantity == null ? null : Number(weighing.pieces_quantity),
+        productName: item?.productName ?? 'Produto',
+        lotCode: line ? String(lotById.get(String(line.finished_product_lot_id))?.lot_code ?? '') : '',
+      };
+    });
   }
 
   private matchesFilters(
