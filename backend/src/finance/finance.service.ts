@@ -10,48 +10,49 @@ export class FinanceService {
   constructor(private readonly supabaseService: SupabaseService) {}
 
   async listEntries(filters: ListFinancialEntriesDto = {}) {
-    const { data, error } = await this.supabaseService.admin
-      .from('financial_entries')
-      .select('*, financial_entry_receipts(*), financial_entry_items(*, supply_items(name), cost_centers(name), accounting_categories(name), accounting_subcategories(name))')
-      // A relação de lançamentos é consultada também por integrações. Manter a
-      // ordenação no servidor evita que telas distintas exibam categorias em
-      // ordens diferentes.
-      .order('category', { ascending: true })
-      .order('description', { ascending: true });
+    const pageSize = 500;
+    const entries: Record<string, unknown>[] = [];
+    const startDate = filters.startDate ? this.parseFilterDate(filters.startDate) : null;
+    const endDate = filters.endDate ? this.parseFilterDate(filters.endDate, true) : null;
+    let offset = 0;
 
-    if (error) {
-      throw new BadRequestException(error.message);
+    while (true) {
+      let query = this.supabaseService.admin
+        .from('financial_entries')
+        .select('*, financial_entry_receipts(*), financial_entry_items(*, supply_items(name), cost_centers(name), accounting_categories(name), accounting_subcategories(name))', { count: 'exact' });
+
+      // Filtrar antes de paginar evita que lançamentos de outros períodos ou
+      // tipos ocupem o limite de linhas retornado pelo Supabase.
+      if (filters.type) query = query.eq('entry_type', filters.type);
+      if (filters.category) query = query.eq('category', filters.category);
+      if (filters.producerId) query = query.eq('producer_id', filters.producerId);
+      if (startDate) query = query.gte('due_date', startDate);
+      if (endDate) query = query.lte('due_date', endDate);
+
+      const { data, error, count } = await query
+        .order('category', { ascending: true })
+        .order('description', { ascending: true })
+        // Desempatar pelo ID mantém as páginas estáveis quando há descrições iguais.
+        .order('id', { ascending: true })
+        .range(offset, offset + pageSize - 1);
+
+      if (error) {
+        throw new BadRequestException(error.message);
+      }
+
+      const page = data ?? [];
+      if (page.length === 0) break;
+      entries.push(...page);
+      offset += page.length;
+      // Usar o total, em vez do tamanho da página, também funciona quando o
+      // limite configurado no projeto é menor que pageSize.
+      if (count != null && offset >= count) break;
     }
 
-    const normalized = (data ?? []).map((entry) => this.normalizeEntry(entry) as Record<string, unknown>);
-
-    return normalized.filter((entry) => {
-      if (filters.type && String(entry.entry_type) !== filters.type) {
-        return false;
-      }
-
-      if (filters.status && String(entry.computed_status) !== filters.status) {
-        return false;
-      }
-
-      if (filters.category && String(entry.category) !== filters.category) {
-        return false;
-      }
-
-      if (filters.producerId && String(entry.producer_id) !== filters.producerId) {
-        return false;
-      }
-
-      if (filters.startDate && !this.isOnOrAfter(entry.due_date, filters.startDate)) {
-        return false;
-      }
-
-      if (filters.endDate && !this.isOnOrBefore(entry.due_date, filters.endDate)) {
-        return false;
-      }
-
-      return true;
-    });
+    const normalized = entries.map((entry) => this.normalizeEntry(entry) as Record<string, unknown>);
+    // A situação depende dos recebimentos e do vencimento, não apenas do
+    // status armazenado. Por isso, este filtro continua após a normalização.
+    return normalized.filter((entry) => !filters.status || String(entry.computed_status) === filters.status);
   }
 
   async settleEntry(id: string, payload: SettleFinancialEntryDto, user?: AuthenticatedUser) {
@@ -428,16 +429,13 @@ export class FinanceService {
     return Number.isFinite(parsed) ? Math.round((parsed + Number.EPSILON) * 100) / 100 : 0;
   }
 
-  private isOnOrAfter(dateValue: unknown, filterValue: string) {
-    const date = new Date(String(dateValue));
+  private parseFilterDate(filterValue: string, endOfDay = false) {
     const filter = new Date(filterValue);
-    return date >= filter;
-  }
-
-  private isOnOrBefore(dateValue: unknown, filterValue: string) {
-    const date = new Date(String(dateValue));
-    const filter = new Date(filterValue);
-    filter.setHours(23, 59, 59, 999);
-    return date <= filter;
+    if (Number.isNaN(filter.getTime())) {
+      throw new BadRequestException('Data do filtro financeiro inválida.');
+    }
+    // Os formulários enviam datas civis como YYYY-MM-DD (meia-noite UTC).
+    if (endOfDay) filter.setUTCHours(23, 59, 59, 999);
+    return filter.toISOString();
   }
 }
