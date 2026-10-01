@@ -816,6 +816,7 @@ function mapProductionOrder(row: any): OrdemProducao {
         finishedProductLotId: c.finished_product_lot_id,
         produtoId: productLot?.product_id,
         quantidade: Number(c.quantity_consumed),
+        pecas: c.pieces_consumed != null ? Number(c.pieces_consumed) : undefined,
         origem: c.consumption_source === 'Devolucao' ? 'Devolucao' : 'Disponivel',
       };
     }),

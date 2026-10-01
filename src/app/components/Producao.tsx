@@ -642,19 +642,22 @@ export default function Producao() {
                     }
                     return consumptions;
                   }, [] as { supplyItemId: string; quantity: string }[]),
+                // Each consumption must remain tied to its original lot. Grouping by
+                // product here loses that identifier and causes the save payload to
+                // omit the consumption entirely.
                 finishedProductConsumptions: (op.produtosAcabadosConsumidos || [])
-                  .reduce((consumptions, item) => {
+                  .flatMap((item) => {
                     const productId = item.produtoId || finishedProductLots.find((lot) => lot.id === item.finishedProductLotId)?.produtoId;
-                    if (!productId) return consumptions;
-                    const source = item.origem ?? 'Disponivel';
-                    const existing = consumptions.find((consumption) => consumption.finishedProductId === productId && consumption.source === source);
-                    if (existing) {
-                      existing.quantity = String(Number(existing.quantity) + item.quantidade);
-                    } else {
-                      consumptions.push({ finishedProductId: productId, source, quantity: String(item.quantidade) });
-                    }
-                    return consumptions;
-                  }, [] as { finishedProductId: string; source: 'Disponivel' | 'Devolucao'; quantity: string }[]),
+                    if (!productId || !item.finishedProductLotId) return [];
+
+                    return [{
+                      finishedProductId: productId,
+                      finishedProductLotId: item.finishedProductLotId,
+                      source: item.origem ?? 'Disponivel',
+                      quantity: String(item.quantidade),
+                      pieces: item.pecas != null ? String(item.pecas) : '',
+                    }];
+                  }),
               });
               setShowCreateModal(true);
               setFinishedProductSearchTerms({});
