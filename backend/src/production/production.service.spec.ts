@@ -58,6 +58,147 @@ describe('ProductionService', () => {
     });
   });
 
+  describe('editing supply consumptions', () => {
+    let existing: any[];
+    let available: Record<string, any[]>;
+
+    beforeEach(() => {
+      existing = [{
+        id: 'consumption-1', supply_lot_id: 'old-lot', quantity_consumed: 10,
+        supply_lots: { supply_item_id: 'old-item' },
+      }];
+      available = { 'old-item': [], 'qa-100': [{ id: 'qa-lot', available_quantity: 725 }] };
+      supabaseServiceMock.admin.rpc = jest.fn().mockResolvedValue({ error: null });
+      supabaseServiceMock.admin.from.mockImplementation((table: string) => {
+        let itemId: string;
+        const chain: any = {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockImplementation((field: string, value: string) => {
+            if (field === 'supply_item_id') itemId = value;
+            return chain;
+          }),
+          in: jest.fn().mockReturnThis(),
+          gt: jest.fn().mockReturnThis(),
+          order: jest.fn().mockReturnThis(),
+          then: (resolve: any) => resolve({
+            data: table === 'production_order_supply_consumptions' ? existing : (available[itemId] ?? []),
+            error: null,
+          }),
+        };
+        return chain;
+      });
+      jest.spyOn(service as any, 'getById').mockImplementation(async (...args: unknown[]) => ({
+        id: args[1], available_quantity: args[1] === 'old-lot' ? 0 : 725, internal_lot_code: args[1],
+      }));
+    });
+
+    const update = (rows: any[]) => (service as any).updateSupplyConsumptions('order-1', rows);
+    const targets = () => supabaseServiceMock.admin.rpc.mock.calls[0][1].p_consumptions;
+
+    it('adds QA 100 without allocating the exhausted existing insumo again', async () => {
+      await update([{ supplyItemId: 'old-item', quantity: 10 }, { supplyItemId: 'qa-100', quantity: 247 }]);
+      expect(targets()).toEqual([
+        { supplyLotId: 'old-lot', quantity: 10 }, { supplyLotId: 'qa-lot', quantity: 247 },
+      ]);
+      expect(supabaseServiceMock.admin.rpc).toHaveBeenCalledWith(
+        'update_production_order_supply_consumptions', expect.objectContaining({
+          p_expected_consumptions: [{ supplyLotId: 'old-lot', quantity: 10 }],
+        }),
+      );
+      expect((service as any).getById).not.toHaveBeenCalledWith('supply_lots', 'old-lot');
+    });
+
+    it('does not write or create movements when quantities are unchanged', async () => {
+      await update([{ supplyItemId: 'old-item', quantity: 10 }]);
+      expect(supabaseServiceMock.admin.rpc).not.toHaveBeenCalled();
+      expect((service as any).getById).not.toHaveBeenCalled();
+    });
+
+    it('retains the historical lots even when FIFO now has an older available lot', async () => {
+      available['old-item'] = [{ id: 'other-lot', available_quantity: 8 }];
+      await update([{ supplyItemId: 'old-item', quantity: 13 }]);
+      expect(targets()).toEqual([
+        { supplyLotId: 'old-lot', quantity: 10 }, { supplyLotId: 'other-lot', quantity: 3 },
+      ]);
+    });
+
+    it('reduces or removes existing consumption without requiring available stock', async () => {
+      await update([{ supplyItemId: 'old-item', quantity: 4 }]);
+      expect(targets()).toEqual([{ supplyLotId: 'old-lot', quantity: 4 }]);
+      supabaseServiceMock.admin.rpc.mockClear();
+      await update([]);
+      expect(targets()).toEqual([]);
+    });
+
+    it('validates only the incremental quantity when increasing an existing insumo', async () => {
+      available['old-item'] = [{ id: 'old-lot', available_quantity: 3 }];
+      (service as any).getById.mockResolvedValue({ available_quantity: 3 });
+      await update([{ supplyItemId: 'old-item', quantity: 13 }]);
+      expect(targets()).toEqual([{ supplyLotId: 'old-lot', quantity: 13 }]);
+    });
+
+    it('rejects an insufficient addition before writing any stock or consumption', async () => {
+      await expect(update([
+        { supplyItemId: 'old-item', quantity: 10 }, { supplyItemId: 'qa-100', quantity: 726 },
+      ])).rejects.toThrow('saldo disponível suficiente');
+      expect(supabaseServiceMock.admin.rpc).not.toHaveBeenCalled();
+    });
+
+    it('aggregates repeated item rows rather than allocating the same stock twice', async () => {
+      await expect(update([
+        { supplyItemId: 'qa-100', quantity: 400 }, { supplyItemId: 'qa-100', quantity: 400 },
+      ])).rejects.toThrow('saldo disponível suficiente');
+      expect(supabaseServiceMock.admin.rpc).not.toHaveBeenCalled();
+    });
+
+    it('normalizes decimal totals when the same lot has multiple historical records', async () => {
+      existing = [
+        { supply_lot_id: 'old-lot', quantity_consumed: '0.1', supply_lots: { supply_item_id: 'old-item' } },
+        { supply_lot_id: 'old-lot', quantity_consumed: '0.2', supply_lots: { supply_item_id: 'old-item' } },
+      ];
+      await update([{ supplyItemId: 'old-item', quantity: 0.3 }, { supplyItemId: 'qa-100', quantity: 247 }]);
+      expect(supabaseServiceMock.admin.rpc.mock.calls[0][1].p_expected_consumptions)
+        .toEqual([{ supplyLotId: 'old-lot', quantity: 0.3 }]);
+      expect(targets()).toContainEqual({ supplyLotId: 'old-lot', quantity: 0.3 });
+    });
+
+    it('supports explicitly selected exhausted lots without consuming them twice', async () => {
+      await update([{ supplyLotId: 'old-lot', quantity: 10 }]);
+      expect(supabaseServiceMock.admin.rpc).not.toHaveBeenCalled();
+    });
+
+    it('propagates a transactional failure, including concurrent changes', async () => {
+      supabaseServiceMock.admin.rpc.mockResolvedValue({ error: { message: 'Os insumos desta OP foram alterados.' } });
+      await expect(update([{ supplyItemId: 'qa-100', quantity: 247 }])).rejects.toThrow('foram alterados');
+    });
+
+    it('preserves unchanged finished-product quantities, sources and pieces on update', async () => {
+      (service as any).getById.mockResolvedValue({
+        id: 'order-1', status: 'Finalizada', milk_lot_id: 'milk-1', liters_planned: 100,
+      });
+      const unchangedFP = [{
+        finished_product_lot_id: 'returned-lot', quantity_consumed: 71,
+        pieces_consumed: 18, consumption_source: 'Devolucao',
+      }];
+      supabaseServiceMock.admin.from.mockImplementation((table: string) => {
+        const chain: any = {
+          select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+          update: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({ data: { id: 'order-1' }, error: null }),
+          then: (resolve: any) => resolve({ data: unchangedFP, error: null }),
+        };
+        return chain;
+      });
+      const resolver = jest.spyOn(service as any, 'resolveFinishedProductConsumptions');
+      await service.updateOrder('order-1', { finishedProductConsumptions: [{
+        finishedProductLotId: 'returned-lot', source: 'Devolucao', quantity: 71, pieces: 18,
+      }] });
+      expect(resolver).not.toHaveBeenCalled();
+      expect(supabaseServiceMock.admin.from.mock.calls.map(([table]: any[]) => table))
+        .toEqual(['production_order_finished_product_consumptions', 'production_orders']);
+    });
+  });
+
   describe('milk reservations', () => {
     beforeEach(() => {
       supabaseServiceMock.admin.rpc = jest.fn();

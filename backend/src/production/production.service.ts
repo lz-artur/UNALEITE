@@ -835,6 +835,128 @@ export class ProductionService {
     };
   }
 
+  private sameFinishedProductConsumptions(
+    requested: FinishedProductConsumptionInput[],
+    existing: FinishedProductConsumptionInput[],
+  ): boolean {
+    const totals = (rows: FinishedProductConsumptionInput[]) => {
+      const grouped = new Map<string, { quantity: number; pieces: number }>();
+      for (const row of rows) {
+        if (!row.finishedProductLotId) return null;
+        const key = `${row.finishedProductLotId}:${row.source ?? 'Disponivel'}`;
+        const previous = grouped.get(key) ?? { quantity: 0, pieces: 0 };
+        grouped.set(key, {
+          quantity: Number((previous.quantity + row.quantity).toFixed(4)),
+          pieces: previous.pieces + (row.pieces ?? 0),
+        });
+      }
+      return JSON.stringify([...grouped].sort(([a], [b]) => a.localeCompare(b)));
+    };
+    const requestedTotals = totals(requested);
+    return requestedTotals !== null && requestedTotals === totals(existing);
+  }
+
+  /** Keep existing lot allocations; only allocate and move the edited difference. */
+  private async updateSupplyConsumptions(
+    orderId: string,
+    consumptions: SupplyConsumptionInput[],
+    user?: AuthenticatedUser,
+  ) {
+    const { data: existing, error } = await this.supabaseService.admin
+      .from('production_order_supply_consumptions')
+      .select('id, supply_lot_id, quantity_consumed, supply_lots(supply_item_id)')
+      .eq('production_order_id', orderId);
+    if (error) throw new BadRequestException(error.message);
+
+    const oldByLot = new Map<string, number>();
+    const itemByLot = new Map<string, string>();
+    for (const row of existing ?? []) {
+      oldByLot.set(row.supply_lot_id, Number(((oldByLot.get(row.supply_lot_id) ?? 0) + Number(row.quantity_consumed)).toFixed(4)));
+      const joinedLot: any = Array.isArray(row.supply_lots) ? row.supply_lots[0] : row.supply_lots;
+      if (joinedLot?.supply_item_id) itemByLot.set(row.supply_lot_id, joinedLot.supply_item_id);
+    }
+
+    // Aggregate repeated rows before allocating, so the same balance is never reused.
+    const requested = new Map<string, SupplyConsumptionInput>();
+    for (const consumption of consumptions) {
+      const key = consumption.supplyItemId ? `item:${consumption.supplyItemId}` : `lot:${consumption.supplyLotId}`;
+      const previous = requested.get(key);
+      requested.set(key, { ...consumption, quantity: Number(((previous?.quantity ?? 0) + consumption.quantity).toFixed(4)) });
+    }
+
+    const targetByLot = new Map<string, number>();
+    // Explicit lot requests take priority over aggregated item requests.
+    const requests = [...requested.values()].sort((a, b) => Number(Boolean(a.supplyItemId)) - Number(Boolean(b.supplyItemId)));
+    for (const consumption of requests) {
+      if (!consumption.supplyItemId) {
+        const resolved = await this.resolveSupplyConsumptions([consumption], user);
+        for (const row of resolved) {
+          targetByLot.set(row.supplyLotId, Number(((targetByLot.get(row.supplyLotId) ?? 0) + row.quantity).toFixed(4)));
+        }
+        continue;
+      }
+
+      let remaining = consumption.quantity;
+      for (const [lotId, oldQuantity] of oldByLot) {
+        if (itemByLot.get(lotId) !== consumption.supplyItemId || remaining <= 0) continue;
+        const retained = Math.min(Math.max(oldQuantity - (targetByLot.get(lotId) ?? 0), 0), remaining);
+        if (retained <= 0) continue;
+        targetByLot.set(lotId, Number(((targetByLot.get(lotId) ?? 0) + retained).toFixed(4)));
+        remaining = Number((remaining - retained).toFixed(4));
+      }
+      if (remaining <= 0) continue;
+
+      const { data: lots, error: lotsError } = await this.supabaseService.admin
+        .from('supply_lots')
+        .select('id, available_quantity')
+        .eq('supply_item_id', consumption.supplyItemId)
+        .in('status', [SUPPLY_LOT_STATUS.AVAILABLE, SUPPLY_LOT_STATUS.PARTIALLY_USED])
+        .gt('available_quantity', 0)
+        .order('entry_date', { ascending: true })
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true });
+      if (lotsError) throw new BadRequestException(lotsError.message);
+      for (const lot of lots ?? []) {
+        if (remaining <= 0) break;
+        const alreadyAllocated = Math.max((targetByLot.get(lot.id) ?? 0) - (oldByLot.get(lot.id) ?? 0), 0);
+        const quantity = Math.min(Math.max(Number(lot.available_quantity) - alreadyAllocated, 0), remaining);
+        if (quantity <= 0) continue;
+        targetByLot.set(lot.id, Number(((targetByLot.get(lot.id) ?? 0) + quantity).toFixed(4)));
+        remaining = Number((remaining - quantity).toFixed(4));
+      }
+      if (remaining > 0) {
+        throw new BadRequestException('O insumo selecionado não possui saldo disponível suficiente.');
+      }
+    }
+
+    let hasChanges = false;
+    // Validate every difference before changing any consumption or stock balance.
+    for (const lotId of new Set([...oldByLot.keys(), ...targetByLot.keys()])) {
+      const quantity = targetByLot.get(lotId) ?? 0;
+      const delta = Number((quantity - (oldByLot.get(lotId) ?? 0)).toFixed(4));
+      if (delta === 0) continue;
+      const lot = await this.getById('supply_lots', lotId);
+      if (Number(lot.available_quantity) - delta < 0) {
+        throw new BadRequestException(`O lote de insumo ${lot.internal_lot_code} não possui saldo disponível suficiente.`);
+      }
+      hasChanges = true;
+    }
+
+    // Apply all balances and movements atomically, rechecking stock under row locks.
+    if (hasChanges) {
+      const { error: updateError } = await this.supabaseService.admin.rpc(
+        'update_production_order_supply_consumptions',
+        {
+          p_order_id: orderId,
+          p_consumptions: [...targetByLot].map(([supplyLotId, quantity]) => ({ supplyLotId, quantity })),
+          p_expected_consumptions: [...oldByLot].map(([supplyLotId, quantity]) => ({ supplyLotId, quantity })),
+          p_actor_id: user?.id ?? null,
+        },
+      );
+      if (updateError) throw new BadRequestException(updateError.message);
+    }
+  }
+
   async updateOrder(
     orderId: string,
     payload: UpdateProductionOrderDto,
@@ -893,199 +1015,107 @@ export class ProductionService {
     }
 
     if (payload.supplyConsumptions !== undefined) {
-      const supplyConsumptions = await this.resolveSupplyConsumptions(payload.supplyConsumptions, user);
-      const { data: oldConsumptions } = await this.supabaseService.admin
-        .from('production_order_supply_consumptions')
-        .select('supply_lot_id, quantity_consumed')
-        .eq('production_order_id', orderId);
-
-      if (oldConsumptions && oldConsumptions.length > 0) {
-        for (const sc of oldConsumptions) {
-          const { data: supplyLot } = await this.supabaseService.admin
-            .from('supply_lots')
-            .select('available_quantity, received_quantity, supply_item_id')
-            .eq('id', sc.supply_lot_id)
-            .single();
-
-          if (supplyLot) {
-            const restoredVolume = Number(supplyLot.available_quantity) + Number(sc.quantity_consumed);
-            const newStatus = restoredVolume >= supplyLot.received_quantity ? SUPPLY_LOT_STATUS.AVAILABLE : SUPPLY_LOT_STATUS.PARTIALLY_USED;
-            await this.supabaseService.admin
-              .from('supply_lots')
-              .update({ available_quantity: restoredVolume, status: newStatus })
-              .eq('id', sc.supply_lot_id);
-
-            const { data: supplyItem } = await this.supabaseService.admin
-              .from('supply_items')
-              .select('current_stock')
-              .eq('id', supplyLot.supply_item_id)
-              .single();
-            
-            if (supplyItem) {
-              await this.supabaseService.admin
-                .from('supply_items')
-                .update({ current_stock: Number(supplyItem.current_stock) + Number(sc.quantity_consumed) })
-                .eq('id', supplyLot.supply_item_id);
-            }
-          }
-        }
-      }
-      
-      await this.supabaseService.admin
-        .from('production_order_supply_consumptions')
-        .delete()
-        .eq('production_order_id', orderId);
-
-      for (const consumption of supplyConsumptions) {
-        const { data: supplyLot } = await this.supabaseService.admin
-          .from('supply_lots')
-          .select('available_quantity, supply_item_id, internal_lot_code')
-          .eq('id', consumption.supplyLotId)
-          .single();
-
-        if (!supplyLot) {
-          throw new BadRequestException(`Supply lot not found: ${consumption.supplyLotId}`);
-        }
-
-        const nextAvailable = Number(supplyLot.available_quantity) - consumption.quantity;
-        if (nextAvailable < 0) {
-          throw new BadRequestException(`Supply lot ${supplyLot.internal_lot_code} would become negative`);
-        }
-        const nextStatus = nextAvailable <= 0 ? SUPPLY_LOT_STATUS.USED : SUPPLY_LOT_STATUS.PARTIALLY_USED;
-
-        await this.supabaseService.admin.from('production_order_supply_consumptions').insert({
-          production_order_id: orderId,
-          supply_lot_id: consumption.supplyLotId,
-          quantity_consumed: consumption.quantity,
-          created_by: user?.id ?? null,
-          updated_by: user?.id ?? null,
-        });
-
-        await this.supabaseService.admin
-          .from('supply_lots')
-          .update({
-            available_quantity: nextAvailable,
-            status: nextStatus,
-            updated_by: user?.id ?? null,
-          })
-          .eq('id', consumption.supplyLotId);
-
-        const { data: supplyItem } = await this.supabaseService.admin
-          .from('supply_items')
-          .select('current_stock')
-          .eq('id', supplyLot.supply_item_id)
-          .single();
-
-        if (supplyItem) {
-          const nextCurrentStock = Number(supplyItem.current_stock) - consumption.quantity;
-          await this.supabaseService.admin
-            .from('supply_items')
-            .update({
-              current_stock: Math.max(nextCurrentStock, 0),
-              updated_by: user?.id ?? null,
-            })
-            .eq('id', supplyLot.supply_item_id);
-        }
-
-        await this.supabaseService.admin.from('stock_movements').insert({
-          movement_type: 'saida',
-          lot_type: 'Insumo',
-          lot_id: consumption.supplyLotId,
-          quantity: consumption.quantity,
-          reference_table: 'production_orders',
-          reference_id: orderId,
-          created_by: user?.id ?? null,
-          updated_by: user?.id ?? null,
-        });
-      }
+      await this.updateSupplyConsumptions(orderId, payload.supplyConsumptions, user);
     }
 
     if (payload.finishedProductConsumptions !== undefined) {
-      const finishedProductConsumptions = await this.resolveFinishedProductConsumptions(payload.finishedProductConsumptions);
-      const { data: oldFPConsumptions } = await this.supabaseService.admin
+      const { data: oldFPConsumptions, error: oldFPError } = await this.supabaseService.admin
         .from('production_order_finished_product_consumptions')
-        .select('finished_product_lot_id, quantity_consumed, consumption_source')
+        .select('finished_product_lot_id, quantity_consumed, consumption_source, pieces_consumed')
         .eq('production_order_id', orderId);
+      if (oldFPError) throw new BadRequestException(oldFPError.message);
+      const unchanged = this.sameFinishedProductConsumptions(
+        payload.finishedProductConsumptions,
+        (oldFPConsumptions ?? []).map((row) => ({
+          finishedProductLotId: row.finished_product_lot_id,
+          source: row.consumption_source ?? 'Disponivel',
+          quantity: Number(row.quantity_consumed),
+          pieces: row.pieces_consumed == null ? undefined : Number(row.pieces_consumed),
+        })),
+      );
+      if (!unchanged) {
+        const finishedProductConsumptions = await this.resolveFinishedProductConsumptions(payload.finishedProductConsumptions);
 
-      if (oldFPConsumptions && oldFPConsumptions.length > 0) {
-        for (const sc of oldFPConsumptions) {
-          const { data: productLot } = await this.supabaseService.admin
-            .from('finished_product_lots')
-            .select('available_quantity, returned_quantity')
-            .eq('id', sc.finished_product_lot_id)
-            .single();
-
-          if (productLot) {
-            const balanceField = sc.consumption_source === 'Devolucao' ? 'returned_quantity' : 'available_quantity';
-            const restoredVolume = Number(productLot[balanceField]) + Number(sc.quantity_consumed);
-            await this.supabaseService.admin
+        if (oldFPConsumptions && oldFPConsumptions.length > 0) {
+          for (const sc of oldFPConsumptions) {
+            const { data: productLot } = await this.supabaseService.admin
               .from('finished_product_lots')
-              .update({ [balanceField]: restoredVolume })
-              .eq('id', sc.finished_product_lot_id);
+              .select('available_quantity, returned_quantity')
+              .eq('id', sc.finished_product_lot_id)
+              .single();
+
+            if (productLot) {
+              const balanceField = sc.consumption_source === 'Devolucao' ? 'returned_quantity' : 'available_quantity';
+              const restoredVolume = Number(productLot[balanceField]) + Number(sc.quantity_consumed);
+              await this.supabaseService.admin
+                .from('finished_product_lots')
+                .update({ [balanceField]: restoredVolume })
+                .eq('id', sc.finished_product_lot_id);
+            }
           }
         }
-      }
-
-      await this.supabaseService.admin
-        .from('production_order_finished_product_consumptions')
-        .delete()
-        .eq('production_order_id', orderId);
-
-      for (const consumption of finishedProductConsumptions) {
-        const { data: productLot } = await this.supabaseService.admin
-          .from('finished_product_lots')
-          .select('available_quantity, returned_quantity, lot_code, product_id, available_pieces')
-          .eq('id', consumption.finishedProductLotId)
-          .single();
-
-        if (!productLot) {
-          throw new BadRequestException(`Finished product lot not found: ${consumption.finishedProductLotId}`);
-        }
-
-        const sourceProduct = await this.getById('finished_products', String(productLot.product_id));
-        const tracksPieces = Boolean(sourceProduct.tracks_quantity_and_weight ?? sourceProduct.tracks_pieces);
-
-        if (tracksPieces && (!consumption.finishedProductLotId || !Number.isInteger(consumption.pieces) || Number(consumption.pieces) <= 0)) {
-          throw new BadRequestException('Informe lote e peças para consumir este produto acabado.');
-        }
-        if (!tracksPieces && consumption.pieces != null) throw new BadRequestException('Este produto não controla peças e peso.');
-
-        const balanceField = consumption.source === 'Devolucao' ? 'returned_quantity' : 'available_quantity';
-        const nextAvailable = Number(productLot[balanceField]) - consumption.quantity;
-        if (nextAvailable < 0) {
-          throw new BadRequestException(`Finished product lot ${productLot.lot_code} would become negative`);
-        }
-
-        await this.supabaseService.admin.from('production_order_finished_product_consumptions').insert({
-          production_order_id: orderId,
-          finished_product_lot_id: consumption.finishedProductLotId,
-          quantity_consumed: consumption.quantity,
-          pieces_consumed: tracksPieces ? consumption.pieces : null,
-          ...(consumption.source ? { consumption_source: consumption.source } : {}),
-          created_by: user?.id ?? null,
-          updated_by: user?.id ?? null,
-        });
 
         await this.supabaseService.admin
-          .from('finished_product_lots')
-          .update({
-            [balanceField]: nextAvailable,
-            ...(tracksPieces ? { available_pieces: Number(productLot.available_pieces) - Number(consumption.pieces) } : {}),
-            updated_by: user?.id ?? null,
-          })
-          .eq('id', consumption.finishedProductLotId);
+          .from('production_order_finished_product_consumptions')
+          .delete()
+          .eq('production_order_id', orderId);
 
-        await this.supabaseService.admin.from('stock_movements').insert({
-          movement_type: 'saida',
-          lot_type: 'Produto Acabado',
-          lot_id: consumption.finishedProductLotId,
-          quantity: consumption.quantity,
-          pieces_quantity: tracksPieces ? consumption.pieces : null,
-          reference_table: 'production_orders',
-          reference_id: orderId,
-          created_by: user?.id ?? null,
-          updated_by: user?.id ?? null,
-        });
+        for (const consumption of finishedProductConsumptions) {
+          const { data: productLot } = await this.supabaseService.admin
+            .from('finished_product_lots')
+            .select('available_quantity, returned_quantity, lot_code, product_id, available_pieces')
+            .eq('id', consumption.finishedProductLotId)
+            .single();
+
+          if (!productLot) {
+            throw new BadRequestException(`Finished product lot not found: ${consumption.finishedProductLotId}`);
+          }
+
+          const sourceProduct = await this.getById('finished_products', String(productLot.product_id));
+          const tracksPieces = Boolean(sourceProduct.tracks_quantity_and_weight ?? sourceProduct.tracks_pieces);
+
+          if (tracksPieces && (!consumption.finishedProductLotId || !Number.isInteger(consumption.pieces) || Number(consumption.pieces) <= 0)) {
+            throw new BadRequestException('Informe lote e peças para consumir este produto acabado.');
+          }
+          if (!tracksPieces && consumption.pieces != null) throw new BadRequestException('Este produto não controla peças e peso.');
+
+          const balanceField = consumption.source === 'Devolucao' ? 'returned_quantity' : 'available_quantity';
+          const nextAvailable = Number(productLot[balanceField]) - consumption.quantity;
+          if (nextAvailable < 0) {
+            throw new BadRequestException(`Finished product lot ${productLot.lot_code} would become negative`);
+          }
+
+          await this.supabaseService.admin.from('production_order_finished_product_consumptions').insert({
+            production_order_id: orderId,
+            finished_product_lot_id: consumption.finishedProductLotId,
+            quantity_consumed: consumption.quantity,
+            pieces_consumed: tracksPieces ? consumption.pieces : null,
+            ...(consumption.source ? { consumption_source: consumption.source } : {}),
+            created_by: user?.id ?? null,
+            updated_by: user?.id ?? null,
+          });
+
+          await this.supabaseService.admin
+            .from('finished_product_lots')
+            .update({
+              [balanceField]: nextAvailable,
+              ...(tracksPieces ? { available_pieces: Number(productLot.available_pieces) - Number(consumption.pieces) } : {}),
+              updated_by: user?.id ?? null,
+            })
+            .eq('id', consumption.finishedProductLotId);
+
+          await this.supabaseService.admin.from('stock_movements').insert({
+            movement_type: 'saida',
+            lot_type: 'Produto Acabado',
+            lot_id: consumption.finishedProductLotId,
+            quantity: consumption.quantity,
+            pieces_quantity: tracksPieces ? consumption.pieces : null,
+            reference_table: 'production_orders',
+            reference_id: orderId,
+            created_by: user?.id ?? null,
+            updated_by: user?.id ?? null,
+          });
+        }
       }
     }
 
