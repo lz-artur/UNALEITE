@@ -246,62 +246,129 @@ export class ProductionService {
   }
 
   async createOrder(payload: CreateProductionOrderDto, user?: AuthenticatedUser) {
-    const milkLot = await this.getById('milk_lots', payload.milkLotId);
+    const milkLot = payload.milkLotId ? await this.getById('milk_lots', payload.milkLotId) : null;
     const product = await this.getById('finished_products', payload.productId);
-    const productSpec = await this.getActiveProductSpec(payload.productId);
-    const analysis = milkLot.latest_analysis_id
-      ? await this.getById('milk_lot_analyses', String(milkLot.latest_analysis_id))
-      : null;
 
     if (!product.active) {
       throw new BadRequestException('Finished product is inactive');
     }
 
-    if (!([MILK_LOT_STATUS.APPROVED, MILK_LOT_STATUS.PARTIALLY_USED] as string[]).includes(String(milkLot.status))) {
-      throw new BadRequestException('Milk lot is not available for production');
-    }
+    const isSecondary = (payload.productionType ?? product.production_type) === 'Secundario';
+    let order: any;
+    let expectedYield: number | null = null;
+    let fatAdjustment: number | null = null;
 
-    if (Number(milkLot.available_volume_liters) < payload.litersToUse) {
-      throw new BadRequestException('Milk lot does not have enough available volume');
-    }
+    if (isSecondary) {
+      const hasSupplies = Boolean(payload.supplyConsumptions && payload.supplyConsumptions.length > 0);
+      const hasFinished = Boolean(payload.finishedProductConsumptions && payload.finishedProductConsumptions.length > 0);
+      if (!hasSupplies && !hasFinished) {
+        throw new BadRequestException('Para produção secundária, informe ao menos uma matéria-prima ou coproduto a ser consumido.');
+      }
 
-    const expectedYield = this.domainRulesService.calculateExpectedYield(
-      payload.litersToUse,
-      Number(product.theoretical_yield),
-    );
-    const fatAdjustment = this.domainRulesService.calculateFatAdjustment(
-      payload.litersToUse,
-      analysis?.gordura as number | undefined,
-      productSpec?.ideal_fat as number | undefined,
-    );
-    const orderNumber = `OP-${new Date().getFullYear()}-${Date.now()}`;
+      const orderNumber = `OP-${new Date().getFullYear()}-${Date.now()}`;
+      const actor = this.actor(user);
 
-    const actor = this.actor(user);
-    const { data: reservationResult, error } = await this.supabaseService.admin.rpc(
-      'create_production_order_with_milk_reservation',
-      {
-        p_order_number: orderNumber,
-        p_milk_lot_id: payload.milkLotId,
-        p_product_id: payload.productId,
-        p_liters: payload.litersToUse,
-        p_expected_yield: expectedYield,
-        p_fat_adjustment_kg: fatAdjustment,
-        p_unit_cost: milkLot.cost_per_liter,
-        p_actor_id: actor.id,
-        p_actor_name: actor.name,
-      },
-    );
+      const { data: newOrder, error: createError } = await this.supabaseService.admin
+        .from('production_orders')
+        .insert({
+          order_number: orderNumber,
+          product_id: payload.productId,
+          milk_lot_id: null,
+          liters_planned: 0,
+          expected_yield: null,
+          fat_adjustment_kg: null,
+          status: PRODUCTION_ORDER_STATUS.IN_PROGRESS,
+          production_type: 'Secundario',
+          commercial_presentation: payload.commercialPresentation ?? product.commercial_presentation ?? null,
+          package_size: payload.packageSize ?? product.package_size ?? null,
+          started_at: new Date().toISOString(),
+          created_by: actor.id,
+          updated_by: actor.id,
+        })
+        .select('*')
+        .single();
 
-    if (error) {
-      await this.logOperationFailure({
-        milkLotId: payload.milkLotId,
-        action: 'criar a OP e reservar o leite',
-        message: error.message,
-        user,
+      if (createError) {
+        await this.logOperationFailure({
+          action: 'criar a OP secundária',
+          message: createError.message,
+          user,
+        });
+        throw new BadRequestException(createError.message);
+      }
+
+      order = newOrder;
+
+      await this.supabaseService.admin.from('production_events').insert({
+        production_order_id: order.id,
+        event_type: 'order_created',
+        title: 'OP secundária criada',
+        description: `Ordem de produção secundária ${orderNumber} iniciada para ${product.name}.`,
+        actor_id: actor.id,
+        actor_name: actor.name,
+        before_state: {},
+        after_state: { status: 'Em Andamento', productionType: 'Secundario' },
+        metadata: { orderNumber, productId: product.id },
       });
-      throw new BadRequestException(error.message);
+    } else {
+      if (!payload.milkLotId || !milkLot) {
+        throw new BadRequestException('Informe o lote de leite para produtos primários.');
+      }
+      if (!payload.litersToUse || payload.litersToUse <= 0) {
+        throw new BadRequestException('Informe o volume de leite a ser utilizado.');
+      }
+
+      const productSpec = await this.getActiveProductSpec(payload.productId);
+      const analysis = milkLot.latest_analysis_id
+        ? await this.getById('milk_lot_analyses', String(milkLot.latest_analysis_id))
+        : null;
+
+      if (!([MILK_LOT_STATUS.APPROVED, MILK_LOT_STATUS.PARTIALLY_USED] as string[]).includes(String(milkLot.status))) {
+        throw new BadRequestException('Milk lot is not available for production');
+      }
+
+      if (Number(milkLot.available_volume_liters) < payload.litersToUse) {
+        throw new BadRequestException('Milk lot does not have enough available volume');
+      }
+
+      expectedYield = this.domainRulesService.calculateExpectedYield(
+        payload.litersToUse,
+        Number(product.theoretical_yield),
+      );
+      fatAdjustment = this.domainRulesService.calculateFatAdjustment(
+        payload.litersToUse,
+        analysis?.gordura as number | undefined,
+        productSpec?.ideal_fat as number | undefined,
+      );
+      const orderNumber = `OP-${new Date().getFullYear()}-${Date.now()}`;
+
+      const actor = this.actor(user);
+      const { data: reservationResult, error } = await this.supabaseService.admin.rpc(
+        'create_production_order_with_milk_reservation',
+        {
+          p_order_number: orderNumber,
+          p_milk_lot_id: payload.milkLotId,
+          p_product_id: payload.productId,
+          p_liters: payload.litersToUse,
+          p_expected_yield: expectedYield,
+          p_fat_adjustment_kg: fatAdjustment,
+          p_unit_cost: milkLot.cost_per_liter,
+          p_actor_id: actor.id,
+          p_actor_name: actor.name,
+        },
+      );
+
+      if (error) {
+        await this.logOperationFailure({
+          milkLotId: payload.milkLotId,
+          action: 'criar a OP e reservar o leite',
+          message: error.message,
+          user,
+        });
+        throw new BadRequestException(error.message);
+      }
+      order = this.rpcOrder(reservationResult);
     }
-    const order = this.rpcOrder(reservationResult);
 
     if (payload.supplyConsumptions?.length) {
       const supplyConsumptions = await this.resolveSupplyConsumptions(payload.supplyConsumptions, user);
@@ -418,7 +485,7 @@ export class ProductionService {
       expectedYield,
       fatAdjustmentKg: fatAdjustment,
       estimatedRevenue:
-        product.sale_price != null ? expectedYield * Number(product.sale_price) : null,
+        product.sale_price != null && expectedYield != null ? expectedYield * Number(product.sale_price) : null,
     };
   }
 
@@ -433,7 +500,7 @@ export class ProductionService {
       throw new BadRequestException('Production order is not in progress');
     }
 
-    const milkLot = await this.getById('milk_lots', String(order.milk_lot_id));
+    const milkLot = order.milk_lot_id ? await this.getById('milk_lots', String(order.milk_lot_id)) : null;
     const product = await this.getById('finished_products', String(order.product_id));
     const tracksPieces = Boolean(product.tracks_quantity_and_weight ?? product.tracks_pieces);
     if (tracksPieces && (!Number.isInteger(payload.actualPiecesProduced) || Number(payload.actualPiecesProduced) <= 0)) {
@@ -537,9 +604,9 @@ export class ProductionService {
 
     // O leite já foi reservado na abertura da OP. A finalização apenas converte
     // essa reserva em consumo, sem uma segunda baixa no saldo do lote.
-    const actualYield = Number(
-      (Number(order.liters_planned) / payload.actualQuantityProduced).toFixed(3),
-    );
+    const actualYield = order.liters_planned && Number(order.liters_planned) > 0 && payload.actualQuantityProduced > 0
+      ? Number((Number(order.liters_planned) / payload.actualQuantityProduced).toFixed(3))
+      : null;
     const actor = this.actor(user);
     const { data: completionResult, error: orderError } = await this.supabaseService.admin.rpc(
       'complete_production_order_milk_reservation',
@@ -739,6 +806,9 @@ export class ProductionService {
     expirationDate.setDate(expirationDate.getDate() + Number(product.shelf_life_days));
 
     const finishedProductLotCode = `PA-${new Date().getFullYear()}-${Date.now()}`;
+    const commercialPresentation = payload.commercialPresentation ?? product.commercial_presentation ?? order.commercial_presentation ?? null;
+    const commercialUnits = payload.actualCommercialUnitsProduced ?? null;
+
     const { data: productLot, error: productLotError } = await this.supabaseService.admin
       .from('finished_product_lots')
       .insert({
@@ -749,6 +819,9 @@ export class ProductionService {
         available_quantity: payload.actualQuantityProduced,
         quantity_pieces: payload.actualPiecesProduced ?? null,
         available_pieces: payload.actualPiecesProduced ?? null,
+        commercial_units: commercialUnits,
+        available_commercial_units: commercialUnits,
+        commercial_presentation: commercialPresentation,
         produced_at: new Date().toISOString(),
         expiration_date: expirationDate.toISOString(),
         storage_location_id: await this.getDefaultFinishedProductLocationId(),
@@ -762,8 +835,20 @@ export class ProductionService {
       throw new BadRequestException(productLotError.message);
     }
 
-    await this.supabaseService.admin.from('stock_movements').insert([
-      {
+    if (payload.actualCommercialUnitsProduced != null || payload.commercialPresentation || payload.packageSize) {
+      await this.supabaseService.admin
+        .from('production_orders')
+        .update({
+          commercial_units_produced: payload.actualCommercialUnitsProduced ?? null,
+          commercial_presentation: commercialPresentation,
+          package_size: payload.packageSize ?? product.package_size ?? null,
+        })
+        .eq('id', orderId);
+    }
+
+    const movements: any[] = [];
+    if (milkLot && Number(order.liters_planned) > 0) {
+      movements.push({
         movement_type: 'saida',
         lot_type: 'Leite',
         lot_id: milkLot.id,
@@ -772,18 +857,21 @@ export class ProductionService {
         reference_id: orderId,
         created_by: user?.id ?? null,
         updated_by: user?.id ?? null,
-      },
-      {
-        movement_type: 'entrada',
-        lot_type: 'Produto Acabado',
-        lot_id: productLot.id,
-        quantity: payload.actualQuantityProduced,
-        reference_table: 'production_orders',
-        reference_id: orderId,
-        created_by: user?.id ?? null,
-        updated_by: user?.id ?? null,
-      },
-    ]);
+      });
+    }
+    movements.push({
+      movement_type: 'entrada',
+      lot_type: 'Produto Acabado',
+      lot_id: productLot.id,
+      quantity: payload.actualQuantityProduced,
+      pieces_quantity: payload.actualPiecesProduced ?? null,
+      reference_table: 'production_orders',
+      reference_id: orderId,
+      created_by: user?.id ?? null,
+      updated_by: user?.id ?? null,
+    });
+
+    await this.supabaseService.admin.from('stock_movements').insert(movements);
 
     if (payload.generatedCoProducts?.length) {
       for (const coProduct of payload.generatedCoProducts) {
@@ -968,7 +1056,18 @@ export class ProductionService {
       updated_by: user?.id ?? null,
     };
 
-    const nextLitersPlanned = payload.litersToUse ?? Number(order.liters_planned);
+    const isSecondary = order.production_type === 'Secundario' || !order.milk_lot_id;
+    if (payload.commercialUnitsProduced != null) {
+      updateData.commercial_units_produced = payload.commercialUnitsProduced;
+    }
+    if (payload.commercialPresentation !== undefined) {
+      updateData.commercial_presentation = payload.commercialPresentation;
+    }
+    if (payload.packageSize !== undefined) {
+      updateData.package_size = payload.packageSize;
+    }
+
+    const nextLitersPlanned = payload.litersToUse ?? Number(order.liters_planned ?? 0);
     const isMilkLotChanging =
       payload.milkLotId != null && payload.milkLotId !== String(order.milk_lot_id);
 
@@ -980,10 +1079,12 @@ export class ProductionService {
 
     if (payload.actualQuantityProduced != null) {
       updateData.actual_quantity_produced = payload.actualQuantityProduced;
-      updateData.actual_yield = Number((nextLitersPlanned / payload.actualQuantityProduced).toFixed(3));
+      updateData.actual_yield = nextLitersPlanned > 0
+        ? Number((nextLitersPlanned / payload.actualQuantityProduced).toFixed(3))
+        : null;
     }
 
-    if (order.status === PRODUCTION_ORDER_STATUS.IN_PROGRESS && (isMilkLotChanging || payload.litersToUse != null)) {
+    if (!isSecondary && order.status === PRODUCTION_ORDER_STATUS.IN_PROGRESS && (isMilkLotChanging || payload.litersToUse != null)) {
       const product = await this.getById('finished_products', String(order.product_id));
       const expectedYield = this.domainRulesService.calculateExpectedYield(
         nextLitersPlanned,

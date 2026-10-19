@@ -1860,7 +1860,7 @@ export default function Comercial() {
               </div>
               {loadingDetail ? (
                 <div className="p-10 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-blue-600" /></div>
-              ) : selectedOrder.weighingPhotos.length === 0 ? (
+              ) : !selectedOrder.weighingPhotos || selectedOrder.weighingPhotos.length === 0 ? (
                 <div className="p-10 text-center text-sm text-gray-500">Nenhuma foto de pesagem disponível para este pedido.</div>
               ) : (
                 <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">

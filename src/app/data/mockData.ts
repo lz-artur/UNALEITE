@@ -106,9 +106,13 @@ export interface Insumo {
 export interface OrdemProducao {
   id: string;
   numero: string;
-  loteLeiteId: string;
+  loteLeiteId?: string | null;
   produtoId: string;
-  litrosUtilizados: number;
+  litrosUtilizados?: number;
+  tipoProducao?: 'Primario' | 'Secundario';
+  unidadesComerciaisProduzidas?: number;
+  apresentacaoComercial?: string;
+  tamanhoEmbalagem?: number;
   dataInicio: Date;
   dataFinalizacao?: Date;
   status: 'Em Andamento' | 'Finalizada' | 'Cancelada';
@@ -141,6 +145,9 @@ export interface EstoqueProduto {
   /** Contagem física adicional, usada exclusivamente nos lotes de queijo. */
   quantidadePecas?: number;
   disponivelPecas?: number;
+  unidadesComerciais?: number;
+  disponivelUnidadesComerciais?: number;
+  apresentacaoComercial?: string;
   devolvido?: number;
   devolvidoPecas?: number;
 }

@@ -47,15 +47,29 @@ class FinishedProductConsumptionDto {
 }
 
 export class CreateProductionOrderDto {
+  @IsOptional()
   @IsString()
-  milkLotId!: string;
+  milkLotId?: string;
 
   @IsString()
   productId!: string;
 
+  @IsOptional()
   @IsNumber()
-  @Min(0.01)
-  litersToUse!: number;
+  @Min(0)
+  litersToUse?: number;
+
+  @IsOptional()
+  @IsIn(['Primario', 'Secundario'])
+  productionType?: 'Primario' | 'Secundario';
+
+  @IsOptional()
+  @IsString()
+  commercialPresentation?: string;
+
+  @IsOptional()
+  @IsString()
+  packageSize?: string;
 
   @IsOptional()
   @IsArray()

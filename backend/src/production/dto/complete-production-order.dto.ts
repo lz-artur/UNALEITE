@@ -66,6 +66,19 @@ export class CompleteProductionOrderDto {
   actualPiecesProduced?: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  actualCommercialUnitsProduced?: number;
+
+  @IsOptional()
+  @IsString()
+  commercialPresentation?: string;
+
+  @IsOptional()
+  @IsString()
+  packageSize?: string;
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => SupplyConsumptionDto)

@@ -790,7 +790,11 @@ function mapProductionOrder(row: any): OrdemProducao {
     numero: row.order_number,
     loteLeiteId: row.milk_lot_id,
     produtoId: row.product_id,
-    litrosUtilizados: Number(row.liters_planned),
+    litrosUtilizados: Number(row.liters_planned ?? 0),
+    tipoProducao: row.production_type ?? 'Primario',
+    unidadesComerciaisProduzidas: row.commercial_units_produced != null ? Number(row.commercial_units_produced) : undefined,
+    apresentacaoComercial: row.commercial_presentation ?? undefined,
+    tamanhoEmbalagem: row.package_size != null ? Number(row.package_size) : undefined,
     dataInicio: new Date(row.started_at),
     dataFinalizacao: row.finished_at ? new Date(row.finished_at) : undefined,
     status: row.status,
@@ -837,6 +841,9 @@ function mapFinishedProductLot(row: any): EstoqueProduto {
     quantidadePecas: row.quantity_pieces == null ? undefined : Number(row.quantity_pieces),
     disponivelPecas: row.available_pieces == null ? undefined : Number(row.available_pieces),
     devolvidoPecas: row.returned_pieces == null ? undefined : Number(row.returned_pieces),
+    unidadesComerciais: row.commercial_units == null ? undefined : Number(row.commercial_units),
+    disponivelUnidadesComerciais: row.available_commercial_units == null ? undefined : Number(row.available_commercial_units),
+    apresentacaoComercial: row.commercial_presentation ?? undefined,
   };
 }
 
@@ -1285,9 +1292,12 @@ export async function cancelProductionOrder(id: string, reason: string) {
 }
 
 export async function createProductionOrder(payload: {
-  milkLotId: string;
+  milkLotId?: string;
   productId: string;
-  litersToUse: number;
+  litersToUse?: number;
+  productionType?: 'Primario' | 'Secundario';
+  commercialPresentation?: string;
+  packageSize?: string;
   supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
   finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number; pieces?: number }>;
 }) {
@@ -1302,6 +1312,9 @@ export async function updateProductionOrder(orderId: string, payload: {
   productId?: string;
   litersToUse?: number;
   actualQuantityProduced?: number;
+  commercialUnitsProduced?: number;
+  commercialPresentation?: string;
+  packageSize?: string;
   supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
   finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number; pieces?: number }>;
 }) {
@@ -1315,6 +1328,9 @@ export async function completeProductionOrder(payload: {
   orderId: string;
   actualQuantityProduced: number;
   actualPiecesProduced?: number;
+  actualCommercialUnitsProduced?: number;
+  commercialPresentation?: string;
+  packageSize?: string;
   supplyConsumptions?: Array<{ supplyItemId?: string; supplyLotId?: string; quantity: number }>;
   finishedProductConsumptions?: Array<{ finishedProductId?: string; finishedProductLotId?: string; source?: 'Disponivel' | 'Devolucao'; quantity: number; pieces?: number }>;
   generatedCoProducts?: Array<{ productId: string; quantity: number }>;
@@ -1324,6 +1340,9 @@ export async function completeProductionOrder(payload: {
     body: JSON.stringify({
       actualQuantityProduced: payload.actualQuantityProduced,
       actualPiecesProduced: payload.actualPiecesProduced,
+      actualCommercialUnitsProduced: payload.actualCommercialUnitsProduced,
+      commercialPresentation: payload.commercialPresentation,
+      packageSize: payload.packageSize,
       supplyConsumptions: payload.supplyConsumptions,
       finishedProductConsumptions: payload.finishedProductConsumptions,
       generatedCoProducts: payload.generatedCoProducts,
