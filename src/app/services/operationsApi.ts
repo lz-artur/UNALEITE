@@ -391,6 +391,9 @@ export interface FinancialEntryRecord extends ContaFinanceira {
   valorRecebido: number;
   saldoReceber: number;
   recebimentos: FinancialReceiptRecord[];
+  valorPago: number;
+  saldoPagar: number;
+  pagamentos: FinancialReceiptRecord[];
   itensRateio: FinancialEntryItemRecord[];
 }
 
@@ -422,6 +425,8 @@ export interface CreateFinancialReceiptPayload {
   anexoUrl?: string;
   observacoes?: string;
 }
+
+export type CreateFinancialPaymentPayload = CreateFinancialReceiptPayload;
 
 export interface FinancialEntryFilters {
   type?: 'Pagar' | 'Receber';
@@ -1063,6 +1068,9 @@ function mapFinancialEntry(row: any): FinancialEntryRecord {
     valorRecebido,
     saldoReceber,
     recebimentos,
+    valorPago: valorRecebido,
+    saldoPagar: saldoReceber,
+    pagamentos: recebimentos,
     itensRateio,
   };
 }
@@ -1590,6 +1598,9 @@ export async function deleteFinancialReceipt(entryId: string, receiptId: string)
     method: 'DELETE',
   }).then(mapFinancialEntry);
 }
+
+export const createFinancialPayment = createFinancialReceipt;
+export const deleteFinancialPayment = deleteFinancialReceipt;
 
 export async function createFinancialEntry(payload: Omit<ContaFinanceira, 'id' | 'statusCalculado'>) {
   return apiRequest<any>('/financial-entries', {
