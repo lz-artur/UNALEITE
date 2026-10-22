@@ -219,12 +219,12 @@ export class ReportsService {
           ? productMap.get(String(sourceLot.product_id))
           : undefined;
         const quantity = Number(consumption.quantity_consumed ?? 0);
-        const sourceCost = sourceLot ? getProductLotCost(sourceLot) : this.emptyProductionCost();
-        const unitCost = Number(sourceLot?.quantity_produced ?? 0) > 0
-          ? sourceCost.totalCost / Number(sourceLot.quantity_produced)
-          : 0;
-        const value = quantity * unitCost;
         const isCream = this.isCream(sourceProduct);
+        const sourceCost = isCream ? null : (sourceLot ? getProductLotCost(sourceLot) : this.emptyProductionCost());
+        const unitCost = isCream ? 0 : (Number(sourceLot?.quantity_produced ?? 0) > 0 && sourceCost
+          ? sourceCost.totalCost / Number(sourceLot.quantity_produced)
+          : 0);
+        const value = isCream ? 0 : quantity * unitCost;
 
         if (isCream) {
           creamCost += value;
@@ -263,9 +263,19 @@ export class ReportsService {
       const orderId = String(productLot.production_order_id);
       const orderCost = getOrderCost(orderId);
       const outputLots = outputLotsByOrder.get(orderId) ?? [];
-      const totalOutput = outputLots.reduce((sum, lot) => sum + Number(lot.quantity_produced ?? 0), 0);
-      if (totalOutput <= 0) return orderCost;
-      const allocation = totalOutput > 0 ? Number(productLot.quantity_produced ?? 0) / totalOutput : 0;
+      const product = productMap.get(String(productLot.product_id));
+      if (this.isCream(product)) {
+        return this.scaleProductionCost(orderCost, 0);
+      }
+      const primaryLots = outputLots.filter((lot) => !this.isCream(productMap.get(String(lot.product_id))));
+      const totalPrimaryOutput = primaryLots.reduce((sum, lot) => sum + Number(lot.quantity_produced ?? 0), 0);
+      if (totalPrimaryOutput <= 0) {
+        const totalOutput = outputLots.reduce((sum, lot) => sum + Number(lot.quantity_produced ?? 0), 0);
+        if (totalOutput <= 0) return orderCost;
+        const allocation = totalOutput > 0 ? Number(productLot.quantity_produced ?? 0) / totalOutput : 0;
+        return this.scaleProductionCost(orderCost, allocation);
+      }
+      const allocation = Number(productLot.quantity_produced ?? 0) / totalPrimaryOutput;
       return this.scaleProductionCost(orderCost, allocation);
     };
 

@@ -58,13 +58,26 @@ export class UpdateProductionOrderDto {
 
   @IsOptional()
   @IsNumber()
-  @Min(0.01)
+  @Min(0)
   litersToUse?: number;
 
   @IsOptional()
   @IsNumber()
   @Min(0.01)
   actualQuantityProduced?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  commercialUnitsProduced?: number;
+
+  @IsOptional()
+  @IsString()
+  commercialPresentation?: string;
+
+  @IsOptional()
+  @IsString()
+  packageSize?: string;
 
   @IsOptional()
   @IsArray()

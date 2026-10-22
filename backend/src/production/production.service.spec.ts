@@ -462,4 +462,96 @@ describe('ProductionService', () => {
       }));
     });
   });
+
+  describe('secondary production orders (sem leite)', () => {
+    it('creates a secondary OP without milk reservation when product is Secundario', async () => {
+      jest.spyOn(service as any, 'getById').mockImplementation(async (...args: unknown[]) => {
+        const [table, id] = args as [string, string];
+        if (table === 'finished_products') {
+          return {
+            id: 'manteiga-id',
+            name: 'Manteiga Pote 200g',
+            active: true,
+            production_type: 'Secundario',
+            commercial_presentation: 'Pote 200g',
+            package_size: 0.2,
+          };
+        }
+        if (table === 'finished_product_lots') {
+          return {
+            id: 'creme-lot-1',
+            product_id: 'creme-id',
+            available_quantity: 100,
+            lot_code: 'CP-2026-1',
+          };
+        }
+        return { id, active: true };
+      });
+
+      const orderInsertMock = jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          single: jest.fn().mockResolvedValue({
+            data: { id: 'sec-order-1', order_number: 'OP-2026-999', status: 'Em Andamento', production_type: 'Secundario' },
+            error: null,
+          }),
+        }),
+      });
+
+      supabaseServiceMock.admin.from = jest.fn().mockImplementation((table: string) => {
+        if (table === 'production_orders') return { insert: orderInsertMock };
+        return {
+          insert: jest.fn().mockResolvedValue({ error: null }),
+          update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+        };
+      });
+      supabaseServiceMock.admin.rpc = jest.fn();
+
+      const result = await service.createOrder({
+        productId: 'manteiga-id',
+        productionType: 'Secundario',
+        finishedProductConsumptions: [
+          { finishedProductLotId: 'creme-lot-1', quantity: 50 },
+        ],
+      }, { id: 'user-1', email: 'operador@una.com', claims: {} });
+
+      expect(result.order.id).toBe('sec-order-1');
+      expect(supabaseServiceMock.admin.rpc).not.toHaveBeenCalled();
+      expect(orderInsertMock).toHaveBeenCalledWith(expect.objectContaining({
+        product_id: 'manteiga-id',
+        milk_lot_id: null,
+        liters_planned: 0,
+        production_type: 'Secundario',
+      }));
+    });
+
+    it('rejects creating a secondary OP without any consumed materials', async () => {
+      jest.spyOn(service as any, 'getById').mockResolvedValueOnce({
+        id: 'manteiga-id',
+        name: 'Manteiga',
+        active: true,
+        production_type: 'Secundario',
+      });
+
+      await expect(service.createOrder({
+        productId: 'manteiga-id',
+        productionType: 'Secundario',
+      })).rejects.toThrow('Para produção secundária, informe ao menos uma matéria-prima ou coproduto a ser consumido.');
+    });
+
+    it('rejects creating a primary OP when milkLotId is not provided', async () => {
+      jest.spyOn(service as any, 'getById').mockResolvedValueOnce({
+        id: 'queijo-id',
+        name: 'Queijo Mussarela',
+        active: true,
+        production_type: 'Primario',
+      });
+
+      await expect(service.createOrder({
+        productId: 'queijo-id',
+        litersToUse: 100,
+      })).rejects.toThrow('Informe o lote de leite para produtos primários.');
+    });
+  });
 });

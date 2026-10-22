@@ -70,8 +70,8 @@ describe('ReportsService production costs', () => {
     const report = await service.getProductionReport();
     const targetRow = report.rows.find((row) => row.orderId === 'target-order');
 
-    expect(targetRow).toMatchObject({ creamQuantity: 2, creamCost: 8, reprocessedQuantity: 0, reprocessingCost: 0, totalCost: 28 });
-    expect(targetRow?.inputs).toContainEqual(expect.objectContaining({ category: 'Creme', totalCost: 8 }));
+    expect(targetRow).toMatchObject({ creamQuantity: 2, creamCost: 0, reprocessedQuantity: 0, reprocessingCost: 0, totalCost: 20 });
+    expect(targetRow?.inputs).toContainEqual(expect.objectContaining({ category: 'Creme', totalCost: 0 }));
   });
 });
 

@@ -83,6 +83,7 @@ vi.mock('lucide-react', () => ({
   Mail: (props: any) => React.createElement('span', { ...props, 'data-testid': 'mail-icon' }),
   Building2: (props: any) => React.createElement('span', { ...props, 'data-testid': 'building-icon' }),
   Edit: (props: any) => React.createElement('span', { ...props, 'data-testid': 'edit-icon' }),
+  Image: (props: any) => React.createElement('span', { ...props, 'data-testid': 'image-icon' }),
   Save: (props: any) => React.createElement('span', { ...props, 'data-testid': 'save-icon' }),
   CornerDownLeft: (props: any) => React.createElement('span', { ...props, 'data-testid': 'corner-down-left' }),
   Wallet: (props: any) => React.createElement('span', { ...props, 'data-testid': 'wallet-icon' }),
@@ -158,7 +159,7 @@ describe('Comercial - ModalShell component integration', () => {
 
     await screen.findByText('VEN-2026-2');
     fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Realizar Atendimento' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Realizar Atendimento' }));
 
     await screen.findByText('Atendimento do pedido VEN-2026-2');
     expect(operationsApi.loadFinishedProductLots).toHaveBeenCalledWith({ requireLive: true });

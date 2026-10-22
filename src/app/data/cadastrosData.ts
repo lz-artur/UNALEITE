@@ -142,6 +142,9 @@ export interface FinishedProductRecord {
   name: string;
   category: string;
   unitId: string;
+  productionType?: 'Primario' | 'Secundario';
+  commercialPresentation?: string;
+  packageSize?: number;
   tracksPieces: boolean;
   tracksQuantityAndWeight: boolean;
   weightVariancePercent: number;

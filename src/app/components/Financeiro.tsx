@@ -71,15 +71,15 @@ export default function Financeiro() {
 
   const totalPagar = contasPagar
     .filter((entry) => entry.statusCalculado !== 'Pago' && entry.statusCalculado !== 'Cancelado')
-    .reduce((sum, entry) => sum + entry.valor, 0);
+    .reduce((sum, entry) => sum + (entry.saldoPagar ?? entry.saldoReceber ?? entry.valor), 0);
 
   const totalReceber = contasReceber
     .filter((entry) => entry.statusCalculado !== 'Pago' && entry.statusCalculado !== 'Cancelado')
-    .reduce((sum, entry) => sum + entry.valor, 0);
+    .reduce((sum, entry) => sum + (entry.saldoReceber ?? entry.saldoPagar ?? entry.valor), 0);
 
   const totalVencido = contasFinanceiras
     .filter((entry) => entry.statusCalculado === 'Vencido')
-    .reduce((sum, entry) => sum + entry.valor, 0);
+    .reduce((sum, entry) => sum + (entry.saldoPagar ?? entry.saldoReceber ?? entry.valor), 0);
 
   const saldo = totalReceber - totalPagar;
   const categories = useMemo(
@@ -89,6 +89,7 @@ export default function Financeiro() {
 
   const getStatusColor = (conta: FinancialEntryRecord) => {
     if (conta.statusCalculado === 'Pago') return 'bg-green-100 text-green-800';
+    if (conta.statusCalculado === 'Parcial') return 'bg-blue-100 text-blue-800';
     if (conta.statusCalculado === 'Cancelado') return 'bg-gray-100 text-gray-800';
     if (conta.statusCalculado === 'Vencido' || (conta.status === 'Aberto' && isPast(conta.dataVencimento))) {
       return 'bg-red-100 text-red-800';
@@ -304,7 +305,12 @@ export default function Financeiro() {
                         conta.tipo === 'Pagar' ? 'text-red-600' : 'text-green-600'
                       }`}
                     >
-                      R$ {conta.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      <div>R$ {conta.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                      {conta.statusCalculado === 'Parcial' && (
+                        <div className="text-xs font-normal text-gray-500">
+                          Saldo: R$ {(conta.saldoPagar ?? conta.saldoReceber ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-sm">
                       {format(conta.dataVencimento, 'dd/MM/yyyy')}

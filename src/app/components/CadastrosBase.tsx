@@ -624,6 +624,9 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  code: '',
  name: '',
  category: '',
+ productionType: 'Primario',
+ commercialPresentation: '',
+ packageSize: '',
  unitId: 'unit-kg',
  tracksPieces: false,
  tracksQuantityAndWeight: false,
@@ -971,6 +974,9 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  saveFinishedProduct({
  ...(formState as unknown as FinishedProductRecord),
  id: String(formState.id || generateId('product')),
+ productionType: (formState.productionType as 'Primario' | 'Secundario') || 'Primario',
+ commercialPresentation: String(formState.commercialPresentation || '') || undefined,
+ packageSize: String(formState.packageSize || '') || undefined,
  standardWeight: Number(formState.standardWeight) || undefined,
  weightVariancePercent: Number(formState.weightVariancePercent) || 0,
  shelfLifeDays: Number(formState.shelfLifeDays),
@@ -1239,13 +1245,19 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  );
  case 'finishedProducts':
  return (
- <TableShell headers={['Código', 'Produto', 'Categoria', 'Unidade', 'Qtd. e peso?', 'Tolerância', 'Validade', 'Rendimento', 'Ações']}>
+ <TableShell headers={['Código', 'Produto', 'Tipo', 'Apresentação', 'Categoria', 'Unidade', 'Qtd. e peso?', 'Tolerância', 'Validade', 'Rendimento', 'Ações']}>
  {filteredRecords.map((record) => {
  const item = record as FinishedProductRecord;
  return (
  <tr key={item.id} className="hover:bg-gray-50">
  <Td strong>{item.code}</Td>
  <Td>{item.name}</Td>
+ <Td>
+ <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${item.productionType === 'Secundario' ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+ {item.productionType === 'Secundario' ? 'Secundário' : 'Primário'}
+ </span>
+ </Td>
+ <Td>{item.commercialPresentation ? `${item.commercialPresentation}${item.packageSize ? ` (${item.packageSize})` : ''}` : '-'}</Td>
  <Td>{item.category}</Td>
  <Td>{getUnitSymbol(item.unitId)}</Td>
  <Td>{item.tracksQuantityAndWeight ? 'Sim' : 'Não'}</Td>
@@ -1793,6 +1805,28 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
  <Field label="Código" required value={String(formState.code || '')} onChange={(value) => updateField('code', value)} />
  <Field label="Nome do produto" required value={String(formState.name || '')} onChange={(value) => updateField('name', value)} />
+ <SelectField
+ label="Tipo de Produção"
+ required
+ value={String(formState.productionType || 'Primario')}
+ onChange={(value) => updateField('productionType', value)}
+ options={[
+ { label: 'Primário (processamento de leite)', value: 'Primario' },
+ { label: 'Secundário (derivado de coprodutos/insumos)', value: 'Secundario' },
+ ]}
+ />
+ <Field
+ label="Apresentação Comercial"
+ placeholder="Ex: Pote, Garrafa, Barra, Balde"
+ value={String(formState.commercialPresentation || '')}
+ onChange={(value) => updateField('commercialPresentation', value)}
+ />
+ <Field
+ label="Tamanho da Embalagem"
+ placeholder="Ex: 200g, 500g, 1kg, 900ml"
+ value={String(formState.packageSize || '')}
+ onChange={(value) => updateField('packageSize', value)}
+ />
  <div className="flex items-center mt-6">
    <label className="flex items-center gap-3 border border-gray-200 rounded-lg px-3 py-2 w-full cursor-pointer hover:bg-gray-50">
      <input
