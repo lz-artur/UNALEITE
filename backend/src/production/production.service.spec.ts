@@ -588,7 +588,7 @@ describe('ProductionService', () => {
           return {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockResolvedValue({
-                data: [{ liters_consumed: 1000, state: 'Reservado', milk_lots: { internal_lot_code: 'LEITE-01' } }],
+                data: [{ liters_consumed: 1000, state: 'Reservado', milk_lots: { code: 'LEITE-01' } }],
                 error: null,
               }),
             }),

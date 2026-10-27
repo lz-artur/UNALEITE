@@ -1714,15 +1714,30 @@ export class ProductionService {
     // 1. Milk consumptions
     const { data: milkConsumptions } = await this.supabaseService.admin
       .from('production_order_milk_consumptions')
-      .select('liters_consumed, state, milk_lots(internal_lot_code)')
+      .select('liters_consumed, state, milk_lots(code)')
       .eq('production_order_id', id);
 
-    const activeMilk = (milkConsumptions ?? [])
+    let activeMilk = (milkConsumptions ?? [])
       .filter((c: any) => c.state === 'Reservado' || c.state === 'Consumido')
-      .map((c: any) => ({
-        lotCode: Array.isArray(c.milk_lots) ? c.milk_lots[0]?.internal_lot_code : c.milk_lots?.internal_lot_code ?? 'Lote de Leite',
-        liters: Number(c.liters_consumed),
-      }));
+      .map((c: any) => {
+        const lot = Array.isArray(c.milk_lots) ? c.milk_lots[0] : c.milk_lots;
+        return {
+          lotCode: lot?.code ?? lot?.internal_lot_code ?? 'Lote de Leite',
+          liters: Number(c.liters_consumed),
+        };
+      });
+
+    if (activeMilk.length === 0 && order.milk_lot_id && Number(order.liters_planned) > 0) {
+      const { data: lot } = await this.supabaseService.admin
+        .from('milk_lots')
+        .select('code')
+        .eq('id', order.milk_lot_id)
+        .maybeSingle();
+      activeMilk = [{
+        lotCode: lot?.code ?? 'Lote de Leite',
+        liters: Number(order.liters_planned),
+      }];
+    }
 
     // 2. Supply consumptions
     const { data: supplyConsumptions } = await this.supabaseService.admin
