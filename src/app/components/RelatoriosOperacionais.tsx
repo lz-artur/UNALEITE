@@ -648,21 +648,28 @@ function StockMovementsReportView({ report }: { report: StockMovementsReportResp
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3 xl:grid-cols-5">
         <SummaryCard title="Movimentações" value={report.totals.movementsCount} />
-        <SummaryCard title="Entradas" value={report.totals.entriesCount} />
-        <SummaryCard title="Saídas" value={report.totals.exitsCount} />
-        <SummaryCard title="Quantidade entrada" value={report.totals.entriesQuantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} />
-        <SummaryCard title="Quantidade saída" value={report.totals.exitsQuantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} />
+        <SummaryCard title="Entradas" value={`${report.totals.entriesCount} movs`} />
+        <SummaryCard title="Saídas" value={`${report.totals.exitsCount} movs`} />
+        <SummaryCard
+          title="Qtd. total entrada"
+          value={`${report.totals.entriesQuantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}${report.totals.entriesPieces ? ` (${report.totals.entriesPieces.toLocaleString('pt-BR')} peças)` : ''}`}
+        />
+        <SummaryCard
+          title="Qtd. total saída"
+          value={`${report.totals.exitsQuantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}${report.totals.exitsPieces ? ` (${report.totals.exitsPieces.toLocaleString('pt-BR')} peças)` : ''}`}
+        />
       </div>
-      <p className="text-sm text-gray-600">As quantidades podem estar em unidades diferentes. Consulte a unidade em cada movimentação.</p>
+      <p className="text-sm text-gray-600">As quantidades e peças são discriminadas individualmente. Consulte a unidade de medida em cada movimentação.</p>
       <DataTable
-        headers={['Data', 'Movimentação', 'Tipo', 'Item', 'Lote', 'Quantidade', 'Origem']}
+        headers={['Data', 'Movimentação', 'Tipo', 'Item', 'Lote', 'Peso / Qtd', 'Peças', 'Origem']}
         rows={report.rows.map((row) => [
           format(new Date(row.occurredAt), 'dd/MM/yyyy HH:mm'),
           row.movementType === 'entrada' ? 'Entrada' : 'Saída',
           row.lotType,
           row.itemCode ? `${row.itemName} · ${row.itemCode}` : row.itemName,
           row.lotCode,
-          `${row.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}${row.unitSymbol ? ` ${row.unitSymbol}` : ''}${row.piecesQuantity != null ? ` · ${row.piecesQuantity.toLocaleString('pt-BR')} peças` : ''}`,
+          `${row.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}${row.unitSymbol ? ` ${row.unitSymbol}` : ''}`,
+          row.piecesQuantity != null ? `${row.piecesQuantity.toLocaleString('pt-BR')} peças` : '—',
           row.reference,
         ])}
         onRowClick={(index) => setSelectedRow(report.rows[index])}
@@ -679,9 +686,9 @@ function StockMovementsReportView({ report }: { report: StockMovementsReportResp
             { label: 'Item', value: selectedRow.itemName },
             { label: 'Código', value: selectedRow.itemCode || '-' },
             { label: 'Lote', value: selectedRow.lotCode },
-            { label: 'Quantidade', value: `${selectedRow.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}${selectedRow.unitSymbol ? ` ${selectedRow.unitSymbol}` : ''}` },
-            { label: 'Peças', value: selectedRow.piecesQuantity?.toLocaleString('pt-BR') ?? '-' },
-            { label: 'Origem', value: selectedRow.reference },
+            { label: 'Peso / Quantidade', value: `${selectedRow.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} ${selectedRow.unitSymbol || ''}`.trim() },
+            { label: 'Quantidade de peças', value: selectedRow.piecesQuantity != null ? `${selectedRow.piecesQuantity.toLocaleString('pt-BR')} peças` : 'Não se aplica / sem registro' },
+            { label: 'Origem / Operação', value: selectedRow.reference },
           ]}
         />
       ) : null}

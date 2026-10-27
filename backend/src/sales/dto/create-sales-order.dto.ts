@@ -21,6 +21,11 @@ class CreateSalesOrderItemDto {
   @IsNumber()
   @Min(0)
   unitPrice!: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  orderedPieces?: number;
 }
 
 export class CreateSalesOrderDto {

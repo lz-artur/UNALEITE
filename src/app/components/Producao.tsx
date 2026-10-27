@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Factory, Loader2, Plus, TrendingDown, TrendingUp, XCircle, MoreHorizontal, Edit2, Check, History, Trash2 } from 'lucide-react';
+import { Factory, Loader2, Plus, TrendingDown, TrendingUp, XCircle, MoreHorizontal, Edit2, Check, History, Trash2, AlertTriangle } from 'lucide-react';
 import type { EstoqueProduto, LoteLeite, OrdemProducao } from '../data/mockData';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -9,6 +9,8 @@ import {
  loadMilkLots,
  loadProductionOrders,
  cancelProductionOrder,
+ loadProductionOrderCancellationPreview,
+ type ProductionOrderCancellationPreview,
  loadProductionOrderEvents,
  type ProductionEvent,
  loadSupplyLots,
@@ -88,6 +90,9 @@ export default function Producao() {
  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
  const [isDeleting, setIsDeleting] = useState(false);
  const [cancelReason, setCancelReason] = useState('');
+ const [cancellationPreview, setCancellationPreview] = useState<ProductionOrderCancellationPreview | null>(null);
+ const [loadingPreview, setLoadingPreview] = useState(false);
+ const [selectedOpForCancel, setSelectedOpForCancel] = useState<OrdemProducao | null>(null);
  const [historyOrder, setHistoryOrder] = useState<OrdemProducao | null>(null);
  const [historyEvents, setHistoryEvents] = useState<ProductionEvent[]>([]);
  const [historyLoading, setHistoryLoading] = useState(false);
@@ -445,6 +450,23 @@ export default function Producao() {
  }
  };
 
+ const handleOpenCancelModal = async (op: OrdemProducao) => {
+   setItemToDelete(op.id);
+   setSelectedOpForCancel(op);
+   setCancelReason('');
+   setCancellationPreview(null);
+   setDeleteConfirmOpen(true);
+   setLoadingPreview(true);
+   try {
+     const preview = await loadProductionOrderCancellationPreview(op.id);
+     setCancellationPreview(preview);
+   } catch (err) {
+     setErrorMessage(getErrorMessage(err));
+   } finally {
+     setLoadingPreview(false);
+   }
+ };
+
  const openHistory = async (order: OrdemProducao) => {
    setHistoryOrder(order);
    setHistoryEvents([]);
@@ -725,13 +747,11 @@ export default function Producao() {
           >
             <History className="w-4 h-4 text-violet-600" /> Ver histórico
           </button>
-          {op.status === 'Em Andamento' && (
+          {(op.status === 'Em Andamento' || op.status === 'Finalizada') && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                setItemToDelete(op.id);
-                setCancelReason('');
-                setDeleteConfirmOpen(true);
+                void handleOpenCancelModal(op);
                 setOpenDropdownId(null);
               }}
               className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 flex items-center gap-2"
@@ -1395,35 +1415,92 @@ export default function Producao() {
  ) : null}
 
   <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-    <AlertDialogContent>
+    <AlertDialogContent className="max-w-xl">
       <AlertDialogHeader>
-        <AlertDialogTitle>Cancelar Ordem de Produção</AlertDialogTitle>
+        <AlertDialogTitle className="flex items-center gap-2">
+          <XCircle className="w-5 h-5 text-red-600" />
+          Cancelar Ordem de Produção {selectedOpForCancel?.numero ? `(${selectedOpForCancel.numero})` : ''}
+        </AlertDialogTitle>
         <AlertDialogDescription>
-          A OP continuará no histórico. As reservas de leite, insumos e produtos serão liberadas uma única vez e a ação ficará registrada com seu usuário e horário.
+          A OP será cancelada de forma atômica e rastreável. Todas as reservas e consumos elegíveis serão estornados no estoque.
         </AlertDialogDescription>
       </AlertDialogHeader>
-      <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700">Motivo do cancelamento *</label>
-        <textarea
-          value={cancelReason}
-          onChange={(event) => setCancelReason(event.target.value)}
-          rows={3}
-          placeholder="Explique por que esta OP está sendo cancelada"
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-        />
-      </div>
+
+      {loadingPreview ? (
+        <div className="flex flex-col items-center justify-center py-8 space-y-3">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+          <p className="text-sm text-gray-500">Verificando saldos, dependências e efeitos da OP...</p>
+        </div>
+      ) : cancellationPreview ? (
+        <div className="space-y-4">
+          {!cancellationPreview.canCancel ? (
+            <div className="rounded-lg bg-red-50 p-4 border border-red-200">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-semibold text-red-900 text-sm">Cancelamento automático bloqueado</p>
+                  <p className="text-sm text-red-700 mt-1">{cancellationPreview.blockReason}</p>
+                  <p className="text-xs text-red-600 mt-2 font-medium">
+                    Orientação: Produtos acabados gerados por esta OP já tiveram movimentações posteriores (vendas, consumo ou saídas). Para manter a integridade fiscal e contábil, desfaça os atendimentos vinculados antes de cancelar a OP.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg bg-amber-50/70 p-3.5 border border-amber-200 space-y-2 text-xs text-amber-900">
+              <p className="font-semibold flex items-center gap-1.5 text-amber-950">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                Efeitos que serão revertidos atomicamente:
+              </p>
+              <ul className="list-disc list-inside space-y-1 pl-1 text-amber-800">
+                {cancellationPreview.reversals.milk.length > 0 ? (
+                  cancellationPreview.reversals.milk.map((m, idx) => (
+                    <li key={idx}>Leite: <strong>+{m.liters.toLocaleString('pt-BR')} L</strong> retornam ao lote <strong>{m.lotCode}</strong></li>
+                  ))
+                ) : (
+                  <li>Nenhum volume de leite a reverter</li>
+                )}
+                {cancellationPreview.reversals.supplies.map((s, idx) => (
+                  <li key={idx}>Insumo: <strong>+{s.quantity.toLocaleString('pt-BR')} {s.unitSymbol}</strong> de {s.supplyName} (lote {s.lotCode})</li>
+                ))}
+                {cancellationPreview.reversals.reprocessedLots.map((r, idx) => (
+                  <li key={idx}>Reprocessamento: <strong>+{r.quantity.toLocaleString('pt-BR')} kg{r.pieces != null ? ` (${r.pieces} peças)` : ''}</strong> ao lote {r.lotCode}</li>
+                ))}
+                {cancellationPreview.reversals.generatedLotsToVoid.map((g, idx) => (
+                  <li key={idx} className="text-rose-800">Lote gerado a anular: <strong>{g.lotCode}</strong> ({g.productName} · {g.quantityProduced.toLocaleString('pt-BR')} kg{g.quantityPieces != null ? ` / ${g.quantityPieces} peças` : ''})</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Motivo do cancelamento * <span className="text-xs text-gray-500 font-normal">(mínimo 3 caracteres, registrado para auditoria)</span>
+            </label>
+            <textarea
+              value={cancelReason}
+              onChange={(event) => setCancelReason(event.target.value)}
+              disabled={!cancellationPreview.canCancel}
+              rows={3}
+              placeholder="Explique obrigatoriamente por que esta ordem de produção está sendo cancelada..."
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:text-gray-400"
+            />
+          </div>
+        </div>
+      ) : null}
+
       <AlertDialogFooter>
-        <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+        <AlertDialogCancel disabled={isDeleting}>Fechar</AlertDialogCancel>
         <AlertDialogAction
-          disabled={isDeleting || cancelReason.trim().length < 3}
-          className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+          disabled={isDeleting || !cancellationPreview?.canCancel || cancelReason.trim().length < 3}
+          className="bg-red-600 hover:bg-red-700 focus:ring-red-600 disabled:bg-red-300 disabled:cursor-not-allowed"
           onClick={(e) => {
             e.preventDefault();
             void handleCancel();
           }}
         >
           {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Cancelar OP
+          Confirmar Cancelamento da OP
         </AlertDialogAction>
       </AlertDialogFooter>
     </AlertDialogContent>

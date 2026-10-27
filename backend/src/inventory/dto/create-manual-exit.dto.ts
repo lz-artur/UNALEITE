@@ -28,6 +28,11 @@ export class CreateManualExitDto {
   @IsOptional()
   pieces?: number;
 
+  @ApiPropertyOptional({ description: 'Number of pieces authorized for reference (5% tolerance applies if provided)' })
+  @IsNumber()
+  @IsOptional()
+  authorizedPieces?: number;
+
   @ApiPropertyOptional({ description: 'Date and time of the exit in ISO format' })
   @IsString()
   @IsOptional()

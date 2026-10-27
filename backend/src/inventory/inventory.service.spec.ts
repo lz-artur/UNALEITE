@@ -219,4 +219,95 @@ describe('InventoryService', () => {
       expect(movementInsert).toHaveBeenCalledWith(expect.objectContaining({ lot_type: 'Insumo', quantity: 2, reference_table: 'expired_lot_disposals' }));
     });
   });
+
+  describe('createManualExit with 5% piece tolerance', () => {
+    const actor = { id: 'user-1', email: 'estoque@una.com', claims: {} } as any;
+
+    it('persists pieces_quantity in stock_movements when product tracks pieces', async () => {
+      const lot = {
+        id: 'lot-fp-1',
+        lot_code: 'LOTE-FP-01',
+        available_quantity: 200,
+        available_pieces: 100,
+        finished_products: { tracks_quantity_and_weight: true, tracks_pieces: true },
+      };
+      const exitRecord = { id: 'exit-1', quantity: 20, pieces: 10 };
+      const movementInsert = jest.fn().mockResolvedValue({ error: null });
+
+      supabaseServiceMock.admin.from.mockImplementation((table: string) => {
+        if (table === 'finished_product_lots') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                maybeSingle: jest.fn().mockResolvedValue({ data: lot, error: null }),
+              }),
+            }),
+            update: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ error: null }),
+            }),
+          };
+        }
+        if (table === 'finished_product_manual_exits') {
+          return {
+            insert: jest.fn().mockReturnValue({
+              select: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: exitRecord, error: null }),
+              }),
+            }),
+          };
+        }
+        if (table === 'stock_movements') {
+          return { insert: movementInsert };
+        }
+        return {};
+      });
+
+      const result = await service.createManualExit({
+        finishedProductLotId: 'lot-fp-1',
+        quantity: 20,
+        pieces: 10,
+        reason: 'Ajuste de degustação',
+      }, actor);
+
+      expect(result.success).toBe(true);
+      expect(movementInsert).toHaveBeenCalledWith(expect.objectContaining({
+        lot_type: 'Produto Acabado',
+        quantity: 20,
+        pieces_quantity: 10,
+        reference_table: 'finished_product_manual_exits',
+      }));
+    });
+
+    it('rejects manual piece exit exceeding authorized reference pieces by more than 5%', async () => {
+      const lot = {
+        id: 'lot-fp-1',
+        lot_code: 'LOTE-FP-01',
+        available_quantity: 500,
+        available_pieces: 200,
+        finished_products: { tracks_quantity_and_weight: true, tracks_pieces: true },
+      };
+
+      supabaseServiceMock.admin.from.mockImplementation((table: string) => {
+        if (table === 'finished_product_lots') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                maybeSingle: jest.fn().mockResolvedValue({ data: lot, error: null }),
+              }),
+            }),
+          };
+        }
+        return {};
+      });
+
+      // 100 authorized pieces -> tolerance is [95, 105]. 106 pieces should be rejected
+      await expect(service.createManualExit({
+        finishedProductLotId: 'lot-fp-1',
+        quantity: 150,
+        pieces: 106,
+        authorizedPieces: 100,
+        reason: 'Saída autorizada',
+      }, actor)).rejects.toThrow('tolerância de 5% permitido (95 a 105 peças');
+    });
+  });
 });

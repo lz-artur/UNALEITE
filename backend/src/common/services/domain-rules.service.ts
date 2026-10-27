@@ -1,9 +1,27 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import {
   ANALYSIS_STATUS,
   MILK_LOT_STATUS,
   SUPPLY_LOT_STATUS,
 } from '../constants/domain';
+
+export interface PieceToleranceResult {
+  referencePieces: number;
+  minPieces: number;
+  maxPieces: number;
+  tolerancePercent: number;
+  isWithinTolerance: (actualPieces: number) => boolean;
+}
+
+export interface ValidatePieceExitParams {
+  authorizedPieces?: number | null;
+  actualPieces?: number;
+  requestedPieces?: number;
+  availablePieces: number;
+  operationName?: string;
+  productName?: string;
+  allowAdminOverride?: boolean;
+}
 
 interface QualityParameter {
   name: string;
@@ -190,5 +208,65 @@ export class DomainRulesService {
     }
 
     return MILK_LOT_STATUS.PARTIALLY_USED;
+  }
+
+  /**
+   * Calcula o intervalo permitido com tolerância percentual (padrão 5%) para peças.
+   * Para quantidades inteiras de peças:
+   * Limite mínimo: Math.ceil(Q * 0.95)
+   * Limite máximo: Math.floor(Q * 1.05)
+   * Exemplo para Q = 100: Min = 95, Max = 105.
+   */
+  calculatePieceExitTolerance(authorizedPieces: number, tolerancePercent = 5): PieceToleranceResult {
+    if (!Number.isInteger(authorizedPieces) || authorizedPieces <= 0) {
+      throw new BadRequestException('A quantidade de referência para peças deve ser um número inteiro positivo.');
+    }
+
+    const factor = tolerancePercent / 100;
+    const minPieces = Math.ceil(authorizedPieces * (1 - factor));
+    const maxPieces = Math.floor(authorizedPieces * (1 + factor));
+
+    return {
+      referencePieces: authorizedPieces,
+      minPieces,
+      maxPieces,
+      tolerancePercent,
+      isWithinTolerance: (actual: number) => Number.isInteger(actual) && actual >= minPieces && actual <= maxPieces,
+    };
+  }
+
+  /**
+   * Valida a saída de peças contra o saldo físico disponível e, quando aplicável,
+   * contra a quantidade de referência autorizada com tolerância de 5%.
+   */
+  validatePieceExit(params: ValidatePieceExitParams): { valid: boolean; minPieces?: number; maxPieces?: number } {
+    const { authorizedPieces, availablePieces } = params;
+    const actualPieces = params.actualPieces ?? params.requestedPieces ?? 0;
+    const operationName = params.operationName || (params.productName ? `saída de ${params.productName}` : undefined);
+
+    if (!Number.isInteger(actualPieces) || actualPieces <= 0) {
+      throw new BadRequestException('A quantidade de peças informada deve ser um número inteiro positivo.');
+    }
+
+    // Regra física inegociável: nunca permitir saída maior que o saldo em estoque
+    if (actualPieces > availablePieces) {
+      throw new BadRequestException(
+        `Saldo insuficiente no lote de produto acabado. Disponível: ${availablePieces} peças, solicitado: ${actualPieces} peças.`,
+      );
+    }
+
+    // Validação de tolerância de 5% se houver quantidade autorizada de referência
+    if (authorizedPieces != null && authorizedPieces > 0) {
+      const tolerance = this.calculatePieceExitTolerance(authorizedPieces, 5);
+      if (!tolerance.isWithinTolerance(actualPieces)) {
+        const prefix = operationName ? `Na operação de ${operationName}: ` : '';
+        throw new BadRequestException(
+          `${prefix}A quantidade de peças informada (${actualPieces}) está fora do intervalo de tolerância de 5% permitido (${tolerance.minPieces} a ${tolerance.maxPieces} peças para a quantidade autorizada de ${authorizedPieces} peças).`,
+        );
+      }
+      return { valid: true, minPieces: tolerance.minPieces, maxPieces: tolerance.maxPieces };
+    }
+
+    return { valid: true };
   }
 }
