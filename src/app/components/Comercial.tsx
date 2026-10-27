@@ -1181,8 +1181,13 @@ export default function Comercial() {
               </button>
             </div>
             {orderForm.items.map((item) => {
-              const selectedProduct = products.find((p) => p.id === item.productId);
-              const tracksPieces = Boolean(selectedProduct?.tracks_pieces || selectedProduct?.tracks_quantity_and_weight);
+              const selectedProduct = finishedProducts.find((p) => p.id === item.productId);
+              const tracksPieces = Boolean(
+                selectedProduct?.tracksPieces ||
+                selectedProduct?.tracksQuantityAndWeight ||
+                (selectedProduct as any)?.tracks_pieces ||
+                (selectedProduct as any)?.tracks_quantity_and_weight
+              );
               return (
               <div key={item.localId} className={`grid grid-cols-1 gap-3 rounded-lg border border-gray-200 p-4 ${tracksPieces ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
                 <SelectField
