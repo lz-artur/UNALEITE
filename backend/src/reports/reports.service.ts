@@ -130,6 +130,9 @@ export class ReportsService {
         } else if (refTable === 'production_order_cancellations' && refId) {
           const po = prodOrderById.get(refId);
           reference = po?.order_number ? `Estorno OP ${po.order_number}` : 'Estorno de cancelamento de OP';
+        } else if (refTable === 'sales_returns' && refId) {
+          const order = orderById.get(refId);
+          reference = order?.order_number ? `Devolução ${order.order_number}` : 'Devolução de venda';
         }
 
         return {
