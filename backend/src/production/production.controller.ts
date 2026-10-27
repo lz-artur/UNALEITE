@@ -62,6 +62,14 @@ export class ProductionController {
     return this.productionService.listEvents(id);
   }
 
+  @Get(':id/cancellation-preview')
+  getCancellationPreview(
+    @Param('id') id: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.productionService.getCancellationPreview(id, user);
+  }
+
   @Post(':id/cancel')
   cancelOrder(
     @Param('id') id: string,

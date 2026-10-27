@@ -309,6 +309,8 @@ export interface SalesOrderItemFulfillmentRecord {
   piecesQuantity?: number | null;
   returnedQuantity?: number;
   returnedPieces?: number | null;
+  eligibleReturnQuantity?: number;
+  eligibleReturnPieces?: number | null;
   fulfilledAt: Date;
   attendanceId?: string | null;
 }
@@ -319,8 +321,15 @@ export interface SalesOrderItemRecord {
   productName: string;
   unitId?: string;
   orderedQuantity: number;
+  orderedPieces?: number | null;
   fulfilledQuantity: number;
+  fulfilledPieces?: number | null;
   pendingQuantity: number;
+  returnedQuantity?: number;
+  returnedPieces?: number | null;
+  eligibleReturnQuantity?: number;
+  eligibleReturnPieces?: number | null;
+  tracksPieces?: boolean;
   unitPrice: number;
   totalValue: number;
   status: string;
@@ -716,6 +725,8 @@ export interface StockMovementsReportResponse {
     exitsCount: number;
     entriesQuantity: number;
     exitsQuantity: number;
+    entriesPieces?: number;
+    exitsPieces?: number;
   };
   rows: Array<{
     movementId: string;
@@ -957,8 +968,15 @@ function mapSalesOrder(row: any): SalesOrderRecord {
       productName: item.productName,
       unitId: item.unitId ?? undefined,
       orderedQuantity: Number(item.orderedQuantity),
+      orderedPieces: item.orderedPieces != null ? Number(item.orderedPieces) : undefined,
       fulfilledQuantity: Number(item.fulfilledQuantity),
+      fulfilledPieces: item.fulfilledPieces != null ? Number(item.fulfilledPieces) : undefined,
       pendingQuantity: Number(item.pendingQuantity),
+      returnedQuantity: Number(item.returnedQuantity || 0),
+      returnedPieces: item.returnedPieces != null ? Number(item.returnedPieces) : undefined,
+      eligibleReturnQuantity: Number(item.eligibleReturnQuantity ?? Math.max(0, Number(item.fulfilledQuantity) - Number(item.returnedQuantity || 0))),
+      eligibleReturnPieces: item.eligibleReturnPieces != null ? Number(item.eligibleReturnPieces) : undefined,
+      tracksPieces: Boolean(item.tracksPieces),
       unitPrice: Number(item.unitPrice),
       totalValue: Number(item.totalValue),
       status: item.status,
@@ -970,6 +988,8 @@ function mapSalesOrder(row: any): SalesOrderRecord {
         returnedQuantity: Number(fulfillment.returnedQuantity || 0),
         piecesQuantity: fulfillment.piecesQuantity != null ? Number(fulfillment.piecesQuantity) : undefined,
         returnedPieces: fulfillment.returnedPieces != null ? Number(fulfillment.returnedPieces) : undefined,
+        eligibleReturnQuantity: Number(fulfillment.eligibleReturnQuantity ?? Math.max(0, Number(fulfillment.quantity) - Number(fulfillment.returnedQuantity || 0))),
+        eligibleReturnPieces: fulfillment.eligibleReturnPieces != null ? Number(fulfillment.eligibleReturnPieces) : undefined,
         fulfilledAt: new Date(fulfillment.fulfilledAt),
         attendanceId: fulfillment.attendanceId ?? null,
       })),
@@ -1292,8 +1312,37 @@ export async function loadMilkLotEvents(milkLotId: string): Promise<ProductionEv
   return events.map(mapProductionEvent);
 }
 
+export interface ProductionOrderCancellationPreview {
+  canCancel: boolean;
+  blockReason: string | null;
+  order: {
+    id: string;
+    orderCode: string;
+    status: string;
+    productName: string;
+  };
+  reversals: {
+    milk: Array<{ lotCode: string; liters: number }>;
+    supplies: Array<{ lotCode: string; supplyName: string; quantity: number; unitSymbol: string }>;
+    reprocessedLots: Array<{ lotCode: string; productName: string; quantity: number; pieces: number | null }>;
+    generatedLotsToVoid: Array<{
+      id: string;
+      lotCode: string;
+      productName: string;
+      quantityProduced: number;
+      availableQuantity: number;
+      quantityPieces: number | null;
+      availablePieces: number | null;
+    }>;
+  };
+}
+
+export async function loadProductionOrderCancellationPreview(orderId: string): Promise<ProductionOrderCancellationPreview> {
+  return apiRequest<ProductionOrderCancellationPreview>(`/production-orders/${orderId}/cancellation-preview`);
+}
+
 export async function cancelProductionOrder(id: string, reason: string) {
-  return apiRequest<{ success: boolean }>(`/production-orders/${id}/cancel`, {
+  return apiRequest<{ success: boolean; order?: any }>(`/production-orders/${id}/cancel`, {
     method: 'POST',
     body: JSON.stringify({ reason }),
   });
@@ -2153,6 +2202,7 @@ export async function createSalesOrder(payload: {
   items: Array<{
     productId: string;
     quantity: number;
+    orderedPieces?: number;
     unitPrice: number;
   }>;
 }) {

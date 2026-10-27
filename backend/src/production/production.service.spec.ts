@@ -258,7 +258,17 @@ describe('ProductionService', () => {
       );
     });
 
-    it('cancels through the reservation RPC instead of deleting the OP', async () => {
+    it('cancels through administrative RPC instead of deleting the OP', async () => {
+      supabaseServiceMock.admin.from.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({
+              data: { id: 'order-1', status: 'Em Andamento' },
+              error: null,
+            }),
+          }),
+        }),
+      });
       supabaseServiceMock.admin.rpc.mockResolvedValue({
         data: { order: { id: 'order-1', status: 'Cancelada' } }, error: null,
       });
@@ -269,7 +279,7 @@ describe('ProductionService', () => {
 
       expect(result).toEqual({ success: true, order: { id: 'order-1', status: 'Cancelada' } });
       expect(supabaseServiceMock.admin.rpc).toHaveBeenCalledWith(
-        'cancel_production_order_with_reservations',
+        'cancel_production_order_administrative',
         expect.objectContaining({ p_order_id: 'order-1', p_reason: 'Produção interrompida' }),
       );
     });
@@ -552,6 +562,175 @@ describe('ProductionService', () => {
         productId: 'queijo-id',
         litersToUse: 100,
       })).rejects.toThrow('Informe o lote de leite para produtos primários.');
+    });
+  });
+
+  describe('Administrative OP Cancellation & Preview', () => {
+    it('returns cancellation preview with effects summary when OP is eligible', async () => {
+      const order = {
+        id: 'op-100',
+        order_code: 'OP-2026-100',
+        status: 'Em Andamento',
+        finished_products: { name: 'Queijo Mussarela', code: 'QM01' },
+      };
+
+      supabaseServiceMock.admin.from.mockImplementation((table: string) => {
+        if (table === 'production_orders') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                maybeSingle: jest.fn().mockResolvedValue({ data: order, error: null }),
+              }),
+            }),
+          };
+        }
+        if (table === 'production_order_milk_consumptions') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({
+                data: [{ liters_consumed: 1000, state: 'Reservado', milk_lots: { internal_lot_code: 'LEITE-01' } }],
+                error: null,
+              }),
+            }),
+          };
+        }
+        if (table === 'production_order_supply_consumptions') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({
+                data: [{ quantity_consumed: 5, supply_lots: { internal_lot_code: 'INS-01', supply_items: { name: 'Fermento', units: { symbol: 'un' } } } }],
+                error: null,
+              }),
+            }),
+          };
+        }
+        if (table === 'production_order_finished_product_consumptions') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ data: [], error: null }),
+            }),
+          };
+        }
+        if (table === 'finished_product_lots') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ data: [], error: null }),
+            }),
+          };
+        }
+        return {};
+      });
+
+      const preview = await service.getCancellationPreview('op-100');
+
+      expect(preview.canCancel).toBe(true);
+      expect(preview.blockReason).toBeNull();
+      expect(preview.reversals.milk).toHaveLength(1);
+      expect(preview.reversals.milk[0]).toEqual({ lotCode: 'LEITE-01', liters: 1000 });
+      expect(preview.reversals.supplies).toHaveLength(1);
+      expect(preview.reversals.supplies[0]).toEqual(expect.objectContaining({ supplyName: 'Fermento', quantity: 5 }));
+    });
+
+    it('blocks cancellation preview when OP is already Cancelada', async () => {
+      const order = {
+        id: 'op-cancelled',
+        order_code: 'OP-CANCELLED',
+        status: 'Cancelada',
+        finished_products: { name: 'Mussarela', code: 'QM01' },
+      };
+
+      supabaseServiceMock.admin.from.mockImplementation((table: string) => {
+        if (table === 'production_orders') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                maybeSingle: jest.fn().mockResolvedValue({ data: order, error: null }),
+              }),
+            }),
+          };
+        }
+        return {};
+      });
+
+      const preview = await service.getCancellationPreview('op-cancelled');
+
+      expect(preview.canCancel).toBe(false);
+      expect(preview.blockReason).toContain('já se encontra cancelada');
+    });
+
+    it('blocks cancellation when generated lots have already been consumed or sold', async () => {
+      const order = {
+        id: 'op-fin-1',
+        order_code: 'OP-FIN-1',
+        status: 'Finalizada',
+        finished_products: { name: 'Queijo Prato', code: 'QP01' },
+      };
+      const producedLot = {
+        id: 'lot-fin-1',
+        lot_code: 'LOTE-FIN-01',
+        quantity_produced: 100,
+        available_quantity: 80, // 20 kg already sold/consumed!
+        quantity_pieces: 100,
+        available_pieces: 80,
+        finished_products: { name: 'Queijo Prato' },
+      };
+
+      supabaseServiceMock.admin.from.mockImplementation((table: string) => {
+        if (table === 'production_orders') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                maybeSingle: jest.fn().mockResolvedValue({ data: order, error: null }),
+              }),
+            }),
+          };
+        }
+        if (table === 'production_order_milk_consumptions') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: [], error: null }) }) };
+        }
+        if (table === 'production_order_supply_consumptions') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: [], error: null }) }) };
+        }
+        if (table === 'production_order_finished_product_consumptions') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: [], error: null }) }) };
+        }
+        if (table === 'finished_product_lots') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ data: [producedLot], error: null }),
+            }),
+          };
+        }
+        return {};
+      });
+
+      const preview = await service.getCancellationPreview('op-fin-1', { id: 'admin-1', role: 'admin', claims: {} });
+
+      expect(preview.canCancel).toBe(false);
+      expect(preview.blockReason).toContain('já teve 20.00 kg consumidos ou expedidos');
+    });
+
+    it('rejects cancellation when reason is less than 3 characters', async () => {
+      await expect(service.cancelOrder('op-1', 'ok')).rejects.toThrow('Informe obrigatoriamente o motivo do cancelamento');
+    });
+
+    it('rejects finalized OP cancellation when user is not an admin', async () => {
+      supabaseServiceMock.admin.from.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({
+              data: { id: 'op-fin', status: 'Finalizada' },
+              error: null,
+            }),
+          }),
+        }),
+      });
+
+      await expect(service.cancelOrder('op-fin', 'Motivo válido', {
+        id: 'operador-1',
+        role: 'operacional',
+        claims: {},
+      })).rejects.toThrow('Apenas administradores podem cancelar ordens de produção finalizadas');
     });
   });
 });

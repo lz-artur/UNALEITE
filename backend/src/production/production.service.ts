@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -10,6 +11,7 @@ import {
 } from '../common/constants/domain';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { DomainRulesService } from '../common/services/domain-rules.service';
+import { UsersService } from '../users/users.service';
 import { SupabaseService } from '../supabase/supabase.service';
 import { CompleteProductionOrderDto } from './dto/complete-production-order.dto';
 import { CreateProductionOrderDto } from './dto/create-production-order.dto';
@@ -47,6 +49,7 @@ export class ProductionService {
   constructor(
     private readonly supabaseService: SupabaseService,
     private readonly domainRulesService: DomainRulesService,
+    private readonly usersService?: UsersService,
   ) {}
 
   private actor(user?: AuthenticatedUser) {
@@ -1623,13 +1626,277 @@ export class ProductionService {
     });
   }
 
+  async getCancellationPreview(id: string, user?: AuthenticatedUser) {
+    const { data: order, error: orderError } = await this.supabaseService.admin
+      .from('production_orders')
+      .select('*, finished_products(name, code)')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (orderError) throw new BadRequestException(orderError.message);
+    if (!order) throw new NotFoundException('Ordem de produção não encontrada');
+
+    const productName = Array.isArray(order.finished_products)
+      ? order.finished_products[0]?.name
+      : order.finished_products?.name ?? 'Produto';
+
+    if (order.status === 'Cancelada') {
+      return {
+        canCancel: false,
+        blockReason: 'Esta ordem de produção já se encontra cancelada.',
+        order: {
+          id: order.id,
+          orderCode: order.order_code,
+          status: order.status,
+          productName,
+        },
+        reversals: {
+          milk: [],
+          supplies: [],
+          reprocessedLots: [],
+          generatedLotsToVoid: [],
+        },
+      };
+    }
+
+    if (order.status !== 'Em Andamento' && order.status !== 'Finalizada') {
+      return {
+        canCancel: false,
+        blockReason: `O status atual da OP (${order.status}) não permite cancelamento.`,
+        order: {
+          id: order.id,
+          orderCode: order.order_code,
+          status: order.status,
+          productName,
+        },
+        reversals: {
+          milk: [],
+          supplies: [],
+          reprocessedLots: [],
+          generatedLotsToVoid: [],
+        },
+      };
+    }
+
+    let isAuthorizedAdmin = true;
+    if (order.status === 'Finalizada') {
+      if (this.usersService && user) {
+        try {
+          const appUser = await this.usersService.ensureAppUser(user);
+          isAuthorizedAdmin = appUser.role === 'admin' || user.role === 'admin';
+        } catch {
+          isAuthorizedAdmin = user.role === 'admin';
+        }
+      } else {
+        isAuthorizedAdmin = user?.role === 'admin';
+      }
+    }
+
+    if (order.status === 'Finalizada' && !isAuthorizedAdmin) {
+      return {
+        canCancel: false,
+        blockReason: 'Apenas administradores possuem autorização para cancelar ordens de produção já finalizadas.',
+        order: {
+          id: order.id,
+          orderCode: order.order_code,
+          status: order.status,
+          productName,
+        },
+        reversals: {
+          milk: [],
+          supplies: [],
+          reprocessedLots: [],
+          generatedLotsToVoid: [],
+        },
+      };
+    }
+
+    // 1. Milk consumptions
+    const { data: milkConsumptions } = await this.supabaseService.admin
+      .from('production_order_milk_consumptions')
+      .select('liters_consumed, state, milk_lots(internal_lot_code)')
+      .eq('production_order_id', id);
+
+    const activeMilk = (milkConsumptions ?? [])
+      .filter((c: any) => c.state === 'Reservado' || c.state === 'Consumido')
+      .map((c: any) => ({
+        lotCode: Array.isArray(c.milk_lots) ? c.milk_lots[0]?.internal_lot_code : c.milk_lots?.internal_lot_code ?? 'Lote de Leite',
+        liters: Number(c.liters_consumed),
+      }));
+
+    // 2. Supply consumptions
+    const { data: supplyConsumptions } = await this.supabaseService.admin
+      .from('production_order_supply_consumptions')
+      .select('quantity_consumed, supply_lots(internal_lot_code, supply_items(name, code, units(symbol)))')
+      .eq('production_order_id', id);
+
+    const supplies = (supplyConsumptions ?? []).map((c: any) => {
+      const lot = Array.isArray(c.supply_lots) ? c.supply_lots[0] : c.supply_lots;
+      const item = Array.isArray(lot?.supply_items) ? lot?.supply_items[0] : lot?.supply_items;
+      const unit = Array.isArray(item?.units) ? item?.units[0] : item?.units;
+      return {
+        lotCode: lot?.internal_lot_code ?? 'Lote Insumo',
+        supplyName: item?.name ?? 'Insumo',
+        quantity: Number(c.quantity_consumed),
+        unitSymbol: unit?.symbol ?? 'un',
+      };
+    });
+
+    // 3. Finished product consumptions (reprocessing)
+    const { data: finishedConsumptions } = await this.supabaseService.admin
+      .from('production_order_finished_product_consumptions')
+      .select('quantity_consumed, pieces_consumed, finished_product_lots(lot_code, finished_products(name))')
+      .eq('production_order_id', id);
+
+    const reprocessedLots = (finishedConsumptions ?? []).map((c: any) => {
+      const lot = Array.isArray(c.finished_product_lots) ? c.finished_product_lots[0] : c.finished_product_lots;
+      const prod = Array.isArray(lot?.finished_products) ? lot?.finished_products[0] : lot?.finished_products;
+      return {
+        lotCode: lot?.lot_code ?? 'Lote',
+        productName: prod?.name ?? 'Produto Acabado',
+        quantity: Number(c.quantity_consumed),
+        pieces: c.pieces_consumed != null ? Number(c.pieces_consumed) : null,
+      };
+    });
+
+    // 4. Generated lots
+    const { data: generatedLots } = await this.supabaseService.admin
+      .from('finished_product_lots')
+      .select('id, lot_code, quantity_produced, available_quantity, quantity_pieces, available_pieces, finished_products(name)')
+      .eq('production_order_id', id);
+
+    const generatedLotsToVoid = (generatedLots ?? []).map((lot: any) => {
+      const prod = Array.isArray(lot.finished_products) ? lot.finished_products[0] : lot.finished_products;
+      return {
+        id: lot.id,
+        lotCode: lot.lot_code,
+        productName: prod?.name ?? 'Produto Produzido',
+        quantityProduced: Number(lot.quantity_produced),
+        availableQuantity: Number(lot.available_quantity),
+        quantityPieces: lot.quantity_pieces != null ? Number(lot.quantity_pieces) : null,
+        availablePieces: lot.available_pieces != null ? Number(lot.available_pieces) : null,
+      };
+    });
+
+    // Check blockers for generated lots if OP was completed / has lots
+    let blockReason: string | null = null;
+    for (const lot of generatedLotsToVoid) {
+      if (lot.availableQuantity < lot.quantityProduced) {
+        blockReason = `O lote ${lot.lotCode} (${lot.productName}) já teve ${(lot.quantityProduced - lot.availableQuantity).toFixed(2)} kg consumidos ou expedidos. Não é possível cancelar a OP automaticamente.`;
+        break;
+      }
+      if (lot.quantityPieces != null && (lot.availablePieces ?? 0) < lot.quantityPieces) {
+        blockReason = `O lote ${lot.lotCode} (${lot.productName}) já teve ${lot.quantityPieces - (lot.availablePieces ?? 0)} peças expedidas. Não é possível cancelar a OP automaticamente.`;
+        break;
+      }
+
+      // Check sales fulfillments
+      const { count: salesCount } = await this.supabaseService.admin
+        .from('sales_order_fulfillments')
+        .select('*', { count: 'exact', head: true })
+        .eq('finished_product_lot_id', lot.id);
+
+      if ((salesCount ?? 0) > 0) {
+        blockReason = `O lote ${lot.lotCode} (${lot.productName}) possui ${salesCount} atendimento(s) de venda vinculado(s). Não é possível cancelar a OP.`;
+        break;
+      }
+
+      // Check consumptions in other OPs
+      const { count: consumptionCount } = await this.supabaseService.admin
+        .from('production_order_finished_product_consumptions')
+        .select('*', { count: 'exact', head: true })
+        .eq('finished_product_lot_id', lot.id);
+
+      if ((consumptionCount ?? 0) > 0) {
+        blockReason = `O lote ${lot.lotCode} (${lot.productName}) já foi consumido em outra ordem de produção. Não é possível cancelar a OP.`;
+        break;
+      }
+
+      // Check manual exits
+      const { count: manualExitCount } = await this.supabaseService.admin
+        .from('finished_product_manual_exits')
+        .select('*', { count: 'exact', head: true })
+        .eq('finished_product_lot_id', lot.id);
+
+      if ((manualExitCount ?? 0) > 0) {
+        blockReason = `O lote ${lot.lotCode} (${lot.productName}) possui saída manual de estoque registrada. Não é possível cancelar a OP.`;
+        break;
+      }
+
+      // Check expired disposals
+      const { count: disposalCount } = await this.supabaseService.admin
+        .from('expired_lot_disposals')
+        .select('*', { count: 'exact', head: true })
+        .eq('lot_id', lot.id);
+
+      if ((disposalCount ?? 0) > 0) {
+        blockReason = `O lote ${lot.lotCode} (${lot.productName}) possui baixa de vencimento registrada. Não é possível cancelar a OP.`;
+        break;
+      }
+    }
+
+    return {
+      canCancel: blockReason === null,
+      blockReason,
+      order: {
+        id: order.id,
+        orderCode: order.order_code,
+        status: order.status,
+        productName,
+      },
+      reversals: {
+        milk: activeMilk,
+        supplies,
+        reprocessedLots,
+        generatedLotsToVoid,
+      },
+    };
+  }
+
   async cancelOrder(id: string, reason: string, user?: AuthenticatedUser) {
+    if (!reason || reason.trim().length < 3) {
+      throw new BadRequestException('Informe obrigatoriamente o motivo do cancelamento (mínimo 3 caracteres)');
+    }
+
+    const { data: order, error: orderError } = await this.supabaseService.admin
+      .from('production_orders')
+      .select('id, status')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (orderError) throw new BadRequestException(orderError.message);
+    if (!order) throw new NotFoundException('Ordem de produção não encontrada');
+
+    if (order.status === 'Finalizada') {
+      let isAdmin = false;
+      if (this.usersService && user) {
+        try {
+          const appUser = await this.usersService.ensureAppUser(user);
+          isAdmin = appUser.role === 'admin' || user.role === 'admin';
+        } catch {
+          isAdmin = user.role === 'admin';
+        }
+      } else {
+        isAdmin = user?.role === 'admin';
+      }
+
+      if (!isAdmin) {
+        await this.logOperationFailure({
+          orderId: id,
+          action: 'cancelar OP finalizada',
+          message: 'Apenas administradores podem cancelar ordens de produção finalizadas.',
+          user,
+        });
+        throw new ForbiddenException('Apenas administradores podem cancelar ordens de produção finalizadas.');
+      }
+    }
+
     const actor = this.actor(user);
     const { data, error } = await this.supabaseService.admin.rpc(
-      'cancel_production_order_with_reservations',
+      'cancel_production_order_administrative',
       {
         p_order_id: id,
-        p_reason: reason,
+        p_reason: reason.trim(),
         p_actor_id: actor.id,
         p_actor_name: actor.name,
       },
@@ -1644,7 +1911,6 @@ export class ProductionService {
       });
       throw new BadRequestException(error.message);
     }
-    return { success: true, order: this.rpcOrder(data) };
+    return { success: true, order: this.rpcOrder(data?.order ?? data) };
   }
-
 }

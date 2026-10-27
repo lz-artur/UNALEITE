@@ -28,6 +28,11 @@ class FulfillSalesOrderItemDto {
   @IsNumber()
   @Min(1)
   piecesQuantity?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  authorizedPieces?: number;
 }
 
 export class InstallmentEntryDto {

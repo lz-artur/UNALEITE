@@ -7,6 +7,7 @@ import { SALES_ORDER_STATUS } from '../common/constants/domain';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { ClientsService } from '../clients/clients.service';
 import { SupabaseService } from '../supabase/supabase.service';
+import { DomainRulesService } from '../common/services/domain-rules.service';
 import { CreateSalesOrderDto } from './dto/create-sales-order.dto';
 import { FulfillSalesOrderDto } from './dto/fulfill-sales-order.dto';
 import { ListSalesOrdersDto } from './dto/list-sales-orders.dto';
@@ -18,6 +19,7 @@ export class SalesService {
   constructor(
     private readonly supabaseService: SupabaseService,
     private readonly clientsService: ClientsService,
+    private readonly domainRulesService: DomainRulesService = new DomainRulesService(),
   ) {}
 
   async listSalesOrders(filters: ListSalesOrdersDto = {}) {
@@ -85,6 +87,7 @@ export class SalesService {
         sales_order_id: salesOrder.id,
         product_id: item.productId,
         ordered_quantity: item.quantity,
+        ordered_pieces: item.orderedPieces ?? null,
         fulfilled_quantity: 0,
         unit_price: item.unitPrice,
         total_value: Number((item.quantity * item.unitPrice).toFixed(4)),
@@ -142,6 +145,38 @@ export class SalesService {
       current.quantity += Number(item.quantity);
       current.pieces += Number(item.piecesQuantity ?? 0);
       requestedByLot.set(item.finishedProductLotId, current);
+    }
+
+    // Validação de saldo físico e tolerância de 5% de peças
+    const hasPiecesValidation = payload.items.some(
+      (item) => item.piecesQuantity != null && item.piecesQuantity > 0,
+    );
+    if (hasPiecesValidation) {
+      let orderItems: any[] = [];
+      const query = this.supabaseService.admin
+        .from('sales_order_items')
+        ?.select('id, ordered_pieces, ordered_quantity, product_id');
+      if (query && typeof query.eq === 'function') {
+        const { data } = await query.eq('sales_order_id', salesOrderId);
+        orderItems = data ?? [];
+      }
+      const orderItemById = new Map((orderItems ?? []).map((i: any) => [String(i.id), i]));
+
+      for (const item of payload.items) {
+        if (item.piecesQuantity != null && item.piecesQuantity > 0) {
+          const orderItem = orderItemById.get(String(item.salesOrderItemId));
+          const lot = (lots ?? []).find((l: any) => String(l.id) === item.finishedProductLotId);
+          const availablePieces = lot?.available_pieces != null ? Number(lot.available_pieces) : 0;
+          const authorizedPieces = item.authorizedPieces ?? (orderItem?.ordered_pieces != null ? Number(orderItem.ordered_pieces) : null);
+
+          this.domainRulesService.validatePieceExit({
+            authorizedPieces,
+            actualPieces: item.piecesQuantity,
+            availablePieces,
+            operationName: 'atendimento de venda',
+          });
+        }
+      }
     }
 
     const leavesOnlyOneBalance = (lots ?? []).some((lot: any) => {
@@ -580,7 +615,10 @@ export class SalesService {
         const product = payload.finishedProducts.find(
           (item) => String(item.id) === String(entry.product_id),
         );
-          const fulfillments = payload.fulfillments
+        const tracksPieces = Boolean(
+          (product as any)?.tracks_quantity_and_weight || (product as any)?.tracks_pieces,
+        );
+        const fulfillments = payload.fulfillments
           .filter((fulfillment) => String(fulfillment.sales_order_item_id) === String(entry.id))
           .map((fulfillment) => {
             const lot = payload.finishedProductLots.find(
@@ -594,23 +632,42 @@ export class SalesService {
             ) || [];
             
             const alreadyReturned = pastReturns.reduce((sum, r) => sum + Number(r.returned_quantity), 0);
+            const returnedQuantity = fulfillment.returned_quantity == null
+              ? alreadyReturned
+              : Number(fulfillment.returned_quantity);
+            const piecesQuantity = fulfillment.pieces_quantity == null ? null : Number(fulfillment.pieces_quantity);
+            const returnedPieces = fulfillment.returned_pieces == null ? null : Number(fulfillment.returned_pieces);
+            const eligibleReturnQuantity = Number(Math.max(0, Number(fulfillment.quantity) - returnedQuantity).toFixed(4));
+            const eligibleReturnPieces = piecesQuantity != null
+              ? Math.max(0, piecesQuantity - (returnedPieces ?? 0))
+              : null;
 
             return {
               id: String(fulfillment.id),
               finishedProductLotId: String(fulfillment.finished_product_lot_id),
               lotCode: String(lot?.lot_code ?? '-'),
               quantity: Number(fulfillment.quantity),
-              piecesQuantity: fulfillment.pieces_quantity == null ? null : Number(fulfillment.pieces_quantity),
+              piecesQuantity,
               // Desde a migração 071 a devolução é vinculada ao atendimento
               // específico. O fallback mantém o histórico anterior legível.
-              returnedQuantity: fulfillment.returned_quantity == null
-                ? alreadyReturned
-                : Number(fulfillment.returned_quantity),
-              returnedPieces: fulfillment.returned_pieces == null ? null : Number(fulfillment.returned_pieces),
+              returnedQuantity,
+              returnedPieces,
+              eligibleReturnQuantity,
+              eligibleReturnPieces,
               fulfilledAt: String(fulfillment.fulfilled_at),
               attendanceId: fulfillment.attendance_id ? String(fulfillment.attendance_id) : null,
             };
           });
+
+        const orderedPieces = entry.ordered_pieces != null ? Number(entry.ordered_pieces) : null;
+        const totalPieces = fulfillments.reduce((sum, f) => sum + (f.piecesQuantity ?? 0), 0);
+        const hasPiecesFulfilled = fulfillments.some((f) => f.piecesQuantity != null);
+        const returnedPieces = fulfillments.reduce((sum, f) => sum + (f.returnedPieces ?? 0), 0);
+        const returnedQuantity = fulfillments.reduce((sum, f) => sum + f.returnedQuantity, 0);
+        const eligibleReturnQuantity = Number(Math.max(0, Number(entry.fulfilled_quantity) - returnedQuantity).toFixed(4));
+        const eligibleReturnPieces = hasPiecesFulfilled
+          ? Math.max(0, totalPieces - returnedPieces)
+          : null;
 
         return {
           id: String(entry.id),
@@ -618,8 +675,15 @@ export class SalesService {
           productName: String(product?.name ?? '-'),
           unitId: product?.unit_id ? String(product.unit_id) : undefined,
           orderedQuantity: Number(entry.ordered_quantity),
+          orderedPieces,
           fulfilledQuantity: Number(entry.fulfilled_quantity),
+          fulfilledPieces: hasPiecesFulfilled ? totalPieces : null,
           pendingQuantity: Number(entry.ordered_quantity) - Number(entry.fulfilled_quantity),
+          returnedQuantity: Number(returnedQuantity.toFixed(4)),
+          returnedPieces: hasPiecesFulfilled || returnedPieces > 0 ? returnedPieces : null,
+          eligibleReturnQuantity,
+          eligibleReturnPieces,
+          tracksPieces,
           unitPrice: Number(entry.unit_price),
           totalValue: Number(entry.total_value),
           status: String(entry.status),

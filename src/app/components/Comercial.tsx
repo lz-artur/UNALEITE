@@ -105,7 +105,7 @@ export default function Comercial() {
     dueDate: getToday(),
     deliveryDate: getToday(),
     notes: '',
-    items: [{ localId: 'order-item-1', productId: '', quantity: '', unitPrice: '' }],
+    items: [{ localId: 'order-item-1', productId: '', quantity: '', orderedPieces: '', unitPrice: '' }],
   });
   const [fulfillForm, setFulfillForm] = useState<{
     idempotencyKey: string;
@@ -351,6 +351,7 @@ export default function Comercial() {
       .map((item) => ({
         productId: item.productId,
         quantity: Number(item.quantity),
+        orderedPieces: item.orderedPieces ? Number(item.orderedPieces) : undefined,
         unitPrice: Number(item.unitPrice),
       }));
 
@@ -1168,6 +1169,7 @@ export default function Comercial() {
                         localId: `order-item-${Date.now()}-${current.items.length + 1}`,
                         productId: '',
                         quantity: '',
+                        orderedPieces: '',
                         unitPrice: '',
                       },
                     ],
@@ -1178,8 +1180,11 @@ export default function Comercial() {
                 Adicionar item
               </button>
             </div>
-            {orderForm.items.map((item) => (
-              <div key={item.localId} className="grid grid-cols-1 gap-3 rounded-lg border border-gray-200 p-4 md:grid-cols-4">
+            {orderForm.items.map((item) => {
+              const selectedProduct = products.find((p) => p.id === item.productId);
+              const tracksPieces = Boolean(selectedProduct?.tracks_pieces || selectedProduct?.tracks_quantity_and_weight);
+              return (
+              <div key={item.localId} className={`grid grid-cols-1 gap-3 rounded-lg border border-gray-200 p-4 ${tracksPieces ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
                 <SelectField
                   label="Produto"
                   value={item.productId}
@@ -1205,7 +1210,7 @@ export default function Comercial() {
                   ]}
                 />
                 <InputField
-                  label="Quantidade"
+                  label="Peso / Qtd (kg)"
                   type="number"
                   value={item.quantity}
                   onChange={(value) =>
@@ -1217,6 +1222,21 @@ export default function Comercial() {
                     }))
                   }
                 />
+                {tracksPieces && (
+                  <InputField
+                    label="Peças (ref. 5%)"
+                    type="number"
+                    value={item.orderedPieces ?? ''}
+                    onChange={(value) =>
+                      setOrderForm((current) => ({
+                        ...current,
+                        items: current.items.map((entry) =>
+                          entry.localId === item.localId ? { ...entry, orderedPieces: value } : entry,
+                        ),
+                      }))
+                    }
+                  />
+                )}
                 <InputField
                   label="Preco unitario"
                   type="number"
@@ -1247,7 +1267,8 @@ export default function Comercial() {
                   </button>
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
         </ModalShell>
       ) : null}
@@ -1695,24 +1716,55 @@ export default function Comercial() {
                       <tr key={item.id} className="hover:bg-blue-50/30 transition-colors">
                         <TableCell>
                           <div className="font-semibold text-gray-900">{item.productName}</div>
-                          <div className="text-xs text-gray-500 mt-1 flex items-center space-x-2">
+                          <div className="text-xs text-gray-500 mt-1 flex flex-wrap items-center gap-1.5">
                              <span className={item.status === 'Atendido' ? 'text-emerald-600 font-medium' : item.status === 'Parcialmente Atendido' ? 'text-amber-600 font-medium' : 'text-blue-600 font-medium'}>{item.status}</span>
+                             {item.tracksPieces && (
+                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                                 Controla Peças & Peso
+                               </span>
+                             )}
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex flex-col space-y-1.5 text-sm">
-                            <div className="flex justify-between w-36">
-                              <span className="text-gray-500">Pedido:</span>
-                              <span className="font-medium text-gray-900">{item.orderedQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}</span>
+                          <div className="flex flex-col space-y-1.5 text-sm min-w-[200px]">
+                            <div className="flex justify-between gap-4">
+                              <span className="text-gray-500">Venda:</span>
+                              <span className="font-medium text-gray-900">
+                                {item.orderedQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
+                                {item.orderedPieces != null ? ` (${item.orderedPieces} peças)` : ''}
+                              </span>
                             </div>
-                            <div className="flex justify-between w-36">
+                            <div className="flex justify-between gap-4">
                               <span className="text-gray-500">Atendido:</span>
-                              <span className="font-medium text-emerald-600">{item.fulfilledQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}</span>
+                              <span className="font-medium text-emerald-600">
+                                {item.fulfilledQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
+                                {item.fulfilledPieces != null ? ` (${item.fulfilledPieces} peças)` : ''}
+                              </span>
                             </div>
+                            {(item.returnedQuantity ?? 0) > 0 && (
+                              <div className="flex justify-between gap-4 text-rose-600">
+                                <span>Devolvido:</span>
+                                <span className="font-medium">
+                                  {item.returnedQuantity?.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
+                                  {item.returnedPieces != null ? ` (${item.returnedPieces} peças)` : ''}
+                                </span>
+                              </div>
+                            )}
                             {item.pendingQuantity > 0 && (
-                              <div className="flex justify-between w-36 pt-1 mt-1 border-t border-gray-100">
+                              <div className="flex justify-between gap-4 pt-1 mt-1 border-t border-gray-100">
                                 <span className="text-gray-500">Pendente:</span>
-                                <span className="font-semibold text-amber-600">{item.pendingQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}</span>
+                                <span className="font-semibold text-amber-600">
+                                  {item.pendingQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
+                                </span>
+                              </div>
+                            )}
+                            {item.eligibleReturnQuantity != null && item.eligibleReturnQuantity > 0 && (
+                              <div className="flex justify-between gap-4 pt-1 border-t border-dashed border-gray-200 text-xs text-blue-700 font-medium">
+                                <span>Saldo devolvível:</span>
+                                <span className="font-bold">
+                                  {item.eligibleReturnQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
+                                  {item.eligibleReturnPieces != null ? ` (${item.eligibleReturnPieces} pçs)` : ''}
+                                </span>
                               </div>
                             )}
                           </div>
@@ -1725,23 +1777,30 @@ export default function Comercial() {
                         </TableCell>
                         <TableCell>
                           {item.fulfillments.length > 0 ? (
-                            <div className="flex flex-wrap gap-2 max-w-sm">
+                            <div className="flex flex-col gap-2 max-w-sm">
                               {item.fulfillments.map((fulfillment) => (
-                                <div key={fulfillment.id} className="inline-flex items-center rounded-md bg-blue-50 px-2 py-1.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10 shadow-sm" title={`Atendido em: ${new Date(fulfillment.fulfilledAt).toLocaleString('pt-BR')}`}>
-                                  {fulfillment.lotCode}
-                                  <span className="ml-1.5 border-l border-blue-200 pl-1.5 opacity-90 font-bold">
-                                    {fulfillment.quantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}
-                                  </span>
-                                  {fulfillment.returnedQuantity ? (
-                                    <span className="ml-1.5 border-l border-blue-200 pl-1.5 text-red-600 font-bold" title="Quantidade devolvida">
-                                      - {fulfillment.returnedQuantity.toLocaleString('pt-BR')}
-                                    </span>
-                                  ) : null}
+                                <div key={fulfillment.id} className="rounded-md bg-blue-50/70 p-2 text-xs font-medium text-blue-900 border border-blue-200 shadow-xs" title={`Atendido em: ${new Date(fulfillment.fulfilledAt).toLocaleString('pt-BR')}`}>
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-bold text-blue-800">Lote {fulfillment.lotCode}</span>
+                                    <span className="text-gray-500 font-normal">{new Date(fulfillment.fulfilledAt).toLocaleDateString('pt-BR')}</span>
+                                  </div>
+                                  <div className="mt-1 flex items-center justify-between gap-2">
+                                    <span>Expedido: <strong className="text-emerald-700">{fulfillment.quantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}{fulfillment.piecesQuantity != null ? ` · ${fulfillment.piecesQuantity} pçs` : ''}</strong></span>
+                                    {(fulfillment.returnedQuantity ?? 0) > 0 && (
+                                      <span className="text-rose-600 font-semibold">Devolvido: -{fulfillment.returnedQuantity?.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}{fulfillment.returnedPieces != null ? ` · ${fulfillment.returnedPieces} pçs` : ''}</span>
+                                    )}
+                                  </div>
+                                  {fulfillment.eligibleReturnQuantity != null && (
+                                    <div className="mt-1 pt-1 border-t border-blue-200/50 text-[11px] text-blue-600 flex justify-between">
+                                      <span>Disponível devolução:</span>
+                                      <span className="font-bold">{fulfillment.eligibleReturnQuantity.toLocaleString('pt-BR')} {getUnitSymbol(item.unitId)}{fulfillment.eligibleReturnPieces != null ? ` (${fulfillment.eligibleReturnPieces} pçs)` : ''}</span>
+                                    </div>
+                                  )}
                                 </div>
                               ))}
                             </div>
                           ) : (
-                            <span className="text-sm text-gray-400 italic bg-gray-50 px-3 py-1.5 rounded-md border border-gray-100 inline-block">Sem expedimentos</span>
+                            <span className="text-sm text-gray-400 italic bg-gray-50 px-3 py-1.5 rounded-md border border-gray-100 inline-block">Sem expedições</span>
                           )}
                         </TableCell>
                       </tr>

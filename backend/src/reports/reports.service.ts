@@ -28,7 +28,19 @@ export class ReportsService {
   constructor(private readonly supabaseService: SupabaseService) {}
 
   async getStockMovementsReport(filters: ListReportsDto = {}) {
-    const [movements, supplyLots, supplyItems, finishedProductLots, finishedProducts, milkLots, units] = await Promise.all([
+    const [
+      movements,
+      supplyLots,
+      supplyItems,
+      finishedProductLots,
+      finishedProducts,
+      milkLots,
+      units,
+      salesOrders,
+      expeditions,
+      productionOrders,
+      fulfillments,
+    ] = await Promise.all([
       this.selectMany('stock_movements'),
       this.selectMany('supply_lots'),
       this.selectMany('supply_items'),
@@ -36,6 +48,10 @@ export class ReportsService {
       this.selectMany('finished_products'),
       this.selectMany('milk_lots'),
       this.selectMany('units'),
+      this.selectMany('sales_orders'),
+      this.selectMany('sale_expeditions'),
+      this.selectMany('production_orders'),
+      this.selectMany('sales_order_fulfillments'),
     ]);
 
     const supplyLotById = new Map(supplyLots.map((lot) => [String(lot.id), lot]));
@@ -44,6 +60,18 @@ export class ReportsService {
     const productById = new Map(finishedProducts.map((product) => [String(product.id), product]));
     const milkLotById = new Map(milkLots.map((lot) => [String(lot.id), lot]));
     const unitById = new Map(units.map((unit) => [String(unit.id), unit]));
+    const orderById = new Map(salesOrders.map((order) => [String(order.id), order]));
+    const expeditionById = new Map(expeditions.map((exp) => [String(exp.id), exp]));
+    const prodOrderById = new Map(productionOrders.map((po) => [String(po.id), po]));
+
+    // Map fulfillments by order + lot for fallback piece resolution
+    const fulfillmentPiecesByOrderAndLot = new Map<string, number>();
+    for (const f of fulfillments) {
+      if (f.pieces_quantity != null && Number(f.pieces_quantity) > 0) {
+        const key = `${String(f.sales_order_id)}:${String(f.finished_product_lot_id)}`;
+        fulfillmentPiecesByOrderAndLot.set(key, Number(f.pieces_quantity));
+      }
+    }
 
     const rows = movements
       .filter((movement) => this.matchesPeriod(String(movement.created_at), filters))
@@ -51,6 +79,8 @@ export class ReportsService {
       .filter((movement) => !filters.lotType || movement.lot_type === filters.lotType)
       .map((movement) => {
         const lotId = String(movement.lot_id);
+        const refId = movement.reference_id ? String(movement.reference_id) : null;
+        const refTable = movement.reference_table ? String(movement.reference_table) : null;
         let itemName = 'Item não encontrado';
         let itemCode: string | null = null;
         let lotCode = '-';
@@ -77,6 +107,31 @@ export class ReportsService {
           unitSymbol = 'L';
         }
 
+        // Resolução da quantidade de peças
+        let piecesQuantity: number | null = movement.pieces_quantity == null ? null : Number(movement.pieces_quantity);
+        if (piecesQuantity == null && movement.lot_type === 'Produto Acabado' && refTable === 'sales_orders' && refId) {
+          const fallback = fulfillmentPiecesByOrderAndLot.get(`${refId}:${lotId}`);
+          if (fallback != null) {
+            piecesQuantity = fallback;
+          }
+        }
+
+        // Resolução do rótulo de referência com rastreabilidade detalhada
+        let reference = this.stockMovementReferenceLabel(refTable);
+        if (refTable === 'sales_orders' && refId) {
+          const order = orderById.get(refId);
+          reference = order?.order_number ? `Venda ${order.order_number}` : 'Venda';
+        } else if (refTable === 'sale_expeditions' && refId) {
+          const exp = expeditionById.get(refId);
+          reference = exp?.expedition_number ? `Expedição ${exp.expedition_number}` : 'Expedição de venda';
+        } else if (refTable === 'production_orders' && refId) {
+          const po = prodOrderById.get(refId);
+          reference = po?.order_number ? `OP ${po.order_number}` : 'Ordem de produção';
+        } else if (refTable === 'production_order_cancellations' && refId) {
+          const po = prodOrderById.get(refId);
+          reference = po?.order_number ? `Estorno OP ${po.order_number}` : 'Estorno de cancelamento de OP';
+        }
+
         return {
           movementId: String(movement.id),
           occurredAt: String(movement.created_at),
@@ -86,9 +141,11 @@ export class ReportsService {
           itemCode,
           lotCode,
           quantity: Number(movement.quantity ?? 0),
-          piecesQuantity: movement.pieces_quantity == null ? null : Number(movement.pieces_quantity),
+          piecesQuantity,
           unitSymbol,
-          reference: this.stockMovementReferenceLabel(movement.reference_table),
+          reference,
+          referenceTable: refTable,
+          referenceId: refId,
         };
       })
       .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
@@ -101,6 +158,8 @@ export class ReportsService {
         exitsCount: rows.filter((row) => row.movementType === 'saida').length,
         entriesQuantity: rows.filter((row) => row.movementType === 'entrada').reduce((total, row) => total + row.quantity, 0),
         exitsQuantity: rows.filter((row) => row.movementType === 'saida').reduce((total, row) => total + row.quantity, 0),
+        entriesPieces: rows.filter((row) => row.movementType === 'entrada' && row.piecesQuantity != null).reduce((total, row) => total + (row.piecesQuantity ?? 0), 0),
+        exitsPieces: rows.filter((row) => row.movementType === 'saida' && row.piecesQuantity != null).reduce((total, row) => total + (row.piecesQuantity ?? 0), 0),
       },
       rows,
     };
@@ -874,6 +933,9 @@ export class ReportsService {
     const labels: Record<string, string> = {
       purchases: 'Compra',
       production_orders: 'Ordem de produção',
+      production_order_cancellations: 'Estorno de cancelamento de OP',
+      sales_orders: 'Venda',
+      sale_attendances: 'Atendimento de venda',
       sales_order_fulfillments: 'Atendimento de venda',
       sale_expeditions: 'Expedição de venda',
       sales_returns: 'Devolução de venda',

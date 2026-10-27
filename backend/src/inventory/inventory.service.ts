@@ -11,12 +11,14 @@ import { CreateWarehouseWithdrawalDto } from './dto/create-warehouse-withdrawal.
 import { CreateExpiredLotDisposalDto } from './dto/create-expired-lot-disposal.dto';
 import { ReviewExpiredLotDisposalDto } from './dto/review-expired-lot-disposal.dto';
 import { randomUUID } from 'crypto';
+import { DomainRulesService } from '../common/services/domain-rules.service';
 
 @Injectable()
 export class InventoryService {
   constructor(
     private readonly supabaseService: SupabaseService,
     private readonly usersService: UsersService,
+    private readonly domainRulesService: DomainRulesService = new DomainRulesService(),
   ) {}
 
   private async getActor(user: AuthenticatedUser) {
@@ -227,6 +229,15 @@ export class InventoryService {
     }
 
     if (tracksPieces) {
+      if (payload.authorizedPieces != null && payload.authorizedPieces > 0) {
+        this.domainRulesService.validatePieceExit({
+          authorizedPieces: payload.authorizedPieces,
+          requestedPieces: payload.pieces,
+          availablePieces: Number(lot.available_pieces),
+          productName: String(lot.lot_code),
+        });
+      }
+
       const remainingQuantity = Number(lot.available_quantity) - Number(payload.quantity);
       const remainingPieces = Number(lot.available_pieces) - Number(payload.pieces);
       const leavesOnlyOneBalance =
@@ -286,6 +297,7 @@ export class InventoryService {
         lot_type: 'Produto Acabado',
         lot_id: payload.finishedProductLotId,
         quantity: payload.quantity,
+        pieces_quantity: tracksPieces ? payload.pieces ?? null : null,
         reference_table: 'finished_product_manual_exits',
         reference_id: exitRecord.id,
         created_by: user?.id ?? null,
@@ -814,6 +826,7 @@ export class InventoryService {
             product_code: product?.code ?? null,
             unit_id: product?.unit_id ?? null,
             ordered_quantity: Number(item.ordered_quantity),
+            ordered_pieces: item.ordered_pieces != null ? Number(item.ordered_pieces) : null,
             fulfilled_quantity: Number(item.fulfilled_quantity),
             pending_quantity: Math.max(0, Number(item.ordered_quantity) - Number(item.fulfilled_quantity)),
             lines: linesByItem.get(item.id) ?? [],
@@ -873,6 +886,24 @@ export class InventoryService {
   async confirmSaleExpedition(expeditionId: string, user: AuthenticatedUser, confirmedDivergentBalances = false) {
     const actor = await this.getActor(user);
     const expedition = await this.getSaleExpedition(expeditionId, user);
+    for (const item of expedition.order.items) {
+      if (item.ordered_pieces != null && item.ordered_pieces > 0) {
+        const totalWeighedPieces = (item.lines ?? []).reduce(
+          (sum: number, line: any) => sum + Number(line.weighed_pieces ?? 0),
+          0,
+        );
+        const totalAvailablePieces = (item.lines ?? []).reduce(
+          (sum: number, line: any) => sum + Number(line.lot?.available_pieces ?? 0),
+          0,
+        );
+        this.domainRulesService.validatePieceExit({
+          authorizedPieces: item.ordered_pieces,
+          requestedPieces: totalWeighedPieces,
+          availablePieces: totalAvailablePieces,
+          productName: item.product_name,
+        });
+      }
+    }
     const requestedByLot = new Map<string, { quantity: number; pieces: number }>();
     for (const item of expedition.order.items) {
       for (const line of item.lines) {

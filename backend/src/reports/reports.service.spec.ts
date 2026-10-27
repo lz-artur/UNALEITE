@@ -76,12 +76,13 @@ describe('ReportsService production costs', () => {
 });
 
 describe('ReportsService stock movements', () => {
-  it('identifies the item, direction and source of each stock movement', async () => {
+  it('identifies the item, direction and source of each stock movement and resolves pieces', async () => {
     const service = new ReportsService({} as SupabaseService);
     const data: Record<string, any[]> = {
       stock_movements: [
         { id: 'movement-1', movement_type: 'entrada', lot_type: 'Insumo', lot_id: 'supply-lot-1', quantity: 12, reference_table: 'purchases', created_at: '2026-09-10T12:00:00Z' },
-        { id: 'movement-2', movement_type: 'saida', lot_type: 'Produto Acabado', lot_id: 'product-lot-1', quantity: 3, pieces_quantity: 6, reference_table: 'sale_expeditions', created_at: '2026-09-11T12:00:00Z' },
+        { id: 'movement-2', movement_type: 'saida', lot_type: 'Produto Acabado', lot_id: 'product-lot-1', quantity: 3, pieces_quantity: 6, reference_table: 'sale_expeditions', reference_id: 'exp-1', created_at: '2026-09-11T12:00:00Z' },
+        { id: 'movement-3', movement_type: 'saida', lot_type: 'Produto Acabado', lot_id: 'product-lot-1', quantity: 5, pieces_quantity: null, reference_table: 'sales_orders', reference_id: 'order-1', created_at: '2026-09-12T12:00:00Z' },
       ],
       supply_lots: [{ id: 'supply-lot-1', supply_item_id: 'supply-1', internal_lot_code: 'INS-001' }],
       supply_items: [{ id: 'supply-1', name: 'Fermento', code: 'FER-01', unit_id: 'unit-kg' }],
@@ -89,13 +90,53 @@ describe('ReportsService stock movements', () => {
       finished_products: [{ id: 'product-1', name: 'Queijo coalho', code: 'QC-01', unit_id: 'unit-kg' }],
       milk_lots: [],
       units: [{ id: 'unit-kg', symbol: 'kg' }],
+      sales_orders: [{ id: 'order-1', order_number: 'VEN-2026-100' }],
+      sale_expeditions: [{ id: 'exp-1', expedition_number: 'EXP-001' }],
+      production_orders: [],
+      sales_order_fulfillments: [
+        { sales_order_id: 'order-1', finished_product_lot_id: 'product-lot-1', pieces_quantity: 10 },
+      ],
     };
     jest.spyOn(service as any, 'selectMany').mockImplementation(async (...args: unknown[]) => data[String(args[0])] ?? []);
 
     const report = await service.getStockMovementsReport({ startDate: '2026-09-01', endDate: '2026-09-30' });
 
-    expect(report.totals).toEqual({ movementsCount: 2, entriesCount: 1, exitsCount: 1, entriesQuantity: 12, exitsQuantity: 3 });
-    expect(report.rows[0]).toMatchObject({ movementType: 'saida', itemName: 'Queijo coalho', lotCode: 'PA-001', unitSymbol: 'kg', reference: 'Expedição de venda' });
-    expect(report.rows[1]).toMatchObject({ movementType: 'entrada', itemName: 'Fermento', lotCode: 'INS-001', reference: 'Compra' });
+    expect(report.totals).toMatchObject({
+      movementsCount: 3,
+      entriesCount: 1,
+      exitsCount: 2,
+      entriesQuantity: 12,
+      exitsQuantity: 8,
+      entriesPieces: 0,
+      exitsPieces: 16, // 6 from movement-2 + 10 resolved from fulfillment for movement-3
+    });
+    // movement-3: pieces_quantity was null in stock_movements, resolved from fulfillment as 10
+    expect(report.rows[0]).toMatchObject({
+      movementType: 'saida',
+      itemName: 'Queijo coalho',
+      lotCode: 'PA-001',
+      unitSymbol: 'kg',
+      quantity: 5,
+      piecesQuantity: 10,
+      reference: 'Venda VEN-2026-100',
+    });
+    // movement-2:
+    expect(report.rows[1]).toMatchObject({
+      movementType: 'saida',
+      itemName: 'Queijo coalho',
+      lotCode: 'PA-001',
+      unitSymbol: 'kg',
+      quantity: 3,
+      piecesQuantity: 6,
+      reference: 'Expedição EXP-001',
+    });
+    // movement-1:
+    expect(report.rows[2]).toMatchObject({
+      movementType: 'entrada',
+      itemName: 'Fermento',
+      lotCode: 'INS-001',
+      quantity: 12,
+      reference: 'Compra',
+    });
   });
 });
