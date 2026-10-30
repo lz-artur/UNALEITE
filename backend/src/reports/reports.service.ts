@@ -652,6 +652,310 @@ export class ReportsService {
     };
   }
 
+  async getStockVsSalesReport(filters: ListReportsDto = {}) {
+    let { startDate, endDate, productId } = filters;
+    if (!startDate || !endDate) {
+      const now = new Date();
+      endDate = now.toISOString().slice(0, 10);
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      startDate = firstDay.toISOString().slice(0, 10);
+    }
+
+    const [
+      products,
+      units,
+      productLots,
+      stockMovements,
+      salesOrders,
+      salesItems,
+      fulfillments,
+      salesReturns,
+    ] = await Promise.all([
+      this.selectMany('finished_products'),
+      this.selectMany('units'),
+      this.selectMany('finished_product_lots'),
+      this.selectMany('stock_movements'),
+      this.selectMany('sales_orders'),
+      this.selectMany('sales_order_items'),
+      this.selectMany('sales_order_fulfillments'),
+      this.selectMany('sales_returns'),
+    ]);
+
+    const unitMap = new Map(units.map((u: any) => [String(u.id), u.symbol ?? '']));
+    const lotMap = new Map(productLots.map((l: any) => [String(l.id), l]));
+    const orderItemMap = new Map(salesItems.map((item: any) => [String(item.id), item]));
+    const orderMap = new Map(salesOrders.map((o: any) => [String(o.id), o]));
+
+    // Map returns by compound key: orderId:productId:lotId
+    const returnsByKey = new Map<string, number>();
+    for (const ret of salesReturns) {
+      const key = this.salesReturnKey(ret.sales_order_id, ret.product_id, ret.finished_product_lot_id);
+      returnsByKey.set(key, (returnsByKey.get(key) ?? 0) + Number(ret.returned_quantity ?? 0));
+    }
+
+    // Filter relevant products
+    const filteredProducts = productId
+      ? products.filter((p: any) => String(p.id) === productId)
+      : products.filter((p: any) => p.active !== false);
+
+    const relevantProductIds = new Set(filteredProducts.map((p: any) => String(p.id)));
+
+    // Filter lots belonging to relevant products
+    const relevantLots = productLots.filter((lot: any) => relevantProductIds.has(String(lot.product_id)));
+
+    // Current stock calculation
+    const currentStockByProduct = new Map<string, { quantity: number; pieces: number }>();
+    for (const prod of filteredProducts) {
+      currentStockByProduct.set(String(prod.id), { quantity: 0, pieces: 0 });
+    }
+    for (const lot of relevantLots) {
+      const pId = String(lot.product_id);
+      const current = currentStockByProduct.get(pId) ?? { quantity: 0, pieces: 0 };
+      current.quantity += Number(lot.available_quantity ?? 0);
+      current.pieces += Number(lot.available_pieces ?? 0);
+      currentStockByProduct.set(pId, current);
+    }
+
+    // Sales fulfillments calculation with return deductions
+    const remainingReturns = new Map(returnsByKey);
+    const sortedFulfillments = [...fulfillments].sort((a: any, b: any) =>
+      String(a.fulfilled_at).localeCompare(String(b.fulfilled_at)),
+    );
+
+    type ProcessedSale = {
+      fulfillmentId: string;
+      fulfilledAt: string;
+      dateKey: string;
+      productId: string;
+      quantity: number;
+      pieces: number;
+      unitPrice: number;
+      saleValue: number;
+    };
+
+    const processedSales: ProcessedSale[] = [];
+    for (const f of sortedFulfillments) {
+      const lot = lotMap.get(String(f.finished_product_lot_id));
+      const item = orderItemMap.get(String(f.sales_order_item_id));
+      const order = orderMap.get(String(f.sales_order_id));
+      const pId = String(item?.product_id ?? lot?.product_id ?? '');
+
+      if (!relevantProductIds.has(pId)) continue;
+
+      const retKey = order && item && lot ? this.salesReturnKey(order.id, item.product_id, lot.id) : '';
+      const retBalance = remainingReturns.get(retKey) ?? 0;
+      const grossQuantity = Number(f.quantity ?? 0);
+      const returnedQuantity = Math.min(grossQuantity, retBalance);
+      if (retKey) remainingReturns.set(retKey, Math.max(0, retBalance - returnedQuantity));
+      const netQuantity = grossQuantity - returnedQuantity;
+
+      const unitPrice = Number(item?.unit_price ?? 0);
+      const fulfilledAt = String(f.fulfilled_at ?? f.created_at ?? '');
+      const dateKey = fulfilledAt.slice(0, 10);
+      const pieces = Number(f.pieces_quantity ?? 0);
+
+      processedSales.push({
+        fulfillmentId: String(f.id),
+        fulfilledAt,
+        dateKey,
+        productId: pId,
+        quantity: netQuantity,
+        pieces,
+        unitPrice,
+        saleValue: netQuantity * unitPrice,
+      });
+    }
+
+    // Stock movements for finished products
+    const relevantMovements = stockMovements.filter((m: any) => {
+      if (m.lot_type !== 'Produto Acabado') return false;
+      const lot = lotMap.get(String(m.lot_id));
+      return lot && relevantProductIds.has(String(lot.product_id));
+    });
+
+    // Check for lots without an explicit 'entrada' movement, creating synthetic entry
+    const lotIdsWithEntrada = new Set(
+      relevantMovements
+        .filter((m: any) => m.movement_type === 'entrada')
+        .map((m: any) => String(m.lot_id)),
+    );
+
+    const syntheticEntries: Array<{ lot_id: string; quantity: number; created_at: string }> = [];
+    for (const lot of relevantLots) {
+      if (!lotIdsWithEntrada.has(String(lot.id))) {
+        syntheticEntries.push({
+          lot_id: String(lot.id),
+          quantity: Number(lot.quantity_produced ?? 0),
+          created_at: String(lot.produced_at ?? lot.created_at ?? ''),
+        });
+      }
+    }
+
+    // Build timeline dates from startDate to endDate safely without timezone shift
+    const [startYear, startMonth, startDay] = startDate.split('-').map(Number);
+    const [endYear, endMonth, endDay] = endDate.split('-').map(Number);
+    const curr = new Date(startYear, startMonth - 1, startDay, 12, 0, 0);
+    const endNorm = new Date(endYear, endMonth - 1, endDay, 12, 0, 0);
+    const dates: string[] = [];
+
+    let safetyCounter = 0;
+    while (curr <= endNorm && safetyCounter < 370) {
+      const y = curr.getFullYear();
+      const m = String(curr.getMonth() + 1).padStart(2, '0');
+      const d = String(curr.getDate()).padStart(2, '0');
+      dates.push(`${y}-${m}-${d}`);
+      curr.setDate(curr.getDate() + 1);
+      safetyCounter++;
+    }
+    if (dates.length === 0) {
+      dates.push(startDate);
+    }
+
+    const salesInPeriod = processedSales.filter((s) => this.matchesPeriod(s.fulfilledAt, { startDate, endDate }));
+
+    // Group sales by day
+    const salesByDay = new Map<string, { quantity: number; value: number }>();
+    for (const s of salesInPeriod) {
+      const cur = salesByDay.get(s.dateKey) ?? { quantity: 0, value: 0 };
+      cur.quantity += s.quantity;
+      cur.value += s.saleValue;
+      salesByDay.set(s.dateKey, cur);
+    }
+
+    // Group entries by day
+    const entriesByDay = new Map<string, number>();
+    for (const m of relevantMovements) {
+      if (m.movement_type === 'entrada') {
+        const dKey = String(m.created_at).slice(0, 10);
+        entriesByDay.set(dKey, (entriesByDay.get(dKey) ?? 0) + Number(m.quantity ?? 0));
+      }
+    }
+    for (const syn of syntheticEntries) {
+      const dKey = syn.created_at.slice(0, 10);
+      entriesByDay.set(dKey, (entriesByDay.get(dKey) ?? 0) + syn.quantity);
+    }
+
+    // Timeline calculation
+    const timeline = dates.map((dateStr) => {
+      const endOfDay = `${dateStr}T23:59:59.999Z`;
+
+      let totalEntriesUpToD = 0;
+      let totalExitsUpToD = 0;
+
+      for (const m of relevantMovements) {
+        if (new Date(m.created_at) <= new Date(endOfDay)) {
+          if (m.movement_type === 'entrada') {
+            totalEntriesUpToD += Number(m.quantity ?? 0);
+          } else if (m.movement_type === 'saida') {
+            totalExitsUpToD += Number(m.quantity ?? 0);
+          }
+        }
+      }
+
+      for (const syn of syntheticEntries) {
+        if (new Date(syn.created_at) <= new Date(endOfDay)) {
+          totalEntriesUpToD += syn.quantity;
+        }
+      }
+
+      const availableStock = Math.max(0, Math.round((totalEntriesUpToD - totalExitsUpToD) * 100) / 100);
+      const daySales = salesByDay.get(dateStr) ?? { quantity: 0, value: 0 };
+      const dayEntries = entriesByDay.get(dateStr) ?? 0;
+
+      const [year, month, day] = dateStr.split('-');
+      const label = `${day}/${month}`;
+
+      return {
+        date: dateStr,
+        label,
+        availableStock,
+        salesQuantity: Math.round(daySales.quantity * 100) / 100,
+        salesValue: Math.round(daySales.value * 100) / 100,
+        productionQuantity: Math.round(dayEntries * 100) / 100,
+      };
+    });
+
+    // Product breakdown
+    const periodDays = Math.max(1, dates.length);
+
+    const productBreakdown = filteredProducts.map((product: any) => {
+      const pId = String(product.id);
+      const stock = currentStockByProduct.get(pId) ?? { quantity: 0, pieces: 0 };
+      const productSales = salesInPeriod.filter((s) => s.productId === pId);
+
+      const totalSoldQuantity = productSales.reduce((sum, s) => sum + s.quantity, 0);
+      const totalSoldPieces = productSales.reduce((sum, s) => sum + s.pieces, 0);
+      const totalSalesValue = productSales.reduce((sum, s) => sum + s.saleValue, 0);
+      const avgDailySales = totalSoldQuantity / periodDays;
+
+      let coverageDays = 0;
+      let status: 'esgotado' | 'sem_saida' | 'crítico' | 'baixo' | 'adequado' | 'alto' = 'adequado';
+
+      if (stock.quantity <= 0) {
+        coverageDays = 0;
+        status = 'esgotado';
+      } else if (totalSoldQuantity <= 0) {
+        coverageDays = 999;
+        status = 'sem_saida';
+      } else {
+        coverageDays = Math.round(stock.quantity / (avgDailySales || 1));
+        if (coverageDays < 7) {
+          status = 'crítico';
+        } else if (coverageDays < 15) {
+          status = 'baixo';
+        } else if (coverageDays <= 45) {
+          status = 'adequado';
+        } else {
+          status = 'alto';
+        }
+      }
+
+      return {
+        productId: pId,
+        productName: String(product.name ?? '-'),
+        productCode: product.code ? String(product.code) : null,
+        unitSymbol: unitMap.get(String(product.unit_id)) ?? 'kg',
+        currentStock: Math.round(stock.quantity * 100) / 100,
+        currentPieces: stock.pieces > 0 ? stock.pieces : null,
+        totalSoldQuantity: Math.round(totalSoldQuantity * 100) / 100,
+        totalSoldPieces,
+        totalSalesValue: Math.round(totalSalesValue * 100) / 100,
+        avgDailySales: Math.round(avgDailySales * 100) / 100,
+        coverageDays,
+        status,
+      };
+    });
+
+    // Overall Totals
+    const currentAvailableStock = Array.from(currentStockByProduct.values()).reduce((sum, s) => sum + s.quantity, 0);
+    const currentAvailablePieces = Array.from(currentStockByProduct.values()).reduce((sum, s) => sum + s.pieces, 0);
+    const totalSoldQuantity = salesInPeriod.reduce((sum, s) => sum + s.quantity, 0);
+    const totalSoldPieces = salesInPeriod.reduce((sum, s) => sum + s.pieces, 0);
+    const totalSalesValue = salesInPeriod.reduce((sum, s) => sum + s.saleValue, 0);
+    const overallAvgDailySales = totalSoldQuantity / periodDays;
+    const estimatedCoverageDays = overallAvgDailySales > 0 ? Math.round(currentAvailableStock / overallAvgDailySales) : (currentAvailableStock > 0 ? 999 : 0);
+    const turnoverRate = currentAvailableStock > 0 ? Math.round((totalSoldQuantity / currentAvailableStock) * 100) / 100 : 0;
+
+    return {
+      period: {
+        startDate,
+        endDate,
+      },
+      totals: {
+        currentAvailableStock: Math.round(currentAvailableStock * 100) / 100,
+        currentAvailablePieces,
+        totalSoldQuantity: Math.round(totalSoldQuantity * 100) / 100,
+        totalSoldPieces,
+        totalSalesValue: Math.round(totalSalesValue * 100) / 100,
+        avgDailySales: Math.round(overallAvgDailySales * 100) / 100,
+        estimatedCoverageDays,
+        turnoverRate,
+      },
+      timeline,
+      products: productBreakdown.sort((a, b) => b.totalSoldQuantity - a.totalSoldQuantity),
+    };
+  }
+
   async getDreReport(filters: ListReportsDto = {}) {
     const basis = filters.basis || 'accrual';
     const [entries, entryItems, categories, receipts] = await Promise.all([

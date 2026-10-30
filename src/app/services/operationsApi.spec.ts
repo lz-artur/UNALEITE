@@ -19,6 +19,7 @@ import {
   loadClients,
   loadMilkLotEvents,
   loadMilkLotReconciliation,
+  loadStockVsSalesReport,
 } from './operationsApi';
 import { supabase } from '../lib/supabase';
 
@@ -477,5 +478,24 @@ describe('operationsApi - SalesOrderRecord interface', () => {
     };
 
     expect(record.returnedQuantity).toBe(3);
+  });
+
+  it('loadStockVsSalesReport calls /reports/stock-vs-sales with correct query params', async () => {
+    vi.mocked(api.apiRequest).mockResolvedValueOnce({
+      period: { startDate: '2026-10-01', endDate: '2026-10-31' },
+      totals: { currentAvailableStock: 100, currentAvailablePieces: 50, totalSoldQuantity: 200, totalSoldPieces: 100, totalSalesValue: 5000, avgDailySales: 6.45, estimatedCoverageDays: 15, turnoverRate: 2 },
+      timeline: [],
+      products: [],
+    });
+
+    await loadStockVsSalesReport({
+      startDate: '2026-10-01',
+      endDate: '2026-10-31',
+      productId: 'prod-123',
+    });
+
+    expect(api.apiRequest).toHaveBeenCalledWith(
+      '/reports/stock-vs-sales?startDate=2026-10-01&endDate=2026-10-31&productId=prod-123',
+    );
   });
 });

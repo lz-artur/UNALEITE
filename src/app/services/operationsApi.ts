@@ -743,6 +743,45 @@ export interface StockMovementsReportResponse {
   }>;
 }
 
+export interface StockVsSalesReportResponse {
+  period: {
+    startDate: string | null;
+    endDate: string | null;
+  };
+  totals: {
+    currentAvailableStock: number;
+    currentAvailablePieces: number;
+    totalSoldQuantity: number;
+    totalSoldPieces: number;
+    totalSalesValue: number;
+    avgDailySales: number;
+    estimatedCoverageDays: number;
+    turnoverRate: number;
+  };
+  timeline: Array<{
+    date: string;
+    label: string;
+    availableStock: number;
+    salesQuantity: number;
+    salesValue: number;
+    productionQuantity: number;
+  }>;
+  products: Array<{
+    productId: string;
+    productName: string;
+    productCode: string | null;
+    unitSymbol: string;
+    currentStock: number;
+    currentPieces: number | null;
+    totalSoldQuantity: number;
+    totalSoldPieces: number;
+    totalSalesValue: number;
+    avgDailySales: number;
+    coverageDays: number;
+    status: 'esgotado' | 'sem_saida' | 'crítico' | 'baixo' | 'adequado' | 'alto';
+  }>;
+}
+
 function mapAnalysis(row: any): AnaliseLaboral {
   return {
     id: row.id,
@@ -1995,6 +2034,19 @@ export async function loadStockMovementsReport(filters?: {
   if (filters?.lotType) params.set('lotType', filters.lotType);
   const query = params.toString();
   return apiRequest<StockMovementsReportResponse>(`/reports/stock-movements${query ? `?${query}` : ''}`);
+}
+
+export async function loadStockVsSalesReport(filters?: {
+  startDate?: string;
+  endDate?: string;
+  productId?: string;
+}) {
+  const params = new URLSearchParams();
+  if (filters?.startDate) params.set('startDate', filters.startDate);
+  if (filters?.endDate) params.set('endDate', filters.endDate);
+  if (filters?.productId) params.set('productId', filters.productId);
+  const query = params.toString();
+  return apiRequest<StockVsSalesReportResponse>(`/reports/stock-vs-sales${query ? `?${query}` : ''}`);
 }
 
 export async function loadDreReport(filters?: {

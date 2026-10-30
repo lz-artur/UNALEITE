@@ -140,3 +140,110 @@ describe('ReportsService stock movements', () => {
     });
   });
 });
+
+describe('ReportsService stock vs sales report', () => {
+  it('builds historical timeline comparing available stock against sales and calculates coverage', async () => {
+    const service = new ReportsService({} as SupabaseService);
+    const data: Record<string, any[]> = {
+      finished_products: [
+        { id: 'prod-1', name: 'Queijo Minas', code: 'QM-01', unit_id: 'unit-kg', active: true },
+        { id: 'prod-2', name: 'Manteiga', code: 'MT-01', unit_id: 'unit-kg', active: true },
+      ],
+      units: [{ id: 'unit-kg', symbol: 'kg' }],
+      finished_product_lots: [
+        { id: 'lot-1', product_id: 'prod-1', lot_code: 'QM-101', quantity_produced: 100, available_quantity: 80, available_pieces: 40, produced_at: '2026-10-01T08:00:00Z' },
+        { id: 'lot-2', product_id: 'prod-2', lot_code: 'MT-201', quantity_produced: 50, available_quantity: 10, available_pieces: 0, produced_at: '2026-10-01T08:00:00Z' },
+      ],
+      stock_movements: [
+        { id: 'm-1', movement_type: 'entrada', lot_type: 'Produto Acabado', lot_id: 'lot-1', quantity: 100, created_at: '2026-10-01T08:00:00Z' },
+        { id: 'm-2', movement_type: 'saida', lot_type: 'Produto Acabado', lot_id: 'lot-1', quantity: 20, created_at: '2026-10-05T14:00:00Z' },
+        { id: 'm-3', movement_type: 'entrada', lot_type: 'Produto Acabado', lot_id: 'lot-2', quantity: 50, created_at: '2026-10-01T08:00:00Z' },
+        { id: 'm-4', movement_type: 'saida', lot_type: 'Produto Acabado', lot_id: 'lot-2', quantity: 40, created_at: '2026-10-06T10:00:00Z' },
+      ],
+      sales_orders: [
+        { id: 'order-1', order_number: 'VEN-001' },
+        { id: 'order-2', order_number: 'VEN-002' },
+      ],
+      sales_order_items: [
+        { id: 'item-1', sales_order_id: 'order-1', product_id: 'prod-1', quantity: 20, unit_price: 45 },
+        { id: 'item-2', sales_order_id: 'order-2', product_id: 'prod-2', quantity: 40, unit_price: 30 },
+      ],
+      sales_order_fulfillments: [
+        { id: 'ful-1', sales_order_id: 'order-1', sales_order_item_id: 'item-1', finished_product_lot_id: 'lot-1', quantity: 20, pieces_quantity: 10, fulfilled_at: '2026-10-05T14:00:00Z' },
+        { id: 'ful-2', sales_order_id: 'order-2', sales_order_item_id: 'item-2', finished_product_lot_id: 'lot-2', quantity: 40, pieces_quantity: 0, fulfilled_at: '2026-10-06T10:00:00Z' },
+      ],
+      sales_returns: [],
+    };
+    jest.spyOn(service as any, 'selectMany').mockImplementation(async (...args: unknown[]) => data[String(args[0])] ?? []);
+
+    const report = await service.getStockVsSalesReport({
+      startDate: '2026-10-01',
+      endDate: '2026-10-07',
+    });
+
+    expect(report.totals).toMatchObject({
+      currentAvailableStock: 90, // 80 + 10
+      totalSoldQuantity: 60, // 20 + 40
+      totalSalesValue: 2100, // 20*45 (900) + 40*30 (1200)
+    });
+
+    // Check timeline has daily entries
+    expect(report.timeline.length).toBe(7); // 2026-10-01 to 2026-10-07
+    const oct01 = report.timeline.find((t) => t.date === '2026-10-01');
+    const oct05 = report.timeline.find((t) => t.date === '2026-10-05');
+    const oct06 = report.timeline.find((t) => t.date === '2026-10-06');
+    const oct07 = report.timeline.find((t) => t.date === '2026-10-07');
+
+    expect(oct01?.availableStock).toBe(150); // 100 + 50
+    expect(oct05?.salesQuantity).toBe(20);
+    expect(oct05?.availableStock).toBe(130); // 150 - 20
+    expect(oct06?.salesQuantity).toBe(40);
+    expect(oct06?.availableStock).toBe(90); // 130 - 40
+    expect(oct07?.availableStock).toBe(90);
+
+    // Check products breakdown
+    expect(report.products.length).toBe(2);
+    const prod1Row = report.products.find((p) => p.productId === 'prod-1');
+    expect(prod1Row).toMatchObject({
+      productName: 'Queijo Minas',
+      currentStock: 80,
+      totalSoldQuantity: 20,
+      totalSalesValue: 900,
+    });
+  });
+
+  it('filters stock vs sales by single productId', async () => {
+    const service = new ReportsService({} as SupabaseService);
+    const data: Record<string, any[]> = {
+      finished_products: [
+        { id: 'prod-1', name: 'Queijo Minas', code: 'QM-01', unit_id: 'unit-kg', active: true },
+        { id: 'prod-2', name: 'Manteiga', code: 'MT-01', unit_id: 'unit-kg', active: true },
+      ],
+      units: [{ id: 'unit-kg', symbol: 'kg' }],
+      finished_product_lots: [
+        { id: 'lot-1', product_id: 'prod-1', lot_code: 'QM-101', quantity_produced: 100, available_quantity: 80, produced_at: '2026-10-01T08:00:00Z' },
+        { id: 'lot-2', product_id: 'prod-2', lot_code: 'MT-201', quantity_produced: 50, available_quantity: 10, produced_at: '2026-10-01T08:00:00Z' },
+      ],
+      stock_movements: [
+        { id: 'm-1', movement_type: 'entrada', lot_type: 'Produto Acabado', lot_id: 'lot-1', quantity: 100, created_at: '2026-10-01T08:00:00Z' },
+        { id: 'm-2', movement_type: 'saida', lot_type: 'Produto Acabado', lot_id: 'lot-1', quantity: 20, created_at: '2026-10-05T14:00:00Z' },
+        { id: 'm-3', movement_type: 'entrada', lot_type: 'Produto Acabado', lot_id: 'lot-2', quantity: 50, created_at: '2026-10-01T08:00:00Z' },
+      ],
+      sales_orders: [{ id: 'order-1', order_number: 'VEN-001' }],
+      sales_order_items: [{ id: 'item-1', sales_order_id: 'order-1', product_id: 'prod-1', quantity: 20, unit_price: 45 }],
+      sales_order_fulfillments: [{ id: 'ful-1', sales_order_id: 'order-1', sales_order_item_id: 'item-1', finished_product_lot_id: 'lot-1', quantity: 20, fulfilled_at: '2026-10-05T14:00:00Z' }],
+      sales_returns: [],
+    };
+    jest.spyOn(service as any, 'selectMany').mockImplementation(async (...args: unknown[]) => data[String(args[0])] ?? []);
+
+    const report = await service.getStockVsSalesReport({
+      startDate: '2026-10-01',
+      endDate: '2026-10-07',
+      productId: 'prod-1',
+    });
+
+    expect(report.totals.currentAvailableStock).toBe(80);
+    expect(report.products.length).toBe(1);
+    expect(report.products[0].productId).toBe('prod-1');
+  });
+});
