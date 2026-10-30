@@ -106,6 +106,16 @@ export default function Producao() {
  const [openSupplySearch, setOpenSupplySearch] = useState<number | null>(null);
  const [finishedProductSearchTerms, setFinishedProductSearchTerms] = useState<Record<number, string>>({});
  const [openFinishedProductSearch, setOpenFinishedProductSearch] = useState<number | null>(null);
+ const [varianceAlert, setVarianceAlert] = useState<{
+   averageWeight: number;
+   expectedWeight: number;
+   minWeight: number;
+   maxWeight: number;
+   standardWeight: number;
+   tolerancePercent: number;
+   actualQuantity: number;
+   actualPieces: number;
+ } | null>(null);
  const { finishedProducts, getFinishedProductById, getUnitSymbol, getSupplyItemById } = useCadastros();
 
  const loadData = async () => {
@@ -378,56 +388,90 @@ export default function Producao() {
  }
  };
 
- const handleComplete = async () => {
- if (!selectedOrder) {
- return;
- }
+ const handleComplete = async (bypassVariance = false) => {
+  if (!selectedOrder) {
+    return;
+  }
 
- const actualQuantityProduced = Number(completeForm.actualQuantityProduced);
- const prod = getFinishedProductById(selectedOrder.produtoId);
- const tracksPieces = prod?.tracksPieces === true;
- const actualPiecesProduced = Number(completeForm.actualPiecesProduced);
- const actualCommercialUnitsProduced = completeForm.actualCommercialUnitsProduced
-   ? Number(completeForm.actualCommercialUnitsProduced)
-   : undefined;
+  const actualQuantityProduced = Number(completeForm.actualQuantityProduced);
+  const prod = getFinishedProductById(selectedOrder.produtoId);
+  const tracksPieces = prod?.tracksPieces === true;
+  const actualPiecesProduced = Number(completeForm.actualPiecesProduced);
+  const actualCommercialUnitsProduced = completeForm.actualCommercialUnitsProduced
+    ? Number(completeForm.actualCommercialUnitsProduced)
+    : undefined;
 
- if (actualQuantityProduced <= 0) {
- setSubmitError('Informe a quantidade produzida para finalizar a OP.');
- return;
- }
- if (tracksPieces && (!Number.isInteger(actualPiecesProduced) || actualPiecesProduced <= 0)) {
- setSubmitError('Informe a quantidade de peças produzidas para finalizar a OP.');
- return;
- }
+  if (actualQuantityProduced <= 0) {
+    setSubmitError('Informe a quantidade produzida para finalizar a OP.');
+    return;
+  }
+  if (tracksPieces && (!Number.isInteger(actualPiecesProduced) || actualPiecesProduced <= 0)) {
+    setSubmitError('Informe a quantidade de peças produzidas para finalizar a OP.');
+    return;
+  }
 
- setCompleting(true);
- setSubmitError(null);
+  // Validação de tolerância de peso padrão na produção (não bloqueia, apenas questiona o usuário)
+  if (
+    !bypassVariance &&
+    prod?.standardWeight != null &&
+    Number(prod.standardWeight) > 0 &&
+    tracksPieces &&
+    actualPiecesProduced > 0 &&
+    actualQuantityProduced > 0
+  ) {
+    const tolerancePercent =
+      prod.weightVariancePercent != null && Number(prod.weightVariancePercent) > 0
+        ? Number(prod.weightVariancePercent)
+        : 5;
+    const expectedWeight = actualPiecesProduced * Number(prod.standardWeight);
+    const factor = tolerancePercent / 100;
+    const minWeight = Number((expectedWeight * (1 - factor)).toFixed(3));
+    const maxWeight = Number((expectedWeight * (1 + factor)).toFixed(3));
+    const averageWeight = Number((actualQuantityProduced / actualPiecesProduced).toFixed(3));
 
- try {
-      const formattedCoProducts = completeForm.generatedCoProducts
-        .filter(c => c.productId && c.quantity)
-        .map(c => ({
-          productId: c.productId,
-          quantity: Number(c.quantity)
-        }));
-
-      await completeProductionOrder({
-        orderId: selectedOrder.id,
-        actualQuantityProduced,
-        actualPiecesProduced: tracksPieces ? actualPiecesProduced : undefined,
-        actualCommercialUnitsProduced: actualCommercialUnitsProduced && actualCommercialUnitsProduced > 0 ? actualCommercialUnitsProduced : undefined,
-        commercialPresentation: selectedOrder.apresentacaoComercial || prod?.commercialPresentation,
-        packageSize: selectedOrder.tamanhoEmbalagem || prod?.packageSize || undefined,
-        generatedCoProducts: formattedCoProducts.length > 0 ? formattedCoProducts : undefined,
+    if (actualQuantityProduced < minWeight - 0.005 || actualQuantityProduced > maxWeight + 0.005) {
+      setVarianceAlert({
+        averageWeight,
+        expectedWeight,
+        minWeight,
+        maxWeight,
+        standardWeight: Number(prod.standardWeight),
+        tolerancePercent,
+        actualQuantity: actualQuantityProduced,
+        actualPieces: actualPiecesProduced,
       });
- setSelectedOrder(null);
- setCompleteForm(emptyCompleteForm);
- await loadData();
- } catch (error) {
- setSubmitError(getErrorMessage(error));
- } finally {
- setCompleting(false);
- }
+      return;
+    }
+  }
+
+  setCompleting(true);
+  setSubmitError(null);
+
+  try {
+    const formattedCoProducts = completeForm.generatedCoProducts
+      .filter(c => c.productId && c.quantity)
+      .map(c => ({
+        productId: c.productId,
+        quantity: Number(c.quantity)
+      }));
+
+    await completeProductionOrder({
+      orderId: selectedOrder.id,
+      actualQuantityProduced,
+      actualPiecesProduced: tracksPieces ? actualPiecesProduced : undefined,
+      actualCommercialUnitsProduced: actualCommercialUnitsProduced && actualCommercialUnitsProduced > 0 ? actualCommercialUnitsProduced : undefined,
+      commercialPresentation: selectedOrder.apresentacaoComercial || prod?.commercialPresentation,
+      packageSize: selectedOrder.tamanhoEmbalagem || prod?.packageSize || undefined,
+      generatedCoProducts: formattedCoProducts.length > 0 ? formattedCoProducts : undefined,
+    });
+    setSelectedOrder(null);
+    setCompleteForm(emptyCompleteForm);
+    await loadData();
+  } catch (error) {
+    setSubmitError(getErrorMessage(error));
+  } finally {
+    setCompleting(false);
+  }
  };
 
  const handleCancel = async () => {
@@ -664,6 +708,7 @@ export default function Producao() {
   <td className="px-6 py-4 flex items-center justify-end gap-2">
     <div className="relative">
       <button
+        aria-label="Ações da OP"
         onClick={(e) => {
           e.stopPropagation();
           setOpenDropdownId(openDropdownId === op.id ? null : op.id);
@@ -1197,7 +1242,7 @@ export default function Producao() {
  step="0.01"
  value={completeForm.actualQuantityProduced}
  onChange={(event) =>
- setCompleteForm({ ...completeForm, actualQuantityProduced: event.target.value })
+ setCompleteForm((prev) => ({ ...prev, actualQuantityProduced: event.target.value }))
  }
  placeholder="0"
  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -1214,7 +1259,7 @@ export default function Producao() {
  step="1"
  value={completeForm.actualCommercialUnitsProduced}
  onChange={(event) =>
- setCompleteForm({ ...completeForm, actualCommercialUnitsProduced: event.target.value })
+ setCompleteForm((prev) => ({ ...prev, actualCommercialUnitsProduced: event.target.value }))
  }
  placeholder="Ex: 500"
  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -1308,8 +1353,8 @@ export default function Producao() {
  </p>
 
  {(() => { const prod = getFinishedProductById(selectedOrder.produtoId); return prod?.tracksPieces === true || prod?.tracksQuantityAndWeight === true; })() ? <div className="mt-4">
- <label className="mb-1 block text-sm font-medium text-gray-700">Peças produzidas *</label>
- <input type="number" min="1" step="1" inputMode="numeric" value={completeForm.actualPiecesProduced} onChange={(event) => setCompleteForm({ ...completeForm, actualPiecesProduced: event.target.value })} placeholder="0" className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" />
+ <label htmlFor="actualPiecesProduced" className="mb-1 block text-sm font-medium text-gray-700">Peças produzidas *</label>
+ <input id="actualPiecesProduced" type="number" min="1" step="1" inputMode="numeric" value={completeForm.actualPiecesProduced} onChange={(event) => setCompleteForm((prev) => ({ ...prev, actualPiecesProduced: event.target.value }))} placeholder="0" className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" />
  <p className="mt-1 text-xs text-gray-500">Registre o total de peças correspondente ao peso produzido.</p>
  </div> : null}
 
@@ -1402,6 +1447,7 @@ export default function Producao() {
  Cancelar
  </button>
  <button
+ data-testid="btn-confirm-complete-op"
  onClick={() => void handleComplete()}
  disabled={completing}
  className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1501,6 +1547,49 @@ export default function Producao() {
         >
           {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Confirmar Cancelamento da OP
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+
+  <AlertDialog open={Boolean(varianceAlert)} onOpenChange={(open) => { if (!open) setVarianceAlert(null); }}>
+    <AlertDialogContent className="max-w-xl">
+      <AlertDialogHeader>
+        <AlertDialogTitle className="flex items-center gap-2 text-amber-600">
+          <AlertTriangle className="w-5 h-5" />
+          <span>Atenção: Variação de Peso Fora da Tolerância</span>
+        </AlertDialogTitle>
+        <AlertDialogDescription asChild>
+          <div className="space-y-3 pt-2 text-gray-700">
+            <p>
+              O peso médio apurado por peça foi de{' '}
+              <strong>{varianceAlert?.averageWeight.toLocaleString('pt-BR')} kg/peça</strong>{' '}
+              ({varianceAlert?.actualQuantity.toLocaleString('pt-BR')} kg para {varianceAlert?.actualPieces} peças).
+            </p>
+            <p>
+              O peso padrão cadastrado para este produto é de{' '}
+              <strong>{varianceAlert?.standardWeight.toLocaleString('pt-BR')} kg/peça</strong>{' '}
+              com tolerância de <strong>±{varianceAlert?.tolerancePercent}%</strong> (faixa esperada:{' '}
+              <strong>{varianceAlert?.minWeight.toLocaleString('pt-BR')} kg a {varianceAlert?.maxWeight.toLocaleString('pt-BR')} kg</strong>).
+            </p>
+            <p className="font-medium text-gray-900">
+              Deseja prosseguir mesmo assim com a finalização da OP ou cancelar para corrigir?
+            </p>
+          </div>
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel onClick={() => setVarianceAlert(null)}>
+          Cancelar para corrigir
+        </AlertDialogCancel>
+        <AlertDialogAction
+          onClick={() => {
+            setVarianceAlert(null);
+            void handleComplete(true);
+          }}
+          className="bg-amber-600 text-white hover:bg-amber-700"
+        >
+          Prosseguir e Finalizar
         </AlertDialogAction>
       </AlertDialogFooter>
     </AlertDialogContent>

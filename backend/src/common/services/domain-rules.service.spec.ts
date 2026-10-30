@@ -136,5 +136,66 @@ describe('DomainRulesService', () => {
         }),
       ).toEqual({ valid: true });
     });
+
+    it('respects dynamic tolerance percent when configured on product', () => {
+      // Q = 100 with 10% tolerance => 90 to 110
+      expect(
+        service.validatePieceExit({
+          authorizedPieces: 100,
+          actualPieces: 92,
+          availablePieces: 100,
+          tolerancePercent: 10,
+        }),
+      ).toEqual({ valid: true, minPieces: 90, maxPieces: 110 });
+
+      expect(() =>
+        service.validatePieceExit({
+          authorizedPieces: 100,
+          actualPieces: 88,
+          availablePieces: 100,
+          tolerancePercent: 10,
+        }),
+      ).toThrow('tolerância de 10% permitido (90 a 110');
+    });
+  });
+
+  describe('weight to piece ratio validation', () => {
+    it('passes when ratio is within standard weight tolerance', () => {
+      // 100 pieces * 0.5 kg = 50 kg, 5% tolerance => 47.5 kg to 52.5 kg
+      const result = service.validateWeightPieceRatio({
+        standardWeight: 0.5,
+        tolerancePercent: 5,
+        quantityKg: 49,
+        pieces: 100,
+        productName: 'Queijo Coalho',
+      });
+      expect(result.valid).toBe(true);
+      expect(result.minWeight).toBe(47.5);
+      expect(result.maxWeight).toBe(52.5);
+    });
+
+    it('rejects when ratio is outside tolerance', () => {
+      // 100 pieces * 0.5 kg = 50 kg, but 40 kg is given
+      expect(() =>
+        service.validateWeightPieceRatio({
+          standardWeight: 0.5,
+          tolerancePercent: 5,
+          quantityKg: 40,
+          pieces: 100,
+          productName: 'Queijo Coalho',
+          operationName: 'venda',
+        }),
+      ).toThrow('diverge do peso padrão (0,5 kg/peça com tolerância de ±5%)');
+    });
+
+    it('bypasses when product has no standard weight defined', () => {
+      const result = service.validateWeightPieceRatio({
+        standardWeight: null,
+        quantityKg: 40,
+        pieces: 100,
+      });
+      expect(result.valid).toBe(true);
+    });
   });
 });
+

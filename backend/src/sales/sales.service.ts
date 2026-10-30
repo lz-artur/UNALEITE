@@ -56,6 +56,34 @@ export class SalesService {
     );
     const dueDate = payload.dueDate ?? payload.orderDate;
 
+    // Valida cada item antes de persistir o pedido
+    for (const item of payload.items) {
+      const product = products.find((entry) => String(entry.id) === item.productId);
+      if (!product) {
+        throw new BadRequestException(`Produto final ${item.productId} não encontrado`);
+      }
+
+      // Validação de peso padrão e tolerância percentual no ato da venda
+      if (
+        product.standard_weight != null &&
+        Number(product.standard_weight) > 0 &&
+        item.orderedPieces != null &&
+        Number(item.orderedPieces) > 0
+      ) {
+        this.domainRulesService.validateWeightPieceRatio({
+          standardWeight: Number(product.standard_weight),
+          tolerancePercent:
+            product.weight_variance_percent != null && Number(product.weight_variance_percent) > 0
+              ? Number(product.weight_variance_percent)
+              : 5,
+          quantityKg: Number(item.quantity),
+          pieces: Number(item.orderedPieces),
+          productName: product.name,
+          operationName: 'realização de venda',
+        });
+      }
+    }
+
     const { data: salesOrder, error: salesOrderError } = await this.supabaseService.admin
       .from('sales_orders')
       .insert({
@@ -78,11 +106,6 @@ export class SalesService {
     }
 
     const itemsToInsert = payload.items.map((item) => {
-      const product = products.find((entry) => String(entry.id) === item.productId);
-      if (!product) {
-        throw new BadRequestException(`Produto final ${item.productId} não encontrado`);
-      }
-
       return {
         sales_order_id: salesOrder.id,
         product_id: item.productId,
@@ -147,7 +170,22 @@ export class SalesService {
       requestedByLot.set(item.finishedProductLotId, current);
     }
 
-    // Validação de saldo físico e tolerância de 5% de peças
+    // 1. Validação física inegociável de saldo disponível por lote
+    for (const [lotId, requested] of requestedByLot.entries()) {
+      const lot = (lots ?? []).find((l: any) => String(l.id) === lotId);
+      if (lot && requested.quantity > Number(lot.available_quantity)) {
+        throw new BadRequestException(
+          `Saldo insuficiente no lote de produto acabado ${lot.lot_code ?? lotId}. Disponível: ${lot.available_quantity}, solicitado: ${requested.quantity}.`,
+        );
+      }
+      if (lot && lot.available_pieces != null && requested.pieces > Number(lot.available_pieces)) {
+        throw new BadRequestException(
+          `Saldo insuficiente no lote de produto acabado. Disponível: ${lot.available_pieces} peças, solicitado: ${requested.pieces} peças.`,
+        );
+      }
+    }
+
+    // 2. Validação de tolerância de peças por item do pedido (acumulado entre múltiplos lotes)
     const hasPiecesValidation = payload.items.some(
       (item) => item.piecesQuantity != null && item.piecesQuantity > 0,
     );
@@ -155,26 +193,42 @@ export class SalesService {
       let orderItems: any[] = [];
       const query = this.supabaseService.admin
         .from('sales_order_items')
-        ?.select('id, ordered_pieces, ordered_quantity, product_id');
+        ?.select('id, ordered_pieces, ordered_quantity, product_id, finished_products(name, weight_variance_percent, standard_weight)');
       if (query && typeof query.eq === 'function') {
         const { data } = await query.eq('sales_order_id', salesOrderId);
         orderItems = data ?? [];
       }
       const orderItemById = new Map((orderItems ?? []).map((i: any) => [String(i.id), i]));
 
+      // Acumula peças atendidas por item do pedido
+      const piecesByOrderItem = new Map<string, number>();
       for (const item of payload.items) {
-        if (item.piecesQuantity != null && item.piecesQuantity > 0) {
-          const orderItem = orderItemById.get(String(item.salesOrderItemId));
-          const lot = (lots ?? []).find((l: any) => String(l.id) === item.finishedProductLotId);
-          const availablePieces = lot?.available_pieces != null ? Number(lot.available_pieces) : 0;
-          const authorizedPieces = item.authorizedPieces ?? (orderItem?.ordered_pieces != null ? Number(orderItem.ordered_pieces) : null);
+        const itemId = String(item.salesOrderItemId);
+        piecesByOrderItem.set(itemId, (piecesByOrderItem.get(itemId) ?? 0) + Number(item.piecesQuantity ?? 0));
+      }
 
-          this.domainRulesService.validatePieceExit({
-            authorizedPieces,
-            actualPieces: item.piecesQuantity,
-            availablePieces,
-            operationName: 'atendimento de venda',
-          });
+      for (const [orderItemId, totalPieces] of piecesByOrderItem.entries()) {
+        if (totalPieces > 0) {
+          const orderItem = orderItemById.get(orderItemId);
+          const product = Array.isArray(orderItem?.finished_products)
+            ? orderItem.finished_products[0]
+            : orderItem?.finished_products;
+          const authorizedPieces = orderItem?.ordered_pieces != null ? Number(orderItem.ordered_pieces) : null;
+          const tolerancePercent =
+            product?.weight_variance_percent != null && Number(product.weight_variance_percent) > 0
+              ? Number(product.weight_variance_percent)
+              : 5;
+
+          if (authorizedPieces != null && authorizedPieces > 0) {
+            this.domainRulesService.validatePieceExit({
+              authorizedPieces,
+              actualPieces: totalPieces,
+              availablePieces: totalPieces, // Saldo físico de cada lote já validado no passo 1
+              tolerancePercent,
+              operationName: 'atendimento de venda',
+              productName: product?.name,
+            });
+          }
         }
       }
     }
@@ -919,22 +973,40 @@ export class SalesService {
 
     const fulfillments = bundle.fulfillments.filter((f) => String(f.sales_order_id) === id);
     const returns = bundle.salesReturns.filter((entry) => String(entry.sales_order_id) === id);
+    const cancelledAttendanceIds = new Set(
+      (bundle.attendances ?? [])
+        .filter((a) => String(a.sales_order_id) === id && String(a.status).toLowerCase() === 'cancelado')
+        .map((a) => String(a.id)),
+    );
+
+    // Only restore lots for active fulfillments (those not already reverted by a cancelled attendance)
+    const activeFulfillments = fulfillments.filter(
+      (f) => !f.attendance_id || !cancelledAttendanceIds.has(String(f.attendance_id)),
+    );
+
     const fulfilledByLot = new Map<string, number>();
+    const fulfilledPiecesByLot = new Map<string, number>();
     const returnedByLot = new Map<string, number>();
 
-    for (const fulfillment of fulfillments) {
+    for (const fulfillment of activeFulfillments) {
       const lotId = String(fulfillment.finished_product_lot_id);
       fulfilledByLot.set(
         lotId,
-        (fulfilledByLot.get(lotId) ?? 0) + Number(fulfillment.quantity),
+        (fulfilledByLot.get(lotId) ?? 0) + Number(fulfillment.quantity || 0),
       );
+      if (fulfillment.pieces_quantity) {
+        fulfilledPiecesByLot.set(
+          lotId,
+          (fulfilledPiecesByLot.get(lotId) ?? 0) + Number(fulfillment.pieces_quantity || 0),
+        );
+      }
     }
 
     for (const salesReturn of returns) {
       const lotId = String(salesReturn.finished_product_lot_id);
       returnedByLot.set(
         lotId,
-        (returnedByLot.get(lotId) ?? 0) + Number(salesReturn.returned_quantity),
+        (returnedByLot.get(lotId) ?? 0) + Number(salesReturn.returned_quantity || 0),
       );
     }
 
@@ -943,23 +1015,40 @@ export class SalesService {
       const lot = bundle.finishedProductLots.find((entry) => String(entry.id) === lotId);
 
       if (lot) {
-        const restoredVolume = Number((
-          Number(lot.available_quantity) + (fulfilledByLot.get(lotId) ?? 0)
-        ).toFixed(4));
-        const restoredReturnedQuantity = Number(Math.max(
-          0,
-          Number(lot.returned_quantity || 0) - (returnedByLot.get(lotId) ?? 0),
-        ).toFixed(4));
-        const { error: lotUpdateError } = await this.supabaseService.admin
-          .from('finished_product_lots')
-          .update({
+        const addedVolume = fulfilledByLot.get(lotId) ?? 0;
+        const subReturned = returnedByLot.get(lotId) ?? 0;
+        const addedPieces = fulfilledPiecesByLot.get(lotId) ?? 0;
+
+        if (addedVolume > 0 || subReturned > 0 || addedPieces > 0) {
+          const maxVolume = lot.quantity_produced != null ? Number(lot.quantity_produced) : Infinity;
+          const restoredVolume = Number(
+            Math.min(maxVolume, Number(lot.available_quantity) + addedVolume).toFixed(4),
+          );
+          const restoredReturnedQuantity = Number(
+            Math.max(0, Number(lot.returned_quantity || 0) - subReturned).toFixed(4),
+          );
+
+          const updatePayload: Record<string, unknown> = {
             available_quantity: restoredVolume,
             returned_quantity: restoredReturnedQuantity,
-          })
-          .eq('id', lot.id);
+          };
 
-        if (lotUpdateError) {
-          throw new BadRequestException(lotUpdateError.message);
+          if (lot.available_pieces != null && addedPieces > 0) {
+            const maxPieces = lot.quantity_pieces != null ? Number(lot.quantity_pieces) : Infinity;
+            updatePayload.available_pieces = Math.min(
+              maxPieces,
+              Number(lot.available_pieces) + addedPieces,
+            );
+          }
+
+          const { error: lotUpdateError } = await this.supabaseService.admin
+            .from('finished_product_lots')
+            .update(updatePayload)
+            .eq('id', lot.id);
+
+          if (lotUpdateError) {
+            throw new BadRequestException(lotUpdateError.message);
+          }
         }
       }
     }

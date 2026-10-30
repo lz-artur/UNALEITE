@@ -20,7 +20,26 @@ export interface ValidatePieceExitParams {
   availablePieces: number;
   operationName?: string;
   productName?: string;
+  tolerancePercent?: number;
   allowAdminOverride?: boolean;
+}
+
+export interface ValidateWeightPieceRatioParams {
+  standardWeight?: number | null;
+  tolerancePercent?: number | null;
+  quantityKg: number;
+  pieces: number;
+  productName?: string;
+  operationName?: string;
+}
+
+export interface WeightPieceRatioResult {
+  valid: boolean;
+  minWeight: number;
+  maxWeight: number;
+  expectedWeight: number;
+  averageWeight: number;
+  tolerancePercent: number;
 }
 
 interface QualityParameter {
@@ -237,12 +256,13 @@ export class DomainRulesService {
 
   /**
    * Valida a saída de peças contra o saldo físico disponível e, quando aplicável,
-   * contra a quantidade de referência autorizada com tolerância de 5%.
+   * contra a quantidade de referência autorizada com tolerância configurável (padrão 5%).
    */
   validatePieceExit(params: ValidatePieceExitParams): { valid: boolean; minPieces?: number; maxPieces?: number } {
     const { authorizedPieces, availablePieces } = params;
     const actualPieces = params.actualPieces ?? params.requestedPieces ?? 0;
     const operationName = params.operationName || (params.productName ? `saída de ${params.productName}` : undefined);
+    const tolerancePercent = params.tolerancePercent != null && params.tolerancePercent > 0 ? params.tolerancePercent : 5;
 
     if (!Number.isInteger(actualPieces) || actualPieces <= 0) {
       throw new BadRequestException('A quantidade de peças informada deve ser um número inteiro positivo.');
@@ -255,18 +275,69 @@ export class DomainRulesService {
       );
     }
 
-    // Validação de tolerância de 5% se houver quantidade autorizada de referência
+    // Validação de tolerância se houver quantidade autorizada de referência
     if (authorizedPieces != null && authorizedPieces > 0) {
-      const tolerance = this.calculatePieceExitTolerance(authorizedPieces, 5);
+      const tolerance = this.calculatePieceExitTolerance(authorizedPieces, tolerancePercent);
       if (!tolerance.isWithinTolerance(actualPieces)) {
         const prefix = operationName ? `Na operação de ${operationName}: ` : '';
         throw new BadRequestException(
-          `${prefix}A quantidade de peças informada (${actualPieces}) está fora do intervalo de tolerância de 5% permitido (${tolerance.minPieces} a ${tolerance.maxPieces} peças para a quantidade autorizada de ${authorizedPieces} peças).`,
+          `${prefix}A quantidade de peças informada (${actualPieces}) está fora do intervalo de tolerância de ${tolerance.tolerancePercent}% permitido (${tolerance.minPieces} a ${tolerance.maxPieces} peças para a quantidade autorizada de ${authorizedPieces} peças).`,
         );
       }
       return { valid: true, minPieces: tolerance.minPieces, maxPieces: tolerance.maxPieces };
     }
 
     return { valid: true };
+  }
+
+  /**
+   * Valida a proporção entre peso total (kg) e quantidade de peças contra o peso padrão
+   * cadastrado no produto com tolerância percentual.
+   */
+  validateWeightPieceRatio(params: ValidateWeightPieceRatioParams): WeightPieceRatioResult {
+    const { standardWeight, quantityKg, pieces, productName, operationName } = params;
+    const tolerancePercent = params.tolerancePercent != null && params.tolerancePercent > 0 ? params.tolerancePercent : 5;
+
+    if (!standardWeight || standardWeight <= 0) {
+      return {
+        valid: true,
+        minWeight: quantityKg,
+        maxWeight: quantityKg,
+        expectedWeight: quantityKg,
+        averageWeight: pieces > 0 ? Number((quantityKg / pieces).toFixed(3)) : 0,
+        tolerancePercent,
+      };
+    }
+
+    if (!pieces || pieces <= 0) {
+      throw new BadRequestException('A quantidade de peças deve ser maior que zero.');
+    }
+    if (!quantityKg || quantityKg <= 0) {
+      throw new BadRequestException('O peso em kg deve ser maior que zero.');
+    }
+
+    const expectedWeight = Number((pieces * standardWeight).toFixed(3));
+    const factor = tolerancePercent / 100;
+    const minWeight = Number((expectedWeight * (1 - factor)).toFixed(3));
+    const maxWeight = Number((expectedWeight * (1 + factor)).toFixed(3));
+    const averageWeight = Number((quantityKg / pieces).toFixed(3));
+
+    // Margem pequena para arredondamentos de ponto flutuante
+    if (quantityKg < minWeight - 0.005 || quantityKg > maxWeight + 0.005) {
+      const prefix = operationName ? `Na operação de ${operationName}: ` : '';
+      const prodLabel = productName ? ` para ${productName}` : '';
+      throw new BadRequestException(
+        `${prefix}O peso informado (${quantityKg.toLocaleString('pt-BR')} kg)${prodLabel} para ${pieces} peças diverge do peso padrão (${standardWeight.toLocaleString('pt-BR')} kg/peça com tolerância de ±${tolerancePercent}%). O peso esperado deve estar entre ${minWeight.toLocaleString('pt-BR')} kg e ${maxWeight.toLocaleString('pt-BR')} kg.`,
+      );
+    }
+
+    return {
+      valid: true,
+      minWeight,
+      maxWeight,
+      expectedWeight,
+      averageWeight,
+      tolerancePercent,
+    };
   }
 }

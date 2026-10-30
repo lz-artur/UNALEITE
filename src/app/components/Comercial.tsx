@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { format } from 'date-fns';
-import { AlertTriangle, Image as ImageIcon, Loader2, Plus, ShoppingBag, Users, Trash2, Calendar, CalendarDays, FileText, User, X, Wallet, TrendingUp, History, CreditCard, Edit2 } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle, Image as ImageIcon, Loader2, Plus, ShoppingBag, Users, Trash2, Calendar, CalendarDays, FileText, User, X, Wallet, TrendingUp, History, CreditCard, Edit2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCadastros } from '../context/CadastrosContext';
 import {
@@ -358,6 +358,39 @@ export default function Comercial() {
     if (items.length === 0 || items.some((item) => item.unitPrice < 0)) {
       setErrorMessage('Informe itens validos com quantidade e preco unitario corretos.');
       return;
+    }
+
+    for (const item of items) {
+      const product = finishedProducts.find((p) => p.id === item.productId);
+      if (
+        product &&
+        (product.tracksPieces || product.tracksQuantityAndWeight) &&
+        product.standardWeight &&
+        Number(product.standardWeight) > 0 &&
+        item.orderedPieces &&
+        item.orderedPieces > 0
+      ) {
+        const tolerancePercent =
+          product.weightVariancePercent != null && Number(product.weightVariancePercent) > 0
+            ? Number(product.weightVariancePercent)
+            : 5;
+        const expectedWeight = item.orderedPieces * Number(product.standardWeight);
+        const factor = tolerancePercent / 100;
+        const minWeight = Number((expectedWeight * (1 - factor)).toFixed(3));
+        const maxWeight = Number((expectedWeight * (1 + factor)).toFixed(3));
+
+        if (item.quantity < minWeight - 0.005 || item.quantity > maxWeight + 0.005) {
+          const avgWeight = (item.quantity / item.orderedPieces).toFixed(3);
+          const productName = product.name || (product as any).nome || 'Produto';
+          setErrorMessage(
+            `A venda do produto "${productName}" foge à regra de tolerância: ` +
+            `para ${item.orderedPieces} peças com peso padrão de ${Number(product.standardWeight).toLocaleString('pt-BR')} kg (±${tolerancePercent}%), ` +
+            `o peso total deve estar entre ${minWeight.toLocaleString('pt-BR')} kg e ${maxWeight.toLocaleString('pt-BR')} kg. ` +
+            `Peso informado: ${item.quantity.toLocaleString('pt-BR')} kg (média: ${avgWeight.replace('.', ',')} kg/peça).`
+          );
+          return;
+        }
+      }
     }
 
     setSaving(true);
@@ -1188,8 +1221,26 @@ export default function Comercial() {
                 (selectedProduct as any)?.tracks_pieces ||
                 (selectedProduct as any)?.tracks_quantity_and_weight
               );
+              const standardWeight = selectedProduct?.standardWeight ? Number(selectedProduct.standardWeight) : null;
+              const tolerancePercent = selectedProduct?.weightVariancePercent != null && Number(selectedProduct.weightVariancePercent) > 0
+                ? Number(selectedProduct.weightVariancePercent)
+                : 5;
+              const pieces = item.orderedPieces ? Number(item.orderedPieces) : 0;
+              const qty = item.quantity ? Number(item.quantity) : 0;
+              let varianceCheck: { isValid: boolean; minWeight: number; maxWeight: number; expectedWeight: number; avgWeight: number } | null = null;
+              if (tracksPieces && standardWeight && pieces > 0 && qty > 0) {
+                const expectedWeight = pieces * standardWeight;
+                const factor = tolerancePercent / 100;
+                const minWeight = Number((expectedWeight * (1 - factor)).toFixed(3));
+                const maxWeight = Number((expectedWeight * (1 + factor)).toFixed(3));
+                const isValid = qty >= minWeight - 0.005 && qty <= maxWeight + 0.005;
+                const avgWeight = Number((qty / pieces).toFixed(3));
+                varianceCheck = { isValid, minWeight, maxWeight, expectedWeight, avgWeight };
+              }
+
               return (
-              <div key={item.localId} className={`grid grid-cols-1 gap-3 rounded-lg border border-gray-200 p-4 ${tracksPieces ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
+              <div key={item.localId} className="rounded-lg border border-gray-200 p-4 bg-white space-y-3">
+                <div className={`grid grid-cols-1 gap-3 ${tracksPieces ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
                 <SelectField
                   label="Produto"
                   value={item.productId}
@@ -1209,7 +1260,7 @@ export default function Comercial() {
                   options={[
                     { label: 'Selecione...', value: '' },
                     ...productOptions.map((product) => ({
-                      label: product.name,
+                      label: product.name || (product as any).nome || 'Produto',
                       value: product.id,
                     })),
                   ]}
@@ -1229,7 +1280,7 @@ export default function Comercial() {
                 />
                 {tracksPieces && (
                   <InputField
-                    label="Peças (ref. 5%)"
+                    label={selectedProduct?.standardWeight ? `Peças (±${tolerancePercent}%)` : 'Peças'}
                     type="number"
                     value={item.orderedPieces ?? ''}
                     onChange={(value) =>
@@ -1272,6 +1323,25 @@ export default function Comercial() {
                   </button>
                 </div>
               </div>
+
+              {varianceCheck && (
+                varianceCheck.isValid ? (
+                  <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50/70 p-2 text-xs text-emerald-800">
+                    <Check className="h-4 w-4 shrink-0 text-emerald-600" />
+                    <span>
+                      <strong>Peso em conformidade:</strong> Média de {varianceCheck.avgWeight.toLocaleString('pt-BR')} kg/peça (tolerância de ±{tolerancePercent}%: faixa esperada {varianceCheck.minWeight.toLocaleString('pt-BR')} kg a {varianceCheck.maxWeight.toLocaleString('pt-BR')} kg).
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+                    <span>
+                      <strong>Atenção (venda será bloqueada):</strong> O peso médio informado é {varianceCheck.avgWeight.toLocaleString('pt-BR')} kg/peça, fora da tolerância de ±{tolerancePercent}% do produto (peso padrão: {standardWeight?.toLocaleString('pt-BR')} kg, faixa permitida: <strong>{varianceCheck.minWeight.toLocaleString('pt-BR')} kg a {varianceCheck.maxWeight.toLocaleString('pt-BR')} kg</strong>).
+                    </span>
+                  </div>
+                )
+              )}
+            </div>
             );
           })}
           </div>

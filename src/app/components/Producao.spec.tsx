@@ -1,6 +1,6 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Producao from './Producao';
 import * as CadastrosContext from '../context/CadastrosContext';
 import * as operationsApi from '../services/operationsApi';
@@ -31,6 +31,9 @@ describe('Producao Component - Secondary Production and Coproducts', () => {
       unitId: 'unit-kg',
       productionType: 'Primario',
       theoreticalYield: 10,
+      tracksPieces: true,
+      standardWeight: 0.5,
+      weightVariancePercent: 5,
     },
     {
       id: 'prod-manteiga',
@@ -121,6 +124,10 @@ describe('Producao Component - Secondary Production and Coproducts', () => {
     (operationsApi.completeProductionOrder as any).mockResolvedValue({ order: {}, productLot: {} });
   });
 
+  afterEach(() => {
+    cleanup();
+  });
+
   it('renders the orders list displaying Secundário badge and commercial units', async () => {
     render(<Producao />);
 
@@ -157,54 +164,96 @@ describe('Producao Component - Secondary Production and Coproducts', () => {
 
     // Should NOT have the milk lot input
     expect(screen.queryByLabelText(/Lote de leite \*/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Cancelar'));
   });
 
   it('shows coherence indicator in completion modal when quantity and commercial units are informed', async () => {
-    render(<Producao />);
-
-    await waitFor(() => {
-      expect(screen.getByText('OP-2026-001')).toBeInTheDocument();
-    });
-
-    // We simulate opening completion on an order
-    // Render with an order in Em Produção state
     const openOrder = {
       ...mockProductionOrders[0],
       id: 'op-open',
       numero: 'OP-2026-002',
-      status: 'Em Produção',
+      status: 'Em Andamento',
       quantidadeProduzida: null,
       unidadesComerciaisProduzidas: null,
     };
     (operationsApi.loadProductionOrders as any).mockResolvedValue([openOrder]);
 
-    const { rerender } = render(<Producao />);
+    render(<Producao />);
     await waitFor(() => {
       expect(screen.getByText('OP-2026-002')).toBeInTheDocument();
     });
 
-    // Find "Finalizar" action in dropdown
-    const actionButtons = screen.getAllByRole('button');
-    const dotsButton = actionButtons.find((btn) => btn.querySelector('svg.lucide-more-horizontal'));
-    if (dotsButton) {
-      fireEvent.click(dotsButton);
-      const finalizeBtn = await screen.findByText('Finalizar OP');
-      fireEvent.click(finalizeBtn);
+    const dotsButton = screen.getByLabelText('Ações da OP');
+    fireEvent.click(dotsButton);
+    const finalizeBtn = await screen.findByText('Finalizar OP');
+    fireEvent.click(finalizeBtn);
 
-      // In completion modal:
-      expect(screen.getByText('Finalizar ordem de producao')).toBeInTheDocument();
-      expect(screen.getByText(/Secundário \(Derivados\)/i)).toBeInTheDocument();
+    expect(screen.getByText('Finalizar ordem de producao')).toBeInTheDocument();
+    expect(screen.getByText(/Secundário \(Derivados\)/i)).toBeInTheDocument();
 
-      // Enter 100 kg and 500 potes
-      const qtyInput = screen.getByLabelText(/Quantidade produzida/i);
-      fireEvent.change(qtyInput, { target: { value: '100' } });
+    const qtyInput = document.getElementById('input-qtd-produzida') as HTMLInputElement;
+    fireEvent.change(qtyInput, { target: { value: '100' } });
 
-      const commUnitsInput = screen.getByLabelText(/Unidades comerciais/i);
-      fireEvent.change(commUnitsInput, { target: { value: '500' } });
+    const commUnitsInput = screen.getByLabelText(/Unidades comerciais/i);
+    fireEvent.change(commUnitsInput, { target: { value: '500' } });
 
-      // Average weight: 100kg / 500 = 0.200kg = 200g
-      expect(screen.getByText(/Peso médio por unidade/i)).toBeInTheDocument();
-      expect(screen.getByText(/200\.0 g \/ unidade/i)).toBeInTheDocument();
-    }
+    expect(screen.getByText(/Peso médio por unidade/i)).toBeInTheDocument();
+    expect(screen.getByText(/200\.0 g \/ unidade/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Cancelar'));
+  });
+
+  it('displays non-blocking variance alert when completed weight diverges from standard weight tolerance', async () => {
+    const openOrder = {
+      id: 'op-queijo',
+      numero: 'OP-QUEIJO-001',
+      produtoId: 'prod-queijo',
+      produtoNome: 'Queijo Minas Frescal',
+      status: 'Em Andamento',
+      dataInicio: new Date('2026-10-30T10:00:00Z'),
+      litrosUtilizados: 1000,
+      quantidadeProduzida: null,
+      quantidadePecas: null,
+    };
+    (operationsApi.loadProductionOrders as any).mockResolvedValue([openOrder]);
+
+    render(<Producao />);
+    await waitFor(() => {
+      expect(screen.getByText('OP-QUEIJO-001')).toBeInTheDocument();
+    });
+
+    const dotsButton = screen.getByLabelText('Ações da OP');
+    fireEvent.click(dotsButton);
+    const finalizeBtn = await screen.findByText('Finalizar OP');
+    fireEvent.click(finalizeBtn);
+
+    await screen.findByText('Finalizar ordem de producao');
+
+    const qtyInput = document.getElementById('input-qtd-produzida') as HTMLInputElement;
+    fireEvent.change(qtyInput, { target: { value: '40' } });
+
+    const piecesInput = document.getElementById('actualPiecesProduced') as HTMLInputElement;
+    fireEvent.change(piecesInput, { target: { value: '100' } });
+
+    const submitBtn = screen.getByTestId('btn-confirm-complete-op');
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      const dialog = document.querySelector('[role="alertdialog"]');
+      expect(dialog).toBeTruthy();
+      expect(dialog?.textContent).toContain('Atenção: Variação de Peso Fora da Tolerância');
+      expect(dialog?.textContent).toContain('Cancelar para corrigir');
+      expect(dialog?.textContent).toContain('Prosseguir e Finalizar');
+    });
+
+    fireEvent.click(screen.getByText(/Prosseguir e Finalizar/i));
+    await waitFor(() => {
+      expect(operationsApi.completeProductionOrder).toHaveBeenCalledWith(expect.objectContaining({
+        orderId: 'op-queijo',
+        actualQuantityProduced: 40,
+        actualPiecesProduced: 100,
+      }));
+    });
   });
 });

@@ -19,7 +19,17 @@ vi.mock('../context/CadastrosContext', () => ({
     routes: [],
     transporters: [],
     finishedProducts: [
-      { id: 'prod-1', nome: 'Queijo Minas', active: true, unitId: 'un-kg', tracksQuantityAndWeight: true },
+      {
+        id: 'prod-1',
+        name: 'Queijo Minas',
+        nome: 'Queijo Minas',
+        active: true,
+        unitId: 'un-kg',
+        tracksQuantityAndWeight: true,
+        tracksPieces: true,
+        standardWeight: 1.0,
+        weightVariancePercent: 5,
+      },
     ],
     bankAccounts: [{ id: '00000000-0000-4000-8000-000000000002', name: 'Conta de teste', active: true }],
     getUnitSymbol: vi.fn().mockReturnValue('kg'),
@@ -73,6 +83,7 @@ vi.mock('lucide-react', () => ({
   ArrowUpRight: (props: any) => React.createElement('span', { ...props, 'data-testid': 'arrow-up-right' }),
   AlertCircle: (props: any) => React.createElement('span', { ...props, 'data-testid': 'alert-circle' }),
   AlertTriangle: (props: any) => React.createElement('span', { ...props, 'data-testid': 'alert-triangle' }),
+  Check: (props: any) => React.createElement('span', { ...props, 'data-testid': 'check-icon' }),
   CheckCircle: (props: any) => React.createElement('span', { ...props, 'data-testid': 'check-circle' }),
   Clock: (props: any) => React.createElement('span', { ...props, 'data-testid': 'clock-icon' }),
   XCircle: (props: any) => React.createElement('span', { ...props, 'data-testid': 'x-circle' }),
@@ -254,6 +265,210 @@ describe('Comercial - ModalShell component integration', () => {
       }),
     ));
   }, 15_000);
+
+  it('blocks sales order creation when weight and pieces ratio violates standard weight tolerance', async () => {
+    const operationsApi = await import('../services/operationsApi');
+    (operationsApi.loadClients as any).mockResolvedValue([
+      { id: 'client-1', name: 'Cliente Teste', active: true, delinquent: false },
+    ]);
+    (operationsApi.loadSalesOrders as any).mockResolvedValue([]);
+
+    const { default: Comercial } = await import('./Comercial');
+    render(React.createElement(Comercial));
+
+    const newOrderBtn = await screen.findByRole('button', { name: /Novo pedido/i });
+    fireEvent.click(newOrderBtn);
+
+    const modalTitle = await screen.findByText('Novo pedido de venda');
+    const modal = modalTitle.closest('div.fixed') as HTMLElement;
+    const modalScope = within(modal);
+
+    const clientSelect = modalScope.getByText('Cliente').parentElement?.querySelector('select') as HTMLSelectElement;
+    fireEvent.change(clientSelect, { target: { value: 'client-1' } });
+
+    const productSelect = modalScope.getByText('Produto').parentElement?.querySelector('select') as HTMLSelectElement;
+    fireEvent.change(productSelect, { target: { value: 'prod-1' } });
+
+    // Standard weight is 1.0 kg/piece, tolerance is 5%. For 10 pieces, valid is [9.5, 10.5]. 13 kg violates tolerance.
+    const qtyInput = modalScope.getByText('Peso / Qtd (kg)').parentElement?.querySelector('input') as HTMLInputElement;
+    const piecesInput = modalScope.getByText(/Peças/).parentElement?.querySelector('input') as HTMLInputElement;
+    const priceInput = modalScope.getByText('Preco unitario').parentElement?.querySelector('input') as HTMLInputElement;
+
+    fireEvent.change(qtyInput, { target: { value: '13' } });
+    fireEvent.change(piecesInput, { target: { value: '10' } });
+    fireEvent.change(priceInput, { target: { value: '50' } });
+
+    const submitBtn = modalScope.getByRole('button', { name: 'Criar pedido' });
+    fireEvent.click(submitBtn);
+
+    expect(operationsApi.createSalesOrder).not.toHaveBeenCalled();
+    const { toast } = await import('sonner');
+    expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/foge à regra de tolerância/i));
+
+    // Close modal
+    fireEvent.click(modalScope.getByRole('button', { name: 'Cancelar' }));
+  });
+
+  it('allows sales order creation when weight and pieces ratio is within tolerance', async () => {
+    const operationsApi = await import('../services/operationsApi');
+    (operationsApi.loadClients as any).mockResolvedValue([
+      { id: 'client-1', name: 'Cliente Teste', active: true, delinquent: false },
+    ]);
+    (operationsApi.loadSalesOrders as any).mockResolvedValue([]);
+    (operationsApi.createSalesOrder as any).mockResolvedValue({
+      id: 'order-new',
+      number: 'VEN-2026-99',
+      clientId: 'client-1',
+      clientName: 'Cliente Teste',
+      orderDate: new Date('2026-01-10'),
+      dueDate: new Date('2026-02-10'),
+      status: 'Aberto',
+      totalAmount: 510,
+      totalFulfilled: 0,
+      remainingAmount: 510,
+      fulfilledPercent: 0,
+      hasReturn: false,
+      attendances: [],
+      items: [],
+    });
+
+    const { default: Comercial } = await import('./Comercial');
+    render(React.createElement(Comercial));
+
+    const newOrderBtn = await screen.findByRole('button', { name: /Novo pedido/i });
+    fireEvent.click(newOrderBtn);
+
+    const modalTitle = await screen.findByText('Novo pedido de venda');
+    const modal = modalTitle.closest('div.fixed') as HTMLElement;
+    const modalScope = within(modal);
+
+    const clientSelect = modalScope.getByText('Cliente').parentElement?.querySelector('select') as HTMLSelectElement;
+    fireEvent.change(clientSelect, { target: { value: 'client-1' } });
+
+    const productSelect = modalScope.getByText('Produto').parentElement?.querySelector('select') as HTMLSelectElement;
+    fireEvent.change(productSelect, { target: { value: 'prod-1' } });
+
+    // 10 pieces and 10.2 kg (within [9.5, 10.5])
+    const qtyInput = modalScope.getByText('Peso / Qtd (kg)').parentElement?.querySelector('input') as HTMLInputElement;
+    const piecesInput = modalScope.getByText(/Peças/).parentElement?.querySelector('input') as HTMLInputElement;
+    const priceInput = modalScope.getByText('Preco unitario').parentElement?.querySelector('input') as HTMLInputElement;
+
+    fireEvent.change(qtyInput, { target: { value: '10.2' } });
+    fireEvent.change(piecesInput, { target: { value: '10' } });
+    fireEvent.change(priceInput, { target: { value: '50' } });
+
+    const submitBtn = modalScope.getByRole('button', { name: 'Criar pedido' });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(operationsApi.createSalesOrder).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientId: 'client-1',
+          items: [
+            expect.objectContaining({
+              productId: 'prod-1',
+              quantity: 10.2,
+              orderedPieces: 10,
+              unitPrice: 50,
+            }),
+          ],
+        }),
+      );
+    });
+  });
+
+  it('allows fulfilling an order item with multiple lots and piece tracking', async () => {
+    const operationsApi = await import('../services/operationsApi');
+    const multiLotOrder: any = {
+      id: 'order-multilot',
+      number: 'VEN-2026-MULTI',
+      clientId: 'client-1',
+      clientName: 'Cliente Teste',
+      clientDocument: '12345678000100',
+      orderDate: new Date('2026-01-10'),
+      dueDate: new Date('2026-02-10'),
+      status: 'Aberto',
+      totalAmount: 500,
+      totalFulfilled: 0,
+      remainingAmount: 500,
+      fulfilledPercent: 0,
+      hasReturn: false,
+      attendances: [],
+      items: [{
+        id: 'item-multilot-1',
+        productId: 'prod-1',
+        productName: 'Queijo Minas',
+        unitId: 'un-kg',
+        orderedQuantity: 10,
+        fulfilledQuantity: 0,
+        pendingQuantity: 10,
+        unitPrice: 50,
+        totalValue: 500,
+        status: 'Aberto',
+        fulfillments: [],
+      }],
+    };
+
+    (operationsApi.loadSalesOrders as any).mockResolvedValue([multiLotOrder]);
+    (operationsApi.loadSalesOrderDetail as any).mockResolvedValue(multiLotOrder);
+    (operationsApi.loadFinishedProductLots as any).mockResolvedValue([
+      { id: 'lot-1', produtoId: 'prod-1', lote: 'LOTE-A', disponivel: 6, disponivelPecas: 6 },
+      { id: 'lot-2', produtoId: 'prod-1', lote: 'LOTE-B', disponivel: 4, disponivelPecas: 4 },
+    ]);
+    (operationsApi.fulfillSalesOrder as any).mockResolvedValue({
+      ...multiLotOrder,
+      status: 'Atendido',
+    });
+
+    const { default: Comercial } = await import('./Comercial');
+    render(React.createElement(Comercial));
+
+    await screen.findByText('VEN-2026-MULTI');
+    fireEvent.click(screen.getByRole('button', { name: 'Detalhes' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Realizar Atendimento' }));
+
+    await screen.findByText('Atendimento do pedido VEN-2026-MULTI');
+
+    const paymentMethodSelect = screen.getByText('Forma de pagamento *').parentElement?.querySelector('select') as HTMLSelectElement;
+    const bankAccountSelect = screen.getByText('Conta de recebimento *').parentElement?.querySelector('select') as HTMLSelectElement;
+    fireEvent.change(paymentMethodSelect, { target: { value: 'Pix' } });
+    fireEvent.change(bankAccountSelect, { target: { value: '00000000-0000-4000-8000-000000000002' } });
+
+    const firstLotSelect = screen.getByText('Lote acabado').parentElement?.querySelector('select') as HTMLSelectElement;
+    const firstQtyInput = screen.getByText('Quantidade atendida').parentElement?.querySelector('input') as HTMLInputElement;
+    fireEvent.change(firstLotSelect, { target: { value: 'lot-1' } });
+    fireEvent.change(firstQtyInput, { target: { value: '6' } });
+    const firstPiecesInput = screen.getByText('Peças atendidas').parentElement?.querySelector('input') as HTMLInputElement;
+    fireEvent.change(firstPiecesInput, { target: { value: '6' } });
+
+    const addLotBtn = screen.getByRole('button', { name: /Adicionar Lote/i });
+    fireEvent.click(addLotBtn);
+
+    const allLotSelects = screen.getAllByText('Lote acabado').map(el => el.parentElement?.querySelector('select') as HTMLSelectElement);
+    const allQtyInputs = screen.getAllByText('Quantidade atendida').map(el => el.parentElement?.querySelector('input') as HTMLInputElement);
+
+    fireEvent.change(allLotSelects[1], { target: { value: 'lot-2' } });
+    fireEvent.change(allQtyInputs[1], { target: { value: '4' } });
+
+    const allPiecesInputs = screen.getAllByText('Peças atendidas').map(el => el.parentElement?.querySelector('input') as HTMLInputElement);
+    fireEvent.change(allPiecesInputs[1], { target: { value: '4' } });
+
+    const confirmBtn = screen.getByRole('button', { name: 'Confirmar atendimento' });
+    expect(confirmBtn).not.toBeDisabled();
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(operationsApi.fulfillSalesOrder).toHaveBeenCalledWith(
+        expect.objectContaining({
+          salesOrderId: 'order-multilot',
+          items: [
+            { salesOrderItemId: 'item-multilot-1', finishedProductLotId: 'lot-1', quantity: 6, piecesQuantity: 6 },
+            { salesOrderItemId: 'item-multilot-1', finishedProductLotId: 'lot-2', quantity: 4, piecesQuantity: 4 },
+          ],
+        }),
+      );
+    });
+  });
 
   describe('ModalShell prop destructuring fix', () => {
     it('should not throw ReferenceError when ModalShell is rendered with extraFooterActions', async () => {

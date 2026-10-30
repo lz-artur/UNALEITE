@@ -76,6 +76,7 @@ function baseSalesBundle() {
         finished_product_lot_id: 'lot-1',
         quantity: 10,
         fulfilled_at: '2026-01-15T10:00:00Z',
+        attendance_id: undefined as string | undefined,
       },
     ],
     clients: [
@@ -97,6 +98,7 @@ function baseSalesBundle() {
       },
     ],
     salesReturns: [] as any[],
+    attendances: [] as any[],
   };
 }
 
@@ -190,6 +192,93 @@ describe('SalesService', () => {
           returned_quantity: 0,
         },
       });
+    });
+
+    it('should not restore lot quantities for fulfillments of cancelled attendances', async () => {
+      const bundle = baseSalesBundle();
+      bundle.fulfillments[0].attendance_id = 'att-cancelled';
+      bundle.attendances = [
+        {
+          id: 'att-cancelled',
+          sales_order_id: 'order-1',
+          status: 'Cancelado',
+        },
+      ];
+      bundle.finishedProductLots[0].available_quantity = 100;
+      bundle.finishedProductLots[0].quantity_produced = 100;
+
+      const tableData: Record<string, any[]> = {
+        sales_orders: bundle.salesOrders,
+        sales_order_items: bundle.salesOrderItems,
+        sales_order_fulfillments: bundle.fulfillments,
+        clients: bundle.clients,
+        finished_products: bundle.finishedProducts,
+        finished_product_lots: bundle.finishedProductLots,
+        sales_returns: bundle.salesReturns,
+        sale_attendances: bundle.attendances,
+        sale_attendance_items: [],
+      };
+      const updates: Array<{ table: string; data: any }> = [];
+
+      supabaseMock.fromMock.mockImplementation((table: string) => ({
+        select: jest.fn().mockResolvedValue({ data: tableData[table] ?? [], error: null }),
+        update: jest.fn().mockImplementation((data: any) => {
+          updates.push({ table, data });
+          return { eq: jest.fn().mockResolvedValue({ error: null }) };
+        }),
+        delete: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue(Object.assign(
+            Promise.resolve({ error: null }),
+            { eq: jest.fn().mockResolvedValue({ error: null }) },
+          )),
+        }),
+      }));
+
+      await service.deleteOrder('order-1');
+
+      // The lot should NOT have been updated since the fulfillment belonged to a cancelled attendance
+      const lotUpdates = updates.filter((u) => u.table === 'finished_product_lots');
+      expect(lotUpdates).toHaveLength(0);
+    });
+
+    it('should cap restored volume at quantity_produced', async () => {
+      const bundle = baseSalesBundle();
+      bundle.fulfillments[0].quantity = 20;
+      bundle.finishedProductLots[0].available_quantity = 95;
+      bundle.finishedProductLots[0].quantity_produced = 100;
+
+      const tableData: Record<string, any[]> = {
+        sales_orders: bundle.salesOrders,
+        sales_order_items: bundle.salesOrderItems,
+        sales_order_fulfillments: bundle.fulfillments,
+        clients: bundle.clients,
+        finished_products: bundle.finishedProducts,
+        finished_product_lots: bundle.finishedProductLots,
+        sales_returns: bundle.salesReturns,
+        sale_attendances: [],
+        sale_attendance_items: [],
+      };
+      const updates: Array<{ table: string; data: any }> = [];
+
+      supabaseMock.fromMock.mockImplementation((table: string) => ({
+        select: jest.fn().mockResolvedValue({ data: tableData[table] ?? [], error: null }),
+        update: jest.fn().mockImplementation((data: any) => {
+          updates.push({ table, data });
+          return { eq: jest.fn().mockResolvedValue({ error: null }) };
+        }),
+        delete: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue(Object.assign(
+            Promise.resolve({ error: null }),
+            { eq: jest.fn().mockResolvedValue({ error: null }) },
+          )),
+        }),
+      }));
+
+      await service.deleteOrder('order-1');
+
+      const lotUpdate = updates.find((u) => u.table === 'finished_product_lots');
+      expect(lotUpdate).toBeDefined();
+      expect(lotUpdate?.data.available_quantity).toBe(100);
     });
 
     it('should throw NotFoundException if order does not exist', async () => {
@@ -289,6 +378,103 @@ describe('SalesService', () => {
       } as any)).rejects.toThrow('Informe a conta de recebimento');
 
       expect(supabaseMock.rpcMock).not.toHaveBeenCalled();
+    });
+
+    it('should allow fulfilling an order with multiple lots when total pieces match ordered pieces within tolerance', async () => {
+      supabaseMock.rpcMock.mockResolvedValue({ data: 'att-1', error: null });
+      supabaseMock.selectMock
+        .mockReturnValueOnce({
+          in: jest.fn().mockResolvedValue({
+            data: [
+              { id: 'lot-1', lot_code: 'L-01', available_quantity: 100, available_pieces: 130 },
+              { id: 'lot-2', lot_code: 'L-02', available_quantity: 50, available_pieces: 40 },
+            ],
+            error: null,
+          }),
+        })
+        .mockReturnValueOnce({
+          eq: jest.fn().mockResolvedValue({
+            data: [
+              {
+                id: 'item-1',
+                ordered_pieces: 150,
+                ordered_quantity: 75,
+                product_id: 'prod-1',
+                finished_products: { name: 'Queijo Coalho', weight_variance_percent: 5, standard_weight: 0.5 },
+              },
+            ],
+            error: null,
+          }),
+        });
+
+      jest.spyOn(service, 'getSalesOrder').mockImplementation(() => Promise.resolve({} as any));
+
+      const payload = {
+        idempotencyKey: 'test-key-multilot',
+        paymentMethod: 'Pix',
+        bankAccountId: '00000000-0000-4000-8000-000000000002',
+        items: [
+          { salesOrderItemId: 'item-1', finishedProductLotId: 'lot-1', quantity: 60, piecesQuantity: 120 },
+          { salesOrderItemId: 'item-1', finishedProductLotId: 'lot-2', quantity: 15, piecesQuantity: 30 },
+        ],
+      };
+
+      await service.fulfillSalesOrder('order-1', payload);
+
+      expect(supabaseMock.rpcMock).toHaveBeenCalledWith('create_sale_attendance', expect.objectContaining({
+        p_sales_order_id: 'order-1',
+        p_items: payload.items,
+      }));
+    });
+
+    it('should reject fulfilling if requested pieces exceed available pieces in a specific lot', async () => {
+      supabaseMock.selectMock.mockReturnValueOnce({
+        in: jest.fn().mockResolvedValue({
+          data: [
+            { id: 'lot-1', lot_code: 'L-01', available_quantity: 100, available_pieces: 100 },
+          ],
+          error: null,
+        }),
+      });
+
+      const payload = {
+        idempotencyKey: 'test-key-overlot',
+        paymentMethod: 'Pix',
+        bankAccountId: '00000000-0000-4000-8000-000000000002',
+        items: [
+          { salesOrderItemId: 'item-1', finishedProductLotId: 'lot-1', quantity: 60, piecesQuantity: 120 },
+        ],
+      };
+
+      await expect(service.fulfillSalesOrder('order-1', payload)).rejects.toThrow('Saldo insuficiente no lote de produto acabado');
+    });
+
+    it('should reject creating order when weight to piece ratio violates product standard weight and tolerance', async () => {
+      (service as any).clientsService = { getActiveClient: jest.fn().mockResolvedValue({ id: 'client-1' }) };
+      (service as any).getFinishedProducts = jest.fn().mockResolvedValue([
+        {
+          id: 'prod-1',
+          name: 'Queijo Coalho',
+          standard_weight: 0.5,
+          weight_variance_percent: 5,
+          active: true,
+        },
+      ]);
+
+      const payload = {
+        clientId: 'client-1',
+        orderDate: '2026-10-30',
+        items: [
+          {
+            productId: 'prod-1',
+            quantity: 40, // 40 kg for 100 pieces (0.4 kg/piece vs expected 0.5 +- 5%)
+            orderedPieces: 100,
+            unitPrice: 50,
+          },
+        ],
+      };
+
+      await expect(service.createSalesOrder(payload as any)).rejects.toThrow('diverge do peso padrão');
     });
   });
 

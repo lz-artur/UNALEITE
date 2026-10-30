@@ -1882,8 +1882,29 @@ export default function CadastrosBase({ section = 'producers' }: { section?: Sec
  { label: 'Variável', value: 'Variável' }
  ]}
  />
- <Field label="Peso padrão" type="number" step="0.001" value={String(formState.standardWeight || 0)} onChange={(value) => updateField('standardWeight', value)} />
- <Field label="Variação de peso permitida (%)" type="number" min="0" max="100" step="0.01" value={String(formState.weightVariancePercent || 0)} onChange={(value) => updateField('weightVariancePercent', value)} />
+ <div className="md:col-span-2 rounded-lg border border-blue-100 bg-blue-50/50 p-3 mt-1">
+   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+     <Field
+       label="Peso padrão por peça (kg)"
+       type="number"
+       step="0.001"
+       value={String(formState.standardWeight || 0)}
+       onChange={(value) => updateField('standardWeight', value)}
+     />
+     <Field
+       label="Tolerância de variação de peso (%)"
+       type="number"
+       min="0"
+       max="100"
+       step="0.01"
+       value={String(formState.weightVariancePercent || 0)}
+       onChange={(value) => updateField('weightVariancePercent', value)}
+     />
+   </div>
+   <p className="mt-2 text-xs text-blue-700">
+     <strong>Regra de Limitação de Saída:</strong> Esse peso padrão e tolerância definem a proporção aceita entre kg e peças. Nas <strong>Vendas</strong>, lançamentos fora da tolerância são bloqueados. Na <strong>Produção</strong>, o operador será alertado e questionado se deseja prosseguir ou corrigir.
+   </p>
+ </div>
  <Field label="Prazo de validade (dias)" type="number" required value={String(formState.shelfLifeDays || 0)} onChange={(value) => updateField('shelfLifeDays', value)} />
  <Field label="Temperatura de armazenamento" type="number" step="0.1" value={String(formState.storageTemperature || 0)} onChange={(value) => updateField('storageTemperature', value)} />
  <Field label="Rendimento teórico" type="number" step="0.01" required value={String(formState.theoreticalYield || 0)} onChange={(value) => updateField('theoreticalYield', value)} />
